@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="diagnostics_back">Înapoi</string>
+    <string name="diagnostics_title">Monitor stare API</string>
+    <string name="diagnostics_subtitle">Telemetrie live &amp; stare circuit failover</string>
+    <string name="diagnostics_refresh">Reîmprospătează</string>
+    <string name="diagnostics_testing">Se testează...</string>
+    <string name="diagnostics_test_all">Testează tot</string>
+    <string name="diagnostics_status_online">Online</string>
+    <string name="diagnostics_status_degraded">Degradat</string>
+    <string name="diagnostics_status_offline">Offline</string>
+    <string name="diagnostics_avg_ping">Ping mediu</string>
+    <string name="diagnostics_latency_ms">%1$dms</string>
+    <string name="diagnostics_architecture_title">Arhitectură rezilientă Zero-Drop</string>
+    <string name="diagnostics_architecture_body">Failoverul fluxului audio rotește activ printre mirror-urile Piped, Invidious &amp; JioSaavn sănătoase la 429 sau timeout de rețea.</string>
+    <string name="diagnostics_endpoints_header">Endpointuri configurate (%1$d)</string>
+    <string name="diagnostics_querying">Se interoghează starea serviciului upstream...</string>
+    <string name="diagnostics_never">Niciodată</string>
+    <string name="diagnostics_latency_value">%1$d ms</string>
+    <string name="diagnostics_timeout_failed">Timeout / Eșuat</string>
+    <string name="diagnostics_checked">Verificat: %1$s</string>
+</resources>

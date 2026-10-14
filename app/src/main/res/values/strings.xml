@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">LFly</string>
+    <string name="action_like">Aggiungi ai Preferiti</string>
+    <string name="action_unlike">Rimuovi dai Preferiti</string>
+    <string name="action_dislike">Non mi piace</string>
+
+    <!-- App language -->
+    <string name="settings_language_section_title">Lingua dell\'app</string>
+    <string name="settings_language_section_subtitle">Scegli la lingua dell\'interfaccia</string>
+    <string name="settings_language_row_title">Lingua</string>
+    <string name="settings_language_dialog_title">Lingua dell\'app</string>
+    <string name="language_system">Sistema</string>
+    <string name="language_italian">Italiano</string>
+    <string name="language_english">English</string>
+    <string name="language_romanian">Română</string>
+    <string name="action_close">Chiudi</string>
+    <string name="common_back">Indietro</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_search">Cerca</string>
+    <string name="nav_library">Libreria</string>
+    <string name="nav_settings">Impostazioni</string>
+</resources>

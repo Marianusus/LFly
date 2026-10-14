@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_greeting_morning">Good morning</string>
+    <string name="home_greeting_afternoon">Good afternoon</string>
+    <string name="home_greeting_evening">Good evening</string>
+    <string name="home_tagline">Keep listening Keep Improving -Miau</string>
+    <string name="home_resume_title">Resume listening</string>
+    <string name="home_top_tracks_title">Top tracks</string>
+    <string name="home_eu_flag_content_description">European flag</string>
+    <string name="home_top_tracks_subtitle">The most listened song in every European country</string>
+    <string name="home_quick_picks_title">Quick Picks</string>
+    <string name="home_quick_picks_subtitle_recent">Based on your recent listening</string>
+    <string name="home_quick_picks_subtitle_top">Most listened</string>
+    <string name="home_global_charts_title">Global Top Charts</string>
+    <string name="home_play_all_action">Play All</string>
+    <string name="home_global_charts_subtitle">Top 5 in the world</string>
+    <string name="home_recommendations_title">Recommended for you</string>
+    <string name="home_recommendations_subtitle">Selected by our smart algorithm</string>
+    <string name="home_recommendations_empty_title">Listen to personalize your recommendations</string>
+    <string name="home_recommendations_empty_body">Follow artists and listen to songs: recommendations will adapt to your taste.</string>
+    <string name="home_play_content_description">Play</string>
+    <string name="home_playing_content_description">Playing</string>
+    <string name="home_resume_playing_label">NOW PLAYING</string>
+    <string name="home_resume_label">RESUME</string>
+    <string name="home_ai_curated_badge">AI Curated</string>
+</resources>

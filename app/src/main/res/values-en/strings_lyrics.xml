@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lyrics_close_desc">Close lyrics</string>
+    <string name="lyrics_now_reproducing">NOW PLAYING</string>
+    <string name="lyrics_track_artist_title">%1$s – %2$s</string>
+    <string name="lyrics_loading">Loading synced lyrics...</string>
+    <string name="lyrics_not_found">No lyrics found for this song</string>
+    <string name="lyrics_not_found_hint">Lyrics are automatically searched across multiple sources</string>
+    <string name="lyrics_shuffle_desc">Shuffle</string>
+    <string name="lyrics_previous_desc">Previous song</string>
+    <string name="lyrics_play_desc">Play</string>
+    <string name="lyrics_pause_desc">Pause</string>
+    <string name="lyrics_next_desc">Next song</string>
+    <string name="lyrics_options_desc">Lyrics options</string>
+    <string name="lyrics_translate_on">Translate: ON</string>
+    <string name="lyrics_translate_off">Translate: OFF</string>
+    <string name="lyrics_language_format">Language: %1$s</string>
+    <string name="lyrics_highlight_auto">Highlight: Auto</string>
+    <string name="lyrics_highlight_word">Highlight: Words</string>
+    <string name="lyrics_highlight_line">Highlight: Lines</string>
+    <string name="lyrics_musixmatch_on">Musixmatch: ON</string>
+    <string name="lyrics_musixmatch_off">Musixmatch: OFF</string>
+    <string name="lyrics_lrclib_on">LRCLIB: ON</string>
+    <string name="lyrics_lrclib_off">LRCLIB: OFF</string>
+</resources>

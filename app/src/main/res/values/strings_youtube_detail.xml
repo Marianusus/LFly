@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yt_detail_retry">Riprova</string>
+    <string name="yt_detail_no_tracks">Nessun brano disponibile</string>
+    <string name="yt_detail_popular_tracks">Brani popolari</string>
+    <string name="yt_detail_albums">Album</string>
+    <string name="yt_detail_singles_eps">Singoli e EP</string>
+    <string name="yt_detail_videos">Video</string>
+    <string name="yt_detail_following">Segui già</string>
+    <string name="yt_detail_follow">Segui</string>
+    <string name="yt_detail_unfollow">Non seguire più</string>
+    <string name="yt_detail_shuffle">Mescola</string>
+    <string name="yt_detail_play">Riproduci</string>
+    <string name="yt_detail_back">Indietro</string>
+    <string name="yt_detail_play_all">Riproduci tutto</string>
+    <string name="yt_detail_all_tracks">Tutti i brani</string>
+    <string name="yt_detail_save_to_library">Salva nella libreria</string>
+    <plurals name="yt_detail_track_count">
+        <item quantity="one">%1$d brano</item>
+        <item quantity="other">%1$d brani</item>
+    </plurals>
+</resources>

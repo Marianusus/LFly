@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="diagnostics_back">Back</string>
+    <string name="diagnostics_title">API Health Monitor</string>
+    <string name="diagnostics_subtitle">Live telemetry &amp; failover circuit status</string>
+    <string name="diagnostics_refresh">Refresh</string>
+    <string name="diagnostics_testing">Testing...</string>
+    <string name="diagnostics_test_all">Test All</string>
+    <string name="diagnostics_status_online">Online</string>
+    <string name="diagnostics_status_degraded">Degraded</string>
+    <string name="diagnostics_status_offline">Offline</string>
+    <string name="diagnostics_avg_ping">Avg Ping</string>
+    <string name="diagnostics_latency_ms">%1$dms</string>
+    <string name="diagnostics_architecture_title">Zero-Drop Resilient Architecture</string>
+    <string name="diagnostics_architecture_body">Audio stream failover actively rotates through healthy Piped, Invidious &amp; JioSaavn mirrors upon 429 or network timeouts.</string>
+    <string name="diagnostics_endpoints_header">Configured Endpoints (%1$d)</string>
+    <string name="diagnostics_querying">Querying upstream service health...</string>
+    <string name="diagnostics_never">Never</string>
+    <string name="diagnostics_latency_value">%1$d ms</string>
+    <string name="diagnostics_timeout_failed">Timeout / Failed</string>
+    <string name="diagnostics_checked">Checked: %1$s</string>
+</resources>

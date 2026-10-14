@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lyrics_close_desc">Închide versurile</string>
+    <string name="lyrics_now_reproducing">SE REDĂ ACUM</string>
+    <string name="lyrics_track_artist_title">%1$s – %2$s</string>
+    <string name="lyrics_loading">Se încarcă versurile sincronizate...</string>
+    <string name="lyrics_not_found">Nu s-au găsit versuri pentru această melodie</string>
+    <string name="lyrics_not_found_hint">Versurile sunt căutate automat în mai multe surse</string>
+    <string name="lyrics_shuffle_desc">Aleatoriu</string>
+    <string name="lyrics_previous_desc">Melodia anterioară</string>
+    <string name="lyrics_play_desc">Redă</string>
+    <string name="lyrics_pause_desc">Pauză</string>
+    <string name="lyrics_next_desc">Melodia următoare</string>
+    <string name="lyrics_options_desc">Opțiuni versuri</string>
+    <string name="lyrics_translate_on">Tradu: ON</string>
+    <string name="lyrics_translate_off">Tradu: OFF</string>
+    <string name="lyrics_language_format">Limbă: %1$s</string>
+    <string name="lyrics_highlight_auto">Evidențiere: Auto</string>
+    <string name="lyrics_highlight_word">Evidențiere: Cuvinte</string>
+    <string name="lyrics_highlight_line">Evidențiere: Rânduri</string>
+    <string name="lyrics_musixmatch_on">Musixmatch: ON</string>
+    <string name="lyrics_musixmatch_off">Musixmatch: OFF</string>
+    <string name="lyrics_lrclib_on">LRCLIB: ON</string>
+    <string name="lyrics_lrclib_off">LRCLIB: OFF</string>
+</resources>

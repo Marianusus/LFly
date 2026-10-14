@@ -1,0 +1,18 @@
+<resources>
+    <string name="settings_tab_general">General</string>
+    <string name="settings_tab_appearance">Aspect</string>
+    <string name="settings_tab_music">Muzică</string>
+    <string name="settings_tab_api">API</string>
+    <string name="settings_accent_section_title">Culoare de accent</string>
+    <string name="settings_accent_section_subtitle">Se aplică temelor Negru AMOLED și Alb</string>
+    <string name="accent_emerald">Smarald</string>
+    <string name="accent_blue">Albastru</string>
+    <string name="accent_indigo">Indigo</string>
+    <string name="accent_violet">Mov</string>
+    <string name="accent_pink">Roz</string>
+    <string name="accent_red">Roșu</string>
+    <string name="accent_orange">Portocaliu</string>
+    <string name="accent_amber">Chihlimbar</string>
+    <string name="accent_teal">Turcoaz</string>
+    <string name="accent_cyan">Cyan</string>
+</resources>

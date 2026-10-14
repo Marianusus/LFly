@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="queue_no_track_playing">Nessun brano in riproduzione</string>
+    <string name="queue_up_next_header">PROSSIMI (%1$d)</string>
+    <string name="queue_radio_header">RADIO · AUTOPLAY (%1$d)</string>
+    <string name="queue_now_playing">In riproduzione</string>
+    <plurals name="queue_track_count">
+        <item quantity="one">%1$d brano in coda</item>
+        <item quantity="other">%1$d brani in coda</item>
+    </plurals>
+    <string name="queue_radio_suffix">\u0020· +%1$d radio</string>
+    <string name="queue_clear_content_description">Svuota coda</string>
+    <string name="queue_clear">Svuota</string>
+    <string name="queue_close_content_description">Chiudi</string>
+    <string name="queue_autoplay_title">Riproduzione automatica di brani simili</string>
+    <string name="queue_autoplay_subtitle">Continua la musica quando la coda termina</string>
+    <string name="queue_track_options_content_description">Opzioni brano</string>
+    <string name="queue_play_now">Riproduci ora</string>
+    <string name="queue_remove_from_queue">Rimuovi dalla coda</string>
+    <string name="queue_drag_to_reorder_content_description">Trascina per riordinare</string>
+    <string name="queue_empty_title">La coda è vuota</string>
+    <string name="queue_empty_subtitle">Tocca \'Aggiungi alla coda\' sui brani per metterli in coda.</string>
+</resources>

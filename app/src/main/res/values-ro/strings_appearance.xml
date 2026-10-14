@@ -1,0 +1,10 @@
+<resources>
+    <string name="appearance_amoled_title">Negru AMOLED</string>
+    <string name="appearance_amoled_subtitle">Negru absolut cu sticlă satinată și accent LFly</string>
+    <string name="appearance_white_title">Alb</string>
+    <string name="appearance_white_subtitle">Canvas deschis, sticlă ivorie și text închis cu contrast ridicat</string>
+    <string name="appearance_dynamic_dark_title">Dinamic închis</string>
+    <string name="appearance_dynamic_dark_subtitle">Fundal închis derivat din coperta în redare</string>
+    <string name="appearance_dynamic_light_title">Dinamic deschis</string>
+    <string name="appearance_dynamic_light_subtitle">Fundal deschis pastel derivat din copertă</string>
+</resources>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_playlist_title">Aggiungi a playlist</string>
+    <string name="add_to_playlist_close_content_description">Chiudi</string>
+    <string name="add_to_playlist_new_playlist">Nuova playlist</string>
+    <string name="add_to_playlist_empty_title">Nessuna playlist creata</string>
+    <string name="add_to_playlist_empty_body">Tocca \"Nuova playlist\" per crearne una subito.</string>
+    <string name="add_to_playlist_name_prompt">Dai un nome alla tua playlist:</string>
+    <string name="add_to_playlist_name_placeholder">Il mio mix preferito</string>
+    <string name="add_to_playlist_create_action">Crea e aggiungi</string>
+    <string name="add_to_playlist_cancel_action">Annulla</string>
+    <plurals name="add_to_playlist_track_count">
+        <item quantity="one">1 brano</item>
+        <item quantity="other">%1$d brani</item>
+    </plurals>
+    <string name="add_to_playlist_already_added_content_description">Già aggiunto</string>
+    <string name="add_to_playlist_added">Aggiunto</string>
+    <string name="add_to_playlist_add_content_description">Aggiungi</string>
+</resources>

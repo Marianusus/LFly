@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_collapse_desc">Restrânge</string>
+    <string name="player_more_desc">Mai multe</string>
+
+    <string name="player_playing_from">SE REDĂ DIN</string>
+    <string name="player_playing_from_album">SE REDĂ DIN ALBUM</string>
+    <string name="player_playing_track">MELODIE ÎN REDARE</string>
+    <string name="player_youtube_music">YouTube Music</string>
+    <string name="player_api">API · %1$s</string>
+
+    <string name="player_play_next">Redă următorul</string>
+    <string name="player_add_to_queue">Adaugă la coadă</string>
+    <string name="player_add_to_playlist">Adaugă la playlist</string>
+    <string name="player_share">Distribuie</string>
+    <string name="player_equalizer_dsp">Egalizator &amp; DSP</string>
+    <string name="player_dislike">Nu-mi place</string>
+    <string name="player_dislike_remove">Elimină din \"Nu-mi place\"</string>
+    <string name="player_dislike_remove_short">Elimină \"Nu-mi place\"</string>
+
+    <string name="player_favorite_desc">Favorit</string>
+    <string name="player_shuffle">Aleatoriu</string>
+    <string name="player_previous">Anterior</string>
+    <string name="player_play">Redă</string>
+    <string name="player_pause">Pauză</string>
+    <string name="player_next">Următor</string>
+    <string name="player_repeat">Repetă</string>
+
+    <string name="player_lyrics">Versuri</string>
+    <string name="player_equalizer">Egalizator</string>
+    <string name="player_eq">EQ</string>
+    <string name="player_queue">Coadă</string>
+    <string name="player_queue_count">%1$d melodii</string>
+</resources>

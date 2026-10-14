@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_greeting_morning">Bună dimineața</string>
+    <string name="home_greeting_afternoon">Bună ziua</string>
+    <string name="home_greeting_evening">Bună seara</string>
+    <string name="home_tagline">Keep listening Keep Improving -Miau</string>
+    <string name="home_resume_title">Reia ascultarea</string>
+    <string name="home_top_tracks_title">Top melodii</string>
+    <string name="home_eu_flag_content_description">Drapel european</string>
+    <string name="home_top_tracks_subtitle">Cea mai ascultată melodie din fiecare țară europeană</string>
+    <string name="home_quick_picks_title">Selecții rapide</string>
+    <string name="home_quick_picks_subtitle_recent">Pe baza ascultărilor tale recente</string>
+    <string name="home_quick_picks_subtitle_top">Cele mai ascultate</string>
+    <string name="home_global_charts_title">Clasamente globale</string>
+    <string name="home_play_all_action">Redă tot</string>
+    <string name="home_global_charts_subtitle">Top 5 în lume</string>
+    <string name="home_recommendations_title">Recomandate pentru tine</string>
+    <string name="home_recommendations_subtitle">Selectate de algoritmul nostru inteligent</string>
+    <string name="home_recommendations_empty_title">Ascultă pentru a personaliza recomandările</string>
+    <string name="home_recommendations_empty_body">Urmărește artiști și ascultă melodii: recomandările se vor adapta gustului tău.</string>
+    <string name="home_play_content_description">Redă</string>
+    <string name="home_playing_content_description">Se redă</string>
+    <string name="home_resume_playing_label">ÎN REDARE</string>
+    <string name="home_resume_label">REIA</string>
+    <string name="home_ai_curated_badge">Selectat de AI</string>
+</resources>

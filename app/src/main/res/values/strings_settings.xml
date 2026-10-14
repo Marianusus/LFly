@@ -1,0 +1,92 @@
+<resources>
+    <string name="settings_header_title">Impostazioni</string>
+    <string name="settings_header_subtitle">Preferenze, streaming e gestione della cache</string>
+    <string name="settings_back_content_description">Indietro</string>
+
+    <string name="settings_theme_section_title">Tema / Design dell\'app</string>
+    <string name="settings_theme_section_subtitle">Personalizza l\'estetica visiva, gli effetti glass e gli accenti vivaci</string>
+    <string name="settings_theme_amoled_name">LFly AMOLED Nero assoluto</string>
+    <string name="settings_theme_amoled_desc">Canvas OLED nero assoluto con accenti smeraldo</string>
+    <string name="settings_theme_liquid_glass_name">Apple Music Liquid Glass</string>
+    <string name="settings_theme_liquid_glass_desc">Vetro smerigliato traslucido (0x2EFFFFFF), bordo lucido (0x33FFFFFF) e accenti rosa/ciano</string>
+    <string name="settings_theme_midnight_neon_name">Neon di mezzanotte</string>
+    <string name="settings_theme_midnight_neon_desc">Toni profondi di mezzanotte con viola elettrico e bagliore ciano neon</string>
+    <string name="settings_selected_content_description">Selezionato</string>
+
+    <string name="settings_audio_quality_section_title">Qualità audio in streaming</string>
+    <string name="settings_audio_quality_section_subtitle">Bitrate preferito per la risoluzione dello stream e la riproduzione CDN</string>
+    <string name="settings_quality_low_name">Normale</string>
+    <string name="settings_quality_low_desc">96 kbps • Consumo dati minimo</string>
+    <string name="settings_quality_medium_name">Alta</string>
+    <string name="settings_quality_medium_desc">160 kbps • Qualità AAC standard</string>
+    <string name="settings_quality_high_name">Molto alta</string>
+    <string name="settings_quality_high_desc">320 kbps • Alta qualità pari al CD</string>
+    <string name="settings_quality_ultra_name">Senza perdita</string>
+    <string name="settings_quality_ultra_desc">FLAC / Ultra • Fedeltà da master di studio</string>
+
+    <string name="settings_source_section_title">Sorgente streaming</string>
+    <string name="settings_source_section_subtitle">Quale API preferire per risolvere i brani</string>
+    <string name="source_auto_name">Auto</string>
+    <string name="source_auto_desc">Monochrome, poi YouTube Music</string>
+    <string name="source_youtube_name">YouTube Music</string>
+    <string name="source_youtube_desc">YouTube Music, poi Monochrome</string>
+    <string name="source_monochrome_name">Monochrome</string>
+    <string name="source_monochrome_desc">Monochrome, poi YouTube Music</string>
+
+    <string name="settings_equalizer_section_title">Equalizzatore e rinforzo bassi</string>
+    <string name="settings_equalizer_section_subtitle">Curve di risposta in frequenza DSP native a 5 bande</string>
+    <string name="settings_equalizer_preset_flat">Flat</string>
+    <string name="settings_equalizer_profile">Profilo: %1$s</string>
+    <string name="settings_equalizer_bass_boost">Bassi +%1$d%%</string>
+    <string name="settings_equalizer_bands_active">5 bande attive • Tocca per configurare</string>
+    <string name="settings_equalizer_bypassed">Equalizzatore disattivato</string>
+    <string name="settings_equalizer_configure">Configura</string>
+
+    <string name="settings_playback_section_title">Riproduzione e coda</string>
+    <string name="settings_playback_section_subtitle">Ascolto continuo e automazione della coda</string>
+    <string name="settings_autoplay_title">Riproduzione automatica / Radio infinita</string>
+    <string name="settings_autoplay_subtitle">Continua la riproduzione con brani simili al termine della coda</string>
+
+    <string name="settings_translation_section_title">Traduzione dei testi</string>
+    <string name="settings_translation_section_subtitle">Traduzione sul dispositivo mostrata sotto il testo originale</string>
+    <string name="settings_translate_lyrics_title">Traduci testi</string>
+    <string name="settings_translate_lyrics_subtitle">Traduci i testi sul dispositivo con ML Kit</string>
+    <string name="settings_translation_target_language_label">Lingua di destinazione (tutte le lingue ML Kit)</string>
+    <string name="settings_translation_highlight_label">Evidenziazione dei testi</string>
+    <string name="settings_highlight_auto">Auto</string>
+    <string name="settings_highlight_word">Parole</string>
+    <string name="settings_highlight_line">Righe</string>
+    <string name="settings_translation_sources_label">Fonti dei testi</string>
+    <string name="settings_provider_musixmatch_title">Musixmatch</string>
+    <string name="settings_provider_musixmatch_subtitle">Fonte karaoke parola per parola</string>
+    <string name="settings_provider_lrclib_title">LRCLIB</string>
+    <string name="settings_provider_lrclib_subtitle">Testi sincronizzati, rete di sicurezza</string>
+
+    <string name="settings_cache_section_title">Archiviazione e cache</string>
+    <string name="settings_cache_section_subtitle">Gestione nativa della cache su disco Media3</string>
+    <string name="settings_cache_size_title">Dimensione cache audio</string>
+    <string name="settings_cache_limit_subtitle">Limite massimo del buffer: 200 MB LRU</string>
+    <string name="settings_cache_clear_button">Svuota cache audio</string>
+    <string name="settings_cache_cleared_message">Cache svuotata correttamente (0.0 MB)</string>
+    <string name="settings_cache_size_mb">%1$.1f MB</string>
+
+    <string name="settings_api_section_title">Endpoint API attivi</string>
+    <string name="settings_api_providers_registered">%1$d provider registrati</string>
+    <string name="settings_api_refresh_content_description">Aggiorna API</string>
+    <string name="settings_api_status_online">Online: %1$d</string>
+    <string name="settings_api_status_degraded">Degradato: %1$d</string>
+    <string name="settings_api_status_offline">Offline: %1$d</string>
+    <string name="settings_api_checking">Verifica in corso...</string>
+    <string name="settings_api_refresh_button">Aggiorna e verifica API</string>
+    <string name="settings_api_details_button">Dettagli</string>
+
+    <string name="settings_about_title">Listen &amp; Fly</string>
+    <string name="settings_about_version">Listen &amp; Fly v1.1 - 100%% Kotlin nativo</string>
+    <string name="settings_about_description">Client audio veloce, resiliente e senza fronzoli, realizzato con Jetpack Compose e Media3 ExoPlayer. Failover dello stream senza interruzioni, testi sincronizzati LRCLIB e cache su disco LRU.</string>
+    <string name="settings_about_license">Miau will always achieve something</string>
+
+    <string name="settings_appearance_section_title">Aspetto</string>
+    <string name="settings_appearance_section_subtitle">Canvas Liquid Glass e animazioni</string>
+    <string name="settings_reduce_motion_title">Riduci animazioni</string>
+    <string name="settings_reduce_motion_subtitle">Disattiva shimmer, scale e gradienti animati</string>
+</resources>

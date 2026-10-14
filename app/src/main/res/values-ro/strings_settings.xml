@@ -1,0 +1,92 @@
+<resources>
+    <string name="settings_header_title">Setări</string>
+    <string name="settings_header_subtitle">Preferințe, streaming și gestionarea cache-ului</string>
+    <string name="settings_back_content_description">Înapoi</string>
+
+    <string name="settings_theme_section_title">Temă aplicație / Design</string>
+    <string name="settings_theme_section_subtitle">Personalizează estetica vizuală, efectele de sticlă și accentele vibrante</string>
+    <string name="settings_theme_amoled_name">LFly AMOLED Negru absolut</string>
+    <string name="settings_theme_amoled_desc">Canvas OLED negru absolut cu accente smarald</string>
+    <string name="settings_theme_liquid_glass_name">Apple Music Liquid Glass</string>
+    <string name="settings_theme_liquid_glass_desc">Sticlă mată translucidă (0x2EFFFFFF), bordură lucioasă (0x33FFFFFF) și accente roz/cyan</string>
+    <string name="settings_theme_midnight_neon_name">Neon de la miezul nopții</string>
+    <string name="settings_theme_midnight_neon_desc">Tonuri profunde de miez de noapte cu violet electric și strălucire cyan neon</string>
+    <string name="settings_selected_content_description">Selectat</string>
+
+    <string name="settings_audio_quality_section_title">Calitatea audio în streaming</string>
+    <string name="settings_audio_quality_section_subtitle">Bitrate preferat pentru rezolvarea streamului și redarea prin CDN</string>
+    <string name="settings_quality_low_name">Normal</string>
+    <string name="settings_quality_low_desc">96 kbps • Consum minim de date</string>
+    <string name="settings_quality_medium_name">Ridicată</string>
+    <string name="settings_quality_medium_desc">160 kbps • Calitate AAC standard</string>
+    <string name="settings_quality_high_name">Foarte ridicată</string>
+    <string name="settings_quality_high_desc">320 kbps • Bitrate ridicat, calitate CD</string>
+    <string name="settings_quality_ultra_name">Fără pierderi</string>
+    <string name="settings_quality_ultra_desc">FLAC / Ultra • Fidelitate master de studio</string>
+
+    <string name="settings_source_section_title">Sursă de streaming</string>
+    <string name="settings_source_section_subtitle">Ce API să fie preferat la rezolvarea melodiilor</string>
+    <string name="source_auto_name">Auto</string>
+    <string name="source_auto_desc">Monochrome, apoi YouTube Music</string>
+    <string name="source_youtube_name">YouTube Music</string>
+    <string name="source_youtube_desc">YouTube Music, apoi Monochrome</string>
+    <string name="source_monochrome_name">Monochrome</string>
+    <string name="source_monochrome_desc">Monochrome, apoi YouTube Music</string>
+
+    <string name="settings_equalizer_section_title">Egalizator și amplificare bass</string>
+    <string name="settings_equalizer_section_subtitle">Curbe native de răspuns în frecvență DSP cu 5 benzi</string>
+    <string name="settings_equalizer_preset_flat">Plat</string>
+    <string name="settings_equalizer_profile">Profil: %1$s</string>
+    <string name="settings_equalizer_bass_boost">Bass +%1$d%%</string>
+    <string name="settings_equalizer_bands_active">5 benzi active • Atinge pentru a configura</string>
+    <string name="settings_equalizer_bypassed">Egalizator dezactivat</string>
+    <string name="settings_equalizer_configure">Configurează</string>
+
+    <string name="settings_playback_section_title">Redare și coadă</string>
+    <string name="settings_playback_section_subtitle">Ascultare continuă și automatizarea cozii</string>
+    <string name="settings_autoplay_title">Redare automată / Radio infinit</string>
+    <string name="settings_autoplay_subtitle">Continuă redarea cu melodii similare când coada se termină</string>
+
+    <string name="settings_translation_section_title">Traducerea versurilor</string>
+    <string name="settings_translation_section_subtitle">Traducere pe dispozitiv afișată sub versurile originale</string>
+    <string name="settings_translate_lyrics_title">Tradu versurile</string>
+    <string name="settings_translate_lyrics_subtitle">Tradu versurile pe dispozitiv cu ML Kit</string>
+    <string name="settings_translation_target_language_label">Limba țintă (toate limbile ML Kit)</string>
+    <string name="settings_translation_highlight_label">Evidențierea versurilor</string>
+    <string name="settings_highlight_auto">Automat</string>
+    <string name="settings_highlight_word">Cuvinte</string>
+    <string name="settings_highlight_line">Rânduri</string>
+    <string name="settings_translation_sources_label">Surse de versuri</string>
+    <string name="settings_provider_musixmatch_title">Musixmatch</string>
+    <string name="settings_provider_musixmatch_subtitle">Sursă karaoke cuvânt cu cuvânt</string>
+    <string name="settings_provider_lrclib_title">LRCLIB</string>
+    <string name="settings_provider_lrclib_subtitle">Versuri sincronizate, plasă de siguranță</string>
+
+    <string name="settings_cache_section_title">Stocare și cache</string>
+    <string name="settings_cache_section_subtitle">Gestionarea cache-ului pe disc Media3 nativ</string>
+    <string name="settings_cache_size_title">Dimensiunea cache-ului audio</string>
+    <string name="settings_cache_limit_subtitle">Limită maximă de buffer: 200 MB LRU</string>
+    <string name="settings_cache_clear_button">Golește cache-ul audio</string>
+    <string name="settings_cache_cleared_message">Cache golit cu succes (0.0 MB)</string>
+    <string name="settings_cache_size_mb">%1$.1f MB</string>
+
+    <string name="settings_api_section_title">Endpointuri API active</string>
+    <string name="settings_api_providers_registered">%1$d furnizori înregistrați</string>
+    <string name="settings_api_refresh_content_description">Reîmprospătează API-urile</string>
+    <string name="settings_api_status_online">Online: %1$d</string>
+    <string name="settings_api_status_degraded">Degradat: %1$d</string>
+    <string name="settings_api_status_offline">Offline: %1$d</string>
+    <string name="settings_api_checking">Se verifică...</string>
+    <string name="settings_api_refresh_button">Reîmprospătează și verifică API-urile</string>
+    <string name="settings_api_details_button">Detalii</string>
+
+    <string name="settings_about_title">Listen &amp; Fly</string>
+    <string name="settings_about_version">Listen &amp; Fly v1.1 - 100%% Kotlin nativ</string>
+    <string name="settings_about_description">Client audio rapid, rezistent și fără cod inutil, construit cu Jetpack Compose și Media3 ExoPlayer. Comutare fluidă a streamurilor, versuri sincronizate LRCLIB și cache pe disc LRU.</string>
+    <string name="settings_about_license">Miau will always achieve something</string>
+
+    <string name="settings_appearance_section_title">Aspect</string>
+    <string name="settings_appearance_section_subtitle">Canvas Liquid Glass și animații</string>
+    <string name="settings_reduce_motion_title">Redu animațiile</string>
+    <string name="settings_reduce_motion_subtitle">Dezactivează shimmer, scalarea și gradientele animate</string>
+</resources>

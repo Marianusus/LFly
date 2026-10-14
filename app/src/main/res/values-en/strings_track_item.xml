@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="track_item_playing_content_description">Playing</string>
+    <string name="track_item_favorite_remove_content_description">Remove Favorite</string>
+    <string name="track_item_favorite_add_content_description">Add Favorite</string>
+    <string name="track_item_options_content_description">Options</string>
+    <string name="track_item_play_next">Play next</string>
+    <string name="track_item_add_to_queue">Add to queue</string>
+    <string name="track_item_add_to_playlist">Add to playlist</string>
+    <string name="track_item_share">Share song</string>
+    <string name="track_item_dislike_remove">Remove from \"Dislike\"</string>
+    <string name="track_item_dislike_add">Dislike</string>
+    <string name="track_play_via_youtube">Play via YouTube Music</string>
+    <string name="track_play_via_monochrome">Play via Monochrome</string>
+    <string name="track_source_auto">Auto (global setting)</string>
+</resources>

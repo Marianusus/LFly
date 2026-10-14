@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="diagnostics_back">Indietro</string>
+    <string name="diagnostics_title">Monitoraggio stato API</string>
+    <string name="diagnostics_subtitle">Telemetria live e stato dei circuiti di failover</string>
+    <string name="diagnostics_refresh">Aggiorna</string>
+    <string name="diagnostics_testing">Verifica in corso...</string>
+    <string name="diagnostics_test_all">Testa tutto</string>
+    <string name="diagnostics_status_online">Online</string>
+    <string name="diagnostics_status_degraded">Degradato</string>
+    <string name="diagnostics_status_offline">Offline</string>
+    <string name="diagnostics_avg_ping">Ping medio</string>
+    <string name="diagnostics_latency_ms">%1$dms</string>
+    <string name="diagnostics_architecture_title">Architettura resiliente senza interruzioni</string>
+    <string name="diagnostics_architecture_body">Il failover dello stream audio ruota attivamente tra i mirror Piped, Invidious e JioSaavn attivi in caso di 429 o timeout di rete.</string>
+    <string name="diagnostics_endpoints_header">Endpoint configurati (%1$d)</string>
+    <string name="diagnostics_querying">Verifica dello stato dei servizi upstream...</string>
+    <string name="diagnostics_never">Mai</string>
+    <string name="diagnostics_latency_value">%1$d ms</string>
+    <string name="diagnostics_timeout_failed">Timeout / Non riuscito</string>
+    <string name="diagnostics_checked">Verificato: %1$s</string>
+</resources>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_source_spotify">Spotify</string>
+    <string name="import_source_youtube">YouTube Music</string>
+    <string name="import_title">Importa</string>
+    <string name="import_subtitle">Trasferisci le tue playlist nella libreria</string>
+    <string name="import_youtube_link_hint">Incolla il link di una playlist pubblica di YouTube Music. LFly importerà tutti i brani nella tua libreria locale, senza limiti e senza login.</string>
+    <string name="import_paste_from_clipboard">Incolla link dagli appunti</string>
+    <string name="import_paste">Incolla</string>
+    <string name="import_clear">Cancella</string>
+    <string name="import_youtube_footer">Nessun login richiesto • Nessun limite di brani</string>
+    <string name="import_youtube_progress_importing">Importazione %1$d/%2$d: %3$s...</string>
+    <string name="import_loading_metadata">Caricamento playlist e metadati...</string>
+    <string name="import_success">Playlist importata con successo!</string>
+    <plurals name="import_saved_library">
+        <item quantity="one">%1$d brano salvato nella libreria</item>
+        <item quantity="other">%1$d brani salvati nella libreria</item>
+    </plurals>
+    <string name="import_error_title">Importazione non riuscita</string>
+    <string name="import_initializing">Inizializzazione...</string>
+    <string name="import_error_fetch_playlist">Impossibile recuperare la playlist</string>
+    <string name="import_action_transfer">Trasferisci</string>
+    <string name="import_action_cancel">Annulla</string>
+    <string name="import_action_play_now">Ascolta ora</string>
+    <string name="import_action_close">Chiudi</string>
+    <string name="import_action_retry">Riprova</string>
+</resources>

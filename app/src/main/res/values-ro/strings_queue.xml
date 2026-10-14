@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="queue_no_track_playing">Nicio melodie nu se redă momentan</string>
+    <string name="queue_up_next_header">URMEAZĂ (%1$d)</string>
+    <string name="queue_radio_header">RADIO · REDARE AUTOMATĂ (%1$d)</string>
+    <string name="queue_now_playing">Se redă acum</string>
+    <plurals name="queue_track_count">
+        <item quantity="one">%1$d melodie în coadă</item>
+        <item quantity="few">%1$d melodii în coadă</item>
+        <item quantity="other">%1$d de melodii în coadă</item>
+    </plurals>
+    <string name="queue_radio_suffix">\u0020· +%1$d radio</string>
+    <string name="queue_clear_content_description">Golește coada</string>
+    <string name="queue_clear">Golește</string>
+    <string name="queue_close_content_description">Închide</string>
+    <string name="queue_autoplay_title">Redare automată a melodiilor similare</string>
+    <string name="queue_autoplay_subtitle">Continuă muzica atunci când coada se termină</string>
+    <string name="queue_track_options_content_description">Opțiuni melodie</string>
+    <string name="queue_play_now">Redă acum</string>
+    <string name="queue_remove_from_queue">Elimină din coadă</string>
+    <string name="queue_drag_to_reorder_content_description">Trage pentru a reordona</string>
+    <string name="queue_empty_title">Coada este goală</string>
+    <string name="queue_empty_subtitle">Atinge \'Adaugă la coadă\' pe melodii pentru a le pune în coadă.</string>
+</resources>

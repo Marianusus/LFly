@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vm_error_load_artist">Failed to load the artist</string>
+    <string name="vm_error_load_album">Failed to load the album</string>
+    <string name="vm_error_load_playlist">Failed to load the playlist</string>
+    <string name="vm_error_load_songs">Failed to load songs</string>
+    <string name="vm_error_load_artist_profile">Failed to load artist profile</string>
+    <string name="vm_error_load_album_details">Failed to load album details</string>
+</resources>

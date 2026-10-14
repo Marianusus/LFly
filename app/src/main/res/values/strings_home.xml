@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_greeting_morning">Buongiorno</string>
+    <string name="home_greeting_afternoon">Buon pomeriggio</string>
+    <string name="home_greeting_evening">Buonasera</string>
+    <string name="home_tagline">Continua ad ascoltare, continua a migliorare -Miau</string>
+    <string name="home_resume_title">Riprendi ad ascoltare</string>
+    <string name="home_top_tracks_title">Brani più ascoltati</string>
+    <string name="home_eu_flag_content_description">Bandiera europea</string>
+    <string name="home_top_tracks_subtitle">Il brano più ascoltato in ogni paese europeo</string>
+    <string name="home_quick_picks_title">Scelte rapide</string>
+    <string name="home_quick_picks_subtitle_recent">In base ai tuoi ascolti recenti</string>
+    <string name="home_quick_picks_subtitle_top">I più ascoltati</string>
+    <string name="home_global_charts_title">Classifiche globali</string>
+    <string name="home_play_all_action">Riproduci tutto</string>
+    <string name="home_global_charts_subtitle">Top 5 nel mondo</string>
+    <string name="home_recommendations_title">Consigliati per te</string>
+    <string name="home_recommendations_subtitle">Selezionati dal nostro algoritmo intelligente</string>
+    <string name="home_recommendations_empty_title">Ascolta per personalizzare i consigli</string>
+    <string name="home_recommendations_empty_body">Segui artisti e ascolta brani: i consigli si adatteranno al tuo gusto.</string>
+    <string name="home_play_content_description">Riproduci</string>
+    <string name="home_playing_content_description">In riproduzione</string>
+    <string name="home_resume_playing_label">IN RIPRODUZIONE</string>
+    <string name="home_resume_label">RIPRENDI</string>
+    <string name="home_ai_curated_badge">Curato dall\'IA</string>
+</resources>

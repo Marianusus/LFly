@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="album_top_bar_title">Album</string>
+    <string name="album_error_load_title">Impossibile caricare l\'album</string>
+    <string name="album_section_tracklist">Brani</string>
+    <string name="album_not_available_title">Album non disponibile</string>
+    <string name="album_not_available_message">Nessun dato trovato per questo album.</string>
+    <string name="album_play_action">Riproduci album</string>
+    <string name="album_shuffle_content_description">Mescola</string>
+    <string name="album_shuffle_action">Mescola</string>
+    <string name="album_playing_content_description">In riproduzione</string>
+    <string name="album_remove_favorite_content_description">Rimuovi dai preferiti</string>
+    <string name="album_add_favorite_content_description">Aggiungi ai preferiti</string>
+    <string name="album_more_options_content_description">Altre opzioni</string>
+    <string name="album_play_next_action">Riproduci dopo</string>
+    <string name="album_add_to_queue_action">Aggiungi alla coda</string>
+    <string name="album_add_to_playlist_action">Aggiungi a playlist</string>
+    <string name="album_retry_action">Riprova</string>
+    <string name="album_released_format">Uscito: %1$s</string>
+    <string name="album_copyright_format">© %1$s</string>
+    <string name="album_metadata_minutes">, %1$d min</string>
+    <plurals name="album_songs_count">
+        <item quantity="one">%1$d brano</item>
+        <item quantity="other">%1$d brani</item>
+    </plurals>
+</resources>

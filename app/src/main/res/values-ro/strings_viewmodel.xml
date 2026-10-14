@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vm_error_load_artist">Nu se poate încărca artistul</string>
+    <string name="vm_error_load_album">Nu se poate încărca albumul</string>
+    <string name="vm_error_load_playlist">Nu se poate încărca playlistul</string>
+    <string name="vm_error_load_songs">Nu se pot încărca melodiile</string>
+    <string name="vm_error_load_artist_profile">Nu se poate încărca profilul artistului</string>
+    <string name="vm_error_load_album_details">Nu se pot încărca detaliile albumului</string>
+</resources>

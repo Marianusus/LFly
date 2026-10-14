@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="equalizer_title">Equalizer</string>
+    <string name="equalizer_status_native_dsp_active">Native DSP Active</string>
+    <string name="equalizer_status_ready">Ready (5 Bands)</string>
+    <string name="equalizer_status_bypassed">Bypassed</string>
+    <string name="equalizer_close_content_description">Close</string>
+    <string name="equalizer_sound_profile">SOUND PROFILE</string>
+    <string name="equalizer_select_preset_content_description">Select Preset</string>
+    <string name="equalizer_band_header">5-BAND EQUALIZER (±15 dB)</string>
+    <string name="equalizer_double_tap_hint">Double-tap slider to reset 0dB</string>
+    <string name="equalizer_gain_value">%1$sdB</string>
+    <string name="equalizer_bass_boost">BASS BOOST</string>
+    <string name="equalizer_bass_boost_subtitle">Sub-bass harmonic synthesizer</string>
+    <string name="equalizer_percent">%1$d%%</string>
+    <string name="equalizer_step_off">Off</string>
+    <string name="equalizer_step_max">Max</string>
+    <string name="equalizer_reset_to_flat">Reset to Flat</string>
+    <string name="equalizer_done">Done</string>
+    <string name="equalizer_bass_label">BASS</string>
+</resources>

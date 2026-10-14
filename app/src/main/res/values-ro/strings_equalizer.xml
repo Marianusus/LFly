@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="equalizer_title">Egalizator</string>
+    <string name="equalizer_status_native_dsp_active">DSP nativ activ</string>
+    <string name="equalizer_status_ready">Pregătit (5 benzi)</string>
+    <string name="equalizer_status_bypassed">Dezactivat</string>
+    <string name="equalizer_close_content_description">Închide</string>
+    <string name="equalizer_sound_profile">PROFIL SONOR</string>
+    <string name="equalizer_select_preset_content_description">Selectează presetarea</string>
+    <string name="equalizer_band_header">EGALIZATOR CU 5 BENZI (±15 dB)</string>
+    <string name="equalizer_double_tap_hint">Atinge de două ori glisorul pentru a reseta la 0dB</string>
+    <string name="equalizer_gain_value">%1$sdB</string>
+    <string name="equalizer_bass_boost">AMPLIFICARE BASS</string>
+    <string name="equalizer_bass_boost_subtitle">Sintetizator armonic sub-bass</string>
+    <string name="equalizer_percent">%1$d%%</string>
+    <string name="equalizer_step_off">Oprit</string>
+    <string name="equalizer_step_max">Max</string>
+    <string name="equalizer_reset_to_flat">Resetează la plat</string>
+    <string name="equalizer_done">Gata</string>
+    <string name="equalizer_bass_label">BASS</string>
+</resources>

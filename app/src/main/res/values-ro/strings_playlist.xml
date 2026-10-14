@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_not_found_title">Playlist negăsit</string>
+    <string name="playlist_back_action">Înapoi</string>
+    <string name="playlist_title">Playlist</string>
+    <string name="playlist_reorder_title">Reordonează melodiile</string>
+    <string name="playlist_reorder_finish_content_description">Încheie reordonarea</string>
+    <string name="playlist_options_content_description">Opțiuni playlist</string>
+    <string name="playlist_edit_action">Editează playlistul</string>
+    <string name="playlist_delete_action">Șterge playlistul</string>
+    <string name="playlist_empty_title">Acest playlist este gol</string>
+    <string name="playlist_empty_body">Adaugă melodii folosind meniul cu 3 puncte (⋮) pe orice melodie din aplicație.</string>
+    <string name="playlist_tracks_count">Melodii (%1$d)</string>
+    <string name="playlist_name_label">Nume</string>
+    <string name="playlist_description_label">Descriere (opțional)</string>
+    <string name="playlist_cover_url_label">URL copertă (opțional)</string>
+    <string name="playlist_save_action">Salvează</string>
+    <string name="playlist_cancel_action">Anulează</string>
+    <string name="playlist_delete_confirm_title">Ștergi playlistul?</string>
+    <string name="playlist_delete_confirm_message">Ești sigur că vrei să ștergi \"%1$s\"? Această acțiune nu poate fi anulată.</string>
+    <string name="playlist_delete_confirm_action">Șterge</string>
+    <string name="playlist_creator_label">Creat de tine</string>
+    <plurals name="playlist_song_count">
+        <item quantity="one">1 melodie</item>
+        <item quantity="few">%1$d melodii</item>
+        <item quantity="other">%1$d de melodii</item>
+    </plurals>
+    <string name="playlist_duration_suffix">" • %1$s"</string>
+    <string name="playlist_play_action">Redă</string>
+    <string name="playlist_shuffle_action">Aleatoriu</string>
+    <string name="playlist_shuffle_content_description">Aleatoriu</string>
+    <string name="playlist_playing_content_description">Se redă</string>
+    <string name="playlist_favorite_remove_content_description">Elimină din favorite</string>
+    <string name="playlist_favorite_add_content_description">Adaugă la favorite</string>
+    <string name="playlist_more_options_content_description">Mai multe opțiuni</string>
+    <string name="playlist_remove_from_playlist_action">Elimină din playlist</string>
+    <string name="playlist_play_next_action">Redă următorul</string>
+    <string name="playlist_add_to_queue_action">Adaugă la coadă</string>
+    <string name="playlist_add_to_playlist_action">Adaugă la playlist</string>
+    <string name="playlist_drag_handle_content_description">Trage pentru a reordona</string>
+</resources>

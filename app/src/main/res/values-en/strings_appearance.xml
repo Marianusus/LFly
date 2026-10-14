@@ -1,0 +1,10 @@
+<resources>
+    <string name="appearance_amoled_title">AMOLED Black</string>
+    <string name="appearance_amoled_subtitle">Absolute black with frosted glass and LFly accent</string>
+    <string name="appearance_white_title">White</string>
+    <string name="appearance_white_subtitle">Light canvas, ivory glass and high-contrast dark text</string>
+    <string name="appearance_dynamic_dark_title">Dynamic dark</string>
+    <string name="appearance_dynamic_dark_subtitle">Dark background derived from the playing cover</string>
+    <string name="appearance_dynamic_light_title">Dynamic light</string>
+    <string name="appearance_dynamic_light_subtitle">Pastel light background derived from the cover</string>
+</resources>

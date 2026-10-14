@@ -1,0 +1,18 @@
+<resources>
+    <string name="settings_tab_general">General</string>
+    <string name="settings_tab_appearance">Appearance</string>
+    <string name="settings_tab_music">Music</string>
+    <string name="settings_tab_api">API</string>
+    <string name="settings_accent_section_title">Accent color</string>
+    <string name="settings_accent_section_subtitle">Applies to the Black AMOLED and White themes</string>
+    <string name="accent_emerald">Emerald</string>
+    <string name="accent_blue">Blue</string>
+    <string name="accent_indigo">Indigo</string>
+    <string name="accent_violet">Violet</string>
+    <string name="accent_pink">Pink</string>
+    <string name="accent_red">Red</string>
+    <string name="accent_orange">Orange</string>
+    <string name="accent_amber">Amber</string>
+    <string name="accent_teal">Teal</string>
+    <string name="accent_cyan">Cyan</string>
+</resources>

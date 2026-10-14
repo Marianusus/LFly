@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_title">Caută</string>
+    <string name="search_field_placeholder">Melodii, artiști, podcasturi, albume...</string>
+    <string name="search_clear_query">Șterge căutarea</string>
+
+    <string name="search_category_all">Toate</string>
+    <string name="search_category_tracks">Melodii</string>
+    <string name="search_category_videos">Videoclipuri</string>
+    <string name="search_category_artists">Artiști</string>
+    <string name="search_category_albums">Albume</string>
+    <string name="search_category_playlists">Playlisturi</string>
+
+    <string name="search_empty_results_title">Niciun rezultat</string>
+    <string name="search_empty_results_message">Niciun rezultat găsit pentru \"%1$s\"</string>
+    <string name="search_empty_tracks_title">Nicio melodie</string>
+    <string name="search_empty_tracks_message">Nicio melodie găsită pentru \"%1$s\"</string>
+    <string name="search_empty_videos_title">Niciun videoclip</string>
+    <string name="search_empty_videos_message">Niciun videoclip găsit pentru \"%1$s\"</string>
+    <string name="search_empty_artists_title">Niciun artist</string>
+    <string name="search_empty_artists_message">Niciun artist găsit pentru \"%1$s\"</string>
+    <string name="search_empty_albums_title">Niciun album</string>
+    <string name="search_empty_albums_message">Niciun album găsit pentru \"%1$s\"</string>
+    <string name="search_empty_playlists_title">Nicio playlist</string>
+    <string name="search_empty_playlists_message">Nicio playlist găsită pentru \"%1$s\"</string>
+
+    <string name="search_prompt_title">Găsește-ți muzica preferată</string>
+    <string name="search_prompt_message">Caută melodii, artiști și albume cu streaming lossless și versuri sincronizate.</string>
+    <string name="search_popular_title">Căutări populare</string>
+    <string name="search_suggestion_the_weeknd">The Weeknd</string>
+    <string name="search_suggestion_daft_punk">Daft Punk</string>
+    <string name="search_suggestion_billie_eilish">Billie Eilish</string>
+
+    <string name="search_youtube_badge">YouTube</string>
+    <string name="search_artist_badge">Artist</string>
+
+    <string name="search_top_result_header">Top Result</string>
+    <string name="search_top_result_badge">TOP RESULT</string>
+    <string name="search_top_result_subtitle">Melodie • %1$s</string>
+    <string name="search_play_desc">Redă</string>
+
+    <string name="search_playlist_track_count">%1$d melodii</string>
+</resources>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_title">La tua libreria</string>
+    <string name="library_import_playlist_content_description">Importa playlist</string>
+    <string name="library_new_playlist_content_description">Nuova playlist</string>
+    <string name="library_favorites_title">Brani preferiti</string>
+    <string name="library_history_title">Cronologia</string>
+    <string name="library_followed_artists_title">Artisti seguiti</string>
+    <string name="library_no_playlists_title">Nessuna playlist</string>
+    <string name="library_no_playlists_body">Crea una playlist o importa le tue canzoni da Spotify con 1 click.</string>
+    <string name="library_new_playlist_dialog_title">Nuova playlist</string>
+    <string name="library_new_playlist_dialog_message">Dai un nome alla tua playlist:</string>
+    <string name="library_new_playlist_placeholder">La mia mix</string>
+    <string name="library_create_action">Crea</string>
+    <string name="library_cancel_action">Annulla</string>
+    <string name="library_reorder_finish_content_description">Fine riordinamento</string>
+    <string name="library_reorder_content_description">Riordina</string>
+    <string name="library_no_favorites_title">Nessun brano preferito</string>
+    <string name="library_no_history_title">Nessuna cronologia</string>
+    <string name="library_no_favorites_body">Tocca il cuore su un brano per aggiungerlo qui.</string>
+    <string name="library_no_history_body">I brani che ascolti appariranno qui.</string>
+    <string name="library_drag_handle_content_description">Trascina per riordinare</string>
+    <string name="library_play_action">Riproduci</string>
+    <string name="library_shuffle_content_description">Mescola</string>
+    <string name="library_shuffle_action">Mescola</string>
+    <string name="library_tracks_count">Brani (%1$d)</string>
+    <plurals name="library_playlist_track_count">
+        <item quantity="one">Playlist • %1$d brano</item>
+        <item quantity="other">Playlist • %1$d brani</item>
+    </plurals>
+</resources>

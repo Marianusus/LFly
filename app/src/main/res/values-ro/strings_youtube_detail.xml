@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yt_detail_retry">Reîncearcă</string>
+    <string name="yt_detail_no_tracks">Nicio melodie disponibilă</string>
+    <string name="yt_detail_popular_tracks">Melodii populare</string>
+    <string name="yt_detail_albums">Albume</string>
+    <string name="yt_detail_singles_eps">Single-uri și EP-uri</string>
+    <string name="yt_detail_videos">Videoclipuri</string>
+    <string name="yt_detail_following">Urmărești deja</string>
+    <string name="yt_detail_follow">Urmărește</string>
+    <string name="yt_detail_unfollow">Nu mai urmări</string>
+    <string name="yt_detail_shuffle">Aleatoriu</string>
+    <string name="yt_detail_play">Redă</string>
+    <string name="yt_detail_back">Înapoi</string>
+    <string name="yt_detail_play_all">Redă tot</string>
+    <string name="yt_detail_all_tracks">Toate melodiile</string>
+    <string name="yt_detail_save_to_library">Salvează în bibliotecă</string>
+    <plurals name="yt_detail_track_count">
+        <item quantity="one">%1$d melodie</item>
+        <item quantity="other">%1$d melodii</item>
+    </plurals>
+</resources>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="artist_failed_to_load_title">Impossibile caricare l\'artista</string>
+    <string name="artist_popular_tracks_count">Brani popolari (%1$d)</string>
+    <string name="artist_albums_discography">Album e discografia</string>
+    <string name="artist_not_available_title">Artista non disponibile</string>
+    <string name="artist_not_available_message">Nessun dato trovato per questo artista.</string>
+    <string name="artist_action_play">Riproduci</string>
+    <string name="artist_action_shuffle">Mescola</string>
+    <string name="artist_content_description_playing">In riproduzione</string>
+    <string name="artist_content_description_remove_favorite">Rimuovi dai preferiti</string>
+    <string name="artist_content_description_add_favorite">Aggiungi ai preferiti</string>
+    <string name="artist_content_description_more_options">Altre opzioni</string>
+    <string name="artist_action_play_next">Riproduci dopo</string>
+    <string name="artist_action_add_to_queue">Aggiungi alla coda</string>
+    <string name="artist_action_add_to_playlist">Aggiungi a playlist</string>
+    <string name="artist_action_retry">Riprova</string>
+    <string name="artist_monthly_listeners">%1$s ascoltatori mensili</string>
+    <string name="artist_subtitle_separator">%1$s • %2$s</string>
+    <string name="artist_album_year_tracks_separator">%1$s • %2$s</string>
+    <plurals name="artist_albums_count">
+        <item quantity="one">%1$d album</item>
+        <item quantity="other">%1$d album</item>
+    </plurals>
+    <plurals name="artist_track_count">
+        <item quantity="one">%1$d brano</item>
+        <item quantity="other">%1$d brani</item>
+    </plurals>
+</resources>

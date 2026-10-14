@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mini_player_favorite">Preferito</string>
+    <string name="mini_player_play">Riproduci</string>
+    <string name="mini_player_pause">Pausa</string>
+    <string name="mini_player_next">Successivo</string>
+</resources>

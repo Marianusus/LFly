@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vm_error_load_artist">Impossibile caricare l\'artista</string>
+    <string name="vm_error_load_album">Impossibile caricare l\'album</string>
+    <string name="vm_error_load_playlist">Impossibile caricare la playlist</string>
+    <string name="vm_error_load_songs">Impossibile caricare i brani</string>
+    <string name="vm_error_load_artist_profile">Impossibile caricare il profilo dell\'artista</string>
+    <string name="vm_error_load_album_details">Impossibile caricare i dettagli dell\'album</string>
+</resources>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="artist_failed_to_load_title">Failed to load artist</string>
+    <string name="artist_popular_tracks_count">Popular Tracks (%1$d)</string>
+    <string name="artist_albums_discography">Albums &amp; Discography</string>
+    <string name="artist_not_available_title">Artist not available</string>
+    <string name="artist_not_available_message">No data found for this artist.</string>
+    <string name="artist_action_play">Play</string>
+    <string name="artist_action_shuffle">Shuffle</string>
+    <string name="artist_content_description_playing">Playing</string>
+    <string name="artist_content_description_remove_favorite">Remove Favorite</string>
+    <string name="artist_content_description_add_favorite">Add Favorite</string>
+    <string name="artist_content_description_more_options">More options</string>
+    <string name="artist_action_play_next">Play next</string>
+    <string name="artist_action_add_to_queue">Add to queue</string>
+    <string name="artist_action_add_to_playlist">Add to playlist</string>
+    <string name="artist_action_retry">Retry</string>
+    <string name="artist_monthly_listeners">%1$s monthly listeners</string>
+    <string name="artist_subtitle_separator">%1$s • %2$s</string>
+    <string name="artist_album_year_tracks_separator">%1$s • %2$s</string>
+    <plurals name="artist_albums_count">
+        <item quantity="one">%1$d album</item>
+        <item quantity="other">%1$d albums</item>
+    </plurals>
+    <plurals name="artist_track_count">
+        <item quantity="one">%1$d track</item>
+        <item quantity="other">%1$d tracks</item>
+    </plurals>
+</resources>

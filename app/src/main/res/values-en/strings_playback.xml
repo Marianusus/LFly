@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playback_added_to_queue">\"%1$s\" added to queue</string>
+    <plurals name="playback_tracks_added_to_queue">
+        <item quantity="one">%1$d song added to queue</item>
+        <item quantity="other">%1$d songs added to queue</item>
+    </plurals>
+    <string name="playback_will_play_next">\"%1$s\" will play next</string>
+    <string name="playback_notification_channel_name">LFly Audio Playback</string>
+    <string name="playback_notification_channel_description">Playback controls and notifications for LFly</string>
+</resources>

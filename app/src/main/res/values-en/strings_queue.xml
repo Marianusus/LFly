@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="queue_no_track_playing">No track currently playing</string>
+    <string name="queue_up_next_header">UP NEXT (%1$d)</string>
+    <string name="queue_radio_header">RADIO · AUTOPLAY (%1$d)</string>
+    <string name="queue_now_playing">Now Playing</string>
+    <plurals name="queue_track_count">
+        <item quantity="one">%1$d track in queue</item>
+        <item quantity="other">%1$d tracks in queue</item>
+    </plurals>
+    <string name="queue_radio_suffix">\u0020· +%1$d radio</string>
+    <string name="queue_clear_content_description">Clear Queue</string>
+    <string name="queue_clear">Clear</string>
+    <string name="queue_close_content_description">Close</string>
+    <string name="queue_autoplay_title">Autoplay similar tracks</string>
+    <string name="queue_autoplay_subtitle">Keep music playing when queue finishes</string>
+    <string name="queue_track_options_content_description">Track options</string>
+    <string name="queue_play_now">Play now</string>
+    <string name="queue_remove_from_queue">Remove from queue</string>
+    <string name="queue_drag_to_reorder_content_description">Drag to reorder</string>
+    <string name="queue_empty_title">Queue is empty</string>
+    <string name="queue_empty_subtitle">Tap \'Add to Queue\' on songs to queue them next.</string>
+</resources>

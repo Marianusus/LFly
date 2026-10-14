@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mini_player_favorite">Favorit</string>
+    <string name="mini_player_play">Redă</string>
+    <string name="mini_player_pause">Pauză</string>
+    <string name="mini_player_next">Următorul</string>
+</resources>

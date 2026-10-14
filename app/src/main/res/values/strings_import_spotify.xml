@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_spotify_mode_link">Link playlist</string>
+    <string name="import_spotify_mode_file">File esportazione</string>
+    <string name="import_spotify_reading_export">Lettura file di esportazione...</string>
+    <string name="import_spotify_error_open_file">Impossibile aprire il file selezionato</string>
+    <string name="import_spotify_error_export_failed">Importazione dall\'esportazione non riuscita</string>
+    <string name="import_spotify_link_hint">Incolla il link di una playlist pubblica di Spotify. LFly cercherà e sincronizzerà automaticamente ogni brano nella tua libreria locale.</string>
+    <string name="import_spotify_paste_from_clipboard">Incolla link dagli appunti</string>
+    <string name="import_spotify_paste">Incolla</string>
+    <string name="import_spotify_clear">Cancella</string>
+    <string name="import_spotify_link_footer">Nessun login richiesto • Supporta link brevi e internazionali</string>
+    <string name="import_spotify_export_hint">Importa l\'esportazione dati di Spotify per trasferire l\'intera libreria: i brani che ti piacciono e tutte le tue playlist, senza il limite di 100 brani.</string>
+    <string name="import_spotify_export_steps">Come ottenerla: Spotify → Impostazioni account → Privacy → \"Scarica i tuoi dati\" → spunta \"Account data\". Riceverai via email uno ZIP da caricare qui.</string>
+    <string name="import_spotify_choose_export_file">Scegli il file di esportazione</string>
+    <string name="import_spotify_file_types">.zip o .json</string>
+    <string name="import_spotify_progress_importing">Importing %1$d/%2$d: %3$s...</string>
+    <string name="import_spotify_loading_metadata">Caricamento playlist e metadati...</string>
+    <string name="import_spotify_progress_completed">%1$d%% completato</string>
+    <string name="import_spotify_success_single">Playlist trasferita con successo!</string>
+    <plurals name="import_spotify_success_multiple">
+        <item quantity="one">%1$d playlist importata!</item>
+        <item quantity="other">%1$d playlist importate!</item>
+    </plurals>
+    <string name="import_spotify_export_default_name">Esportazione Spotify</string>
+    <plurals name="import_spotify_saved_library">
+        <item quantity="one">%1$d brano salvato nella libreria</item>
+        <item quantity="other">%1$d brani salvati nella libreria</item>
+    </plurals>
+    <plurals name="import_spotify_saved_in_playlists">
+        <item quantity="one">%1$d brano salvato in %2$d playlist</item>
+        <item quantity="other">%1$d brani salvati in %2$d playlist</item>
+    </plurals>
+    <string name="import_spotify_note_limit">Nota: Spotify limita a 100 brani le playlist pubbliche importate da link. Per la lista completa usa l\'import da file di esportazione.</string>
+    <string name="import_spotify_error_title">Trasferimento fallito</string>
+    <string name="import_spotify_initializing">Inizializzazione...</string>
+    <string name="import_spotify_error_fetch_playlist">Impossibile recuperare la playlist da Spotify</string>
+    <string name="import_spotify_action_transfer">Trasferisci</string>
+    <string name="import_spotify_action_cancel">Annulla</string>
+    <string name="import_spotify_action_play_now">Ascolta ora</string>
+    <string name="import_spotify_action_close">Chiudi</string>
+    <string name="import_spotify_action_retry">Riprova</string>
+</resources>

@@ -1,0 +1,18 @@
+<resources>
+    <string name="settings_tab_general">Generale</string>
+    <string name="settings_tab_appearance">Aspetto</string>
+    <string name="settings_tab_music">Musica</string>
+    <string name="settings_tab_api">API</string>
+    <string name="settings_accent_section_title">Colore accento</string>
+    <string name="settings_accent_section_subtitle">Si applica ai temi Nero AMOLED e Bianco</string>
+    <string name="accent_emerald">Smeraldo</string>
+    <string name="accent_blue">Blu</string>
+    <string name="accent_indigo">Indaco</string>
+    <string name="accent_violet">Viola</string>
+    <string name="accent_pink">Rosa</string>
+    <string name="accent_red">Rosso</string>
+    <string name="accent_orange">Arancio</string>
+    <string name="accent_amber">Ambra</string>
+    <string name="accent_teal">Verde acqua</string>
+    <string name="accent_cyan">Ciano</string>
+</resources>

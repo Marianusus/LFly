@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="track_item_playing_content_description">In riproduzione</string>
+    <string name="track_item_favorite_remove_content_description">Rimuovi dai preferiti</string>
+    <string name="track_item_favorite_add_content_description">Aggiungi ai preferiti</string>
+    <string name="track_item_options_content_description">Opzioni</string>
+    <string name="track_item_play_next">Riproduci dopo</string>
+    <string name="track_item_add_to_queue">Aggiungi alla coda</string>
+    <string name="track_item_add_to_playlist">Aggiungi a playlist</string>
+    <string name="track_item_share">Condividi brano</string>
+    <string name="track_item_dislike_remove">Rimuovi da \"Non mi piace\"</string>
+    <string name="track_item_dislike_add">Non mi piace</string>
+    <string name="track_play_via_youtube">Riproduci da YouTube Music</string>
+    <string name="track_play_via_monochrome">Riproduci da Monochrome</string>
+    <string name="track_source_auto">Auto (impostazione globale)</string>
+</resources>

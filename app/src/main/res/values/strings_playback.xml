@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playback_added_to_queue">\"%1$s\" aggiunta alla coda</string>
+    <plurals name="playback_tracks_added_to_queue">
+        <item quantity="one">%1$d brano aggiunto alla coda</item>
+        <item quantity="other">%1$d brani aggiunti alla coda</item>
+    </plurals>
+    <string name="playback_will_play_next">\"%1$s\" verrà riprodotta dopo</string>
+    <string name="playback_notification_channel_name">Riproduzione audio LFly</string>
+    <string name="playback_notification_channel_description">Controlli di riproduzione e notifiche per LFly</string>
+</resources>

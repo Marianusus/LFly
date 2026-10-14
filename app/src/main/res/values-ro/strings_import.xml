@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_source_spotify">Spotify</string>
+    <string name="import_source_youtube">YouTube Music</string>
+    <string name="import_title">Importă</string>
+    <string name="import_subtitle">Transferă playlisturile tale în bibliotecă</string>
+    <string name="import_youtube_link_hint">Lipește linkul unui playlist public YouTube Music. LFly va importa toate melodiile în biblioteca ta locală, fără limite și fără cont.</string>
+    <string name="import_paste_from_clipboard">Lipește linkul din clipboard</string>
+    <string name="import_paste">Lipește</string>
+    <string name="import_clear">Șterge</string>
+    <string name="import_youtube_footer">Nu este necesar cont • Fără limită de melodii</string>
+    <string name="import_youtube_progress_importing">Se importă %1$d/%2$d: %3$s...</string>
+    <string name="import_loading_metadata">Se încarcă playlisturile și metadatele...</string>
+    <string name="import_success">Playlist importat cu succes!</string>
+    <plurals name="import_saved_library">
+        <item quantity="one">%1$d melodie salvată în bibliotecă</item>
+        <item quantity="other">%1$d melodii salvate în bibliotecă</item>
+    </plurals>
+    <string name="import_error_title">Importul a eșuat</string>
+    <string name="import_initializing">Se inițializează...</string>
+    <string name="import_error_fetch_playlist">Nu se poate prelua playlistul</string>
+    <string name="import_action_transfer">Transferă</string>
+    <string name="import_action_cancel">Anulează</string>
+    <string name="import_action_play_now">Ascultă acum</string>
+    <string name="import_action_close">Închide</string>
+    <string name="import_action_retry">Reîncearcă</string>
+</resources>

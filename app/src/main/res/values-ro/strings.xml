@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">LFly</string>
+    <string name="action_like">Adaugă la Favorite</string>
+    <string name="action_unlike">Elimină din Favorite</string>
+    <string name="action_dislike">Nu-mi place</string>
+    <string name="settings_language_section_title">Limba aplicației</string>
+    <string name="settings_language_section_subtitle">Alege limba interfeței</string>
+    <string name="settings_language_row_title">Limbă</string>
+    <string name="settings_language_dialog_title">Limba aplicației</string>
+    <string name="language_system">Sistem</string>
+    <string name="language_italian">Italiano</string>
+    <string name="language_english">English</string>
+    <string name="language_romanian">Română</string>
+    <string name="action_close">Închide</string>
+    <string name="common_back">Înapoi</string>
+    <string name="nav_home">Acasă</string>
+    <string name="nav_search">Caută</string>
+    <string name="nav_library">Bibliotecă</string>
+    <string name="nav_settings">Setări</string>
+</resources>

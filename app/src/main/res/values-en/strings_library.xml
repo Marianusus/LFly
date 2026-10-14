@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_title">Your library</string>
+    <string name="library_import_playlist_content_description">Import playlist</string>
+    <string name="library_new_playlist_content_description">New playlist</string>
+    <string name="library_favorites_title">Favorite songs</string>
+    <string name="library_history_title">History</string>
+    <string name="library_followed_artists_title">Followed artists</string>
+    <string name="library_no_playlists_title">No playlists</string>
+    <string name="library_no_playlists_body">Create a playlist or import your songs from Spotify in 1 click.</string>
+    <string name="library_new_playlist_dialog_title">New playlist</string>
+    <string name="library_new_playlist_dialog_message">Give your playlist a name:</string>
+    <string name="library_new_playlist_placeholder">My mix</string>
+    <string name="library_create_action">Create</string>
+    <string name="library_cancel_action">Cancel</string>
+    <string name="library_reorder_finish_content_description">Finish reordering</string>
+    <string name="library_reorder_content_description">Reorder</string>
+    <string name="library_no_favorites_title">No favorite songs</string>
+    <string name="library_no_history_title">No history</string>
+    <string name="library_no_favorites_body">Tap the heart on a song to add it here.</string>
+    <string name="library_no_history_body">The songs you listen to will appear here.</string>
+    <string name="library_drag_handle_content_description">Drag to reorder</string>
+    <string name="library_play_action">Play</string>
+    <string name="library_shuffle_content_description">Shuffle</string>
+    <string name="library_shuffle_action">Shuffle</string>
+    <string name="library_tracks_count">Songs (%1$d)</string>
+    <plurals name="library_playlist_track_count">
+        <item quantity="one">Playlist • %1$d song</item>
+        <item quantity="other">Playlist • %1$d songs</item>
+    </plurals>
+</resources>

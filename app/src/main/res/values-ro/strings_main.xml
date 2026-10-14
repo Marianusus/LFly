@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="main_detail_not_available">Detalii indisponibile pentru acest rezultat</string>
+    <string name="main_import_failed">Importul nu a reușit</string>
+    <string name="main_playlist_saved">Playlist salvat: %1$s (%2$d melodii)</string>
+    <string name="main_context_top_eu">Top EU</string>
+    <string name="main_context_top_50">Clasamente Top 50</string>
+    <string name="main_context_youtube_music">YouTube Music</string>
+    <string name="main_context_search">Căutare</string>
+    <string name="main_context_downloaded">Descărcate (yt-dlp)</string>
+    <string name="main_context_favorites">Preferatele tale</string>
+    <string name="main_context_history">Istoric</string>
+    <string name="main_context_playlist">Playlist</string>
+    <string name="main_context_playlist_fmt">Playlist: %1$s</string>
+    <string name="main_context_popular_tracks_fmt">Melodii populare: %1$s</string>
+    <string name="main_context_artist_fmt">Artist: %1$s</string>
+    <string name="main_context_album_fmt">Album: %1$s</string>
+    <string name="main_track_count">%1$d melodii</string>
+    <string name="main_popular_tracks_title">Melodii populare</string>
+</resources>

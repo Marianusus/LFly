@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_collapse_desc">Collapse</string>
+    <string name="player_more_desc">More</string>
+
+    <string name="player_playing_from">PLAYING FROM</string>
+    <string name="player_playing_from_album">PLAYING FROM ALBUM</string>
+    <string name="player_playing_track">NOW PLAYING</string>
+    <string name="player_youtube_music">YouTube Music</string>
+    <string name="player_api">API · %1$s</string>
+
+    <string name="player_play_next">Play next</string>
+    <string name="player_add_to_queue">Add to queue</string>
+    <string name="player_add_to_playlist">Add to playlist</string>
+    <string name="player_share">Share</string>
+    <string name="player_equalizer_dsp">Equalizer &amp; DSP</string>
+    <string name="player_dislike">Dislike</string>
+    <string name="player_dislike_remove">Remove from \"Dislike\"</string>
+    <string name="player_dislike_remove_short">Remove dislike</string>
+
+    <string name="player_favorite_desc">Favorite</string>
+    <string name="player_shuffle">Shuffle</string>
+    <string name="player_previous">Previous</string>
+    <string name="player_play">Play</string>
+    <string name="player_pause">Pause</string>
+    <string name="player_next">Next</string>
+    <string name="player_repeat">Repeat</string>
+
+    <string name="player_lyrics">Lyrics</string>
+    <string name="player_equalizer">Equalizer</string>
+    <string name="player_eq">EQ</string>
+    <string name="player_queue">Queue</string>
+    <string name="player_queue_count">%1$d songs</string>
+</resources>

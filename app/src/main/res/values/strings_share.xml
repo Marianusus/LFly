@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_dialog_title">Condividi brano</string>
+    <string name="share_close_content_description">Chiudi</string>
+    <string name="share_platform_prompt">Scegli con quale piattaforma condividere:</string>
+    <string name="share_platform_youtube_music">YouTube Music</string>
+    <string name="share_platform_youtube">YouTube</string>
+    <string name="share_platform_deezer">Deezer</string>
+    <string name="share_text">Ascolta \"%1$s\" di %2$s su %3$s:\n%4$s</string>
+    <string name="share_subject">%1$s - %2$s</string>
+    <string name="share_chooser_title">Condividi brano via %1$s</string>
+</resources>

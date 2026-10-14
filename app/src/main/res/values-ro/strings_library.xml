@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_title">Librăria ta</string>
+    <string name="library_import_playlist_content_description">Importă playlist</string>
+    <string name="library_new_playlist_content_description">Playlist nou</string>
+    <string name="library_favorites_title">Melodii favorite</string>
+    <string name="library_history_title">Istoric</string>
+    <string name="library_followed_artists_title">Artiști urmăriți</string>
+    <string name="library_no_playlists_title">Nicio playlist</string>
+    <string name="library_no_playlists_body">Creează o playlist sau importă-ți melodiile din Spotify cu 1 click.</string>
+    <string name="library_new_playlist_dialog_title">Playlist nou</string>
+    <string name="library_new_playlist_dialog_message">Dă un nume playlistului tău:</string>
+    <string name="library_new_playlist_placeholder">Mixul meu</string>
+    <string name="library_create_action">Creează</string>
+    <string name="library_cancel_action">Anulează</string>
+    <string name="library_reorder_finish_content_description">Finalizează reordonarea</string>
+    <string name="library_reorder_content_description">Reordonează</string>
+    <string name="library_no_favorites_title">Nicio melodie favorită</string>
+    <string name="library_no_history_title">Niciun istoric</string>
+    <string name="library_no_favorites_body">Atinge inima de pe o melodie pentru a o adăuga aici.</string>
+    <string name="library_no_history_body">Melodiile pe care le asculți vor apărea aici.</string>
+    <string name="library_drag_handle_content_description">Trage pentru a reordona</string>
+    <string name="library_play_action">Redă</string>
+    <string name="library_shuffle_content_description">Aleatoriu</string>
+    <string name="library_shuffle_action">Aleatoriu</string>
+    <string name="library_tracks_count">Melodii (%1$d)</string>
+    <plurals name="library_playlist_track_count">
+        <item quantity="one">Playlist • %1$d melodie</item>
+        <item quantity="other">Playlist • %1$d melodii</item>
+    </plurals>
+</resources>

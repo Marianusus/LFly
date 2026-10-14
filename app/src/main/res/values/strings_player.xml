@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_collapse_desc">Riduci</string>
+    <string name="player_more_desc">Altro</string>
+
+    <string name="player_playing_from">IN RIPRODUZIONE DA</string>
+    <string name="player_playing_from_album">IN RIPRODUZIONE DALL\'ALBUM</string>
+    <string name="player_playing_track">BRANO IN RIPRODUZIONE</string>
+    <string name="player_youtube_music">YouTube Music</string>
+    <string name="player_api">API · %1$s</string>
+
+    <string name="player_play_next">Riproduci dopo</string>
+    <string name="player_add_to_queue">Aggiungi alla coda</string>
+    <string name="player_add_to_playlist">Aggiungi a playlist</string>
+    <string name="player_share">Condividi</string>
+    <string name="player_equalizer_dsp">Equalizzatore &amp; DSP</string>
+    <string name="player_dislike">Non mi piace</string>
+    <string name="player_dislike_remove">Rimuovi da \"Non mi piace\"</string>
+    <string name="player_dislike_remove_short">Rimuovi dislike</string>
+
+    <string name="player_favorite_desc">Preferito</string>
+    <string name="player_shuffle">Shuffle</string>
+    <string name="player_previous">Precedente</string>
+    <string name="player_play">Riproduci</string>
+    <string name="player_pause">Pausa</string>
+    <string name="player_next">Successivo</string>
+    <string name="player_repeat">Ripeti</string>
+
+    <string name="player_lyrics">Lyrics</string>
+    <string name="player_equalizer">Equalizzatore</string>
+    <string name="player_eq">EQ</string>
+    <string name="player_queue">Coda</string>
+    <string name="player_queue_count">%1$d brani</string>
+</resources>

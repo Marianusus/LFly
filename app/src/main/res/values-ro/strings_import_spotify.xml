@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_spotify_mode_link">Link playlist</string>
+    <string name="import_spotify_mode_file">Fișier de export</string>
+    <string name="import_spotify_reading_export">Se citește fișierul de export...</string>
+    <string name="import_spotify_error_open_file">Nu se poate deschide fișierul selectat</string>
+    <string name="import_spotify_error_export_failed">Importul din export a eșuat</string>
+    <string name="import_spotify_link_hint">Lipește linkul unui playlist public Spotify. LFly va căuta și va sincroniza automat fiecare melodie în biblioteca ta locală.</string>
+    <string name="import_spotify_paste_from_clipboard">Lipește linkul din clipboard</string>
+    <string name="import_spotify_paste">Lipește</string>
+    <string name="import_spotify_clear">Șterge</string>
+    <string name="import_spotify_link_footer">Nu este necesar cont • Acceptă linkuri scurte și internaționale</string>
+    <string name="import_spotify_export_hint">Importă exportul de date Spotify pentru a transfera întreaga bibliotecă: melodiile care îți plac și toate playlisturile tale, fără limita de 100 de melodii.</string>
+    <string name="import_spotify_export_steps">Cum să îl obții: Spotify → Setări cont → Confidențialitate → \"Descarcă datele tale\" → bifează \"Account data\". Vei primi prin email un ZIP pe care să îl încarci aici.</string>
+    <string name="import_spotify_choose_export_file">Alege fișierul de export</string>
+    <string name="import_spotify_file_types">.zip sau .json</string>
+    <string name="import_spotify_progress_importing">Se importă %1$d/%2$d: %3$s...</string>
+    <string name="import_spotify_loading_metadata">Se încarcă playlisturile și metadatele...</string>
+    <string name="import_spotify_progress_completed">%1$d%% finalizat</string>
+    <string name="import_spotify_success_single">Playlist transferat cu succes!</string>
+    <plurals name="import_spotify_success_multiple">
+        <item quantity="one">%1$d playlist importat!</item>
+        <item quantity="other">%1$d playlisturi importate!</item>
+    </plurals>
+    <string name="import_spotify_export_default_name">Export Spotify</string>
+    <plurals name="import_spotify_saved_library">
+        <item quantity="one">%1$d melodie salvată în bibliotecă</item>
+        <item quantity="other">%1$d melodii salvate în bibliotecă</item>
+    </plurals>
+    <plurals name="import_spotify_saved_in_playlists">
+        <item quantity="one">%1$d melodie salvată în %2$d playlist</item>
+        <item quantity="other">%1$d melodii salvate în %2$d playlisturi</item>
+    </plurals>
+    <string name="import_spotify_note_limit">Notă: Spotify limitează la 100 de melodii playlisturile publice importate din linkuri. Pentru lista completă, folosește importul din fișierul de export.</string>
+    <string name="import_spotify_error_title">Transferul a eșuat</string>
+    <string name="import_spotify_initializing">Se inițializează...</string>
+    <string name="import_spotify_error_fetch_playlist">Nu se poate prelua playlistul de la Spotify</string>
+    <string name="import_spotify_action_transfer">Transferă</string>
+    <string name="import_spotify_action_cancel">Anulează</string>
+    <string name="import_spotify_action_play_now">Ascultă acum</string>
+    <string name="import_spotify_action_close">Închide</string>
+    <string name="import_spotify_action_retry">Reîncearcă</string>
+</resources>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yt_detail_retry">Retry</string>
+    <string name="yt_detail_no_tracks">No songs available</string>
+    <string name="yt_detail_popular_tracks">Popular songs</string>
+    <string name="yt_detail_albums">Albums</string>
+    <string name="yt_detail_singles_eps">Singles &amp; EPs</string>
+    <string name="yt_detail_videos">Videos</string>
+    <string name="yt_detail_following">Following</string>
+    <string name="yt_detail_follow">Follow</string>
+    <string name="yt_detail_unfollow">Unfollow</string>
+    <string name="yt_detail_shuffle">Shuffle</string>
+    <string name="yt_detail_play">Play</string>
+    <string name="yt_detail_back">Back</string>
+    <string name="yt_detail_play_all">Play all</string>
+    <string name="yt_detail_all_tracks">All songs</string>
+    <string name="yt_detail_save_to_library">Save to library</string>
+    <plurals name="yt_detail_track_count">
+        <item quantity="one">%1$d song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+</resources>

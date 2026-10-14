@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="track_item_playing_content_description">Se redă</string>
+    <string name="track_item_favorite_remove_content_description">Elimină din Favorite</string>
+    <string name="track_item_favorite_add_content_description">Adaugă la Favorite</string>
+    <string name="track_item_options_content_description">Opțiuni</string>
+    <string name="track_item_play_next">Redă în continuare</string>
+    <string name="track_item_add_to_queue">Adaugă la coadă</string>
+    <string name="track_item_add_to_playlist">Adaugă la playlist</string>
+    <string name="track_item_share">Distribuie melodia</string>
+    <string name="track_item_dislike_remove">Elimină din \"Nu-mi place\"</string>
+    <string name="track_item_dislike_add">Nu-mi place</string>
+    <string name="track_play_via_youtube">Redă de pe YouTube Music</string>
+    <string name="track_play_via_monochrome">Redă de pe Monochrome</string>
+    <string name="track_source_auto">Auto (setare globală)</string>
+</resources>

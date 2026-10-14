@@ -1,0 +1,38 @@
+# Android / Gradle
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# App build outputs
+app/build/
+app/release/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Keystores & secrets
+*.jks
+*.keystore
+keystore.properties
+.env
+
+# OS / editor
+*.log
+*.swp
+
+# Internal development notes (not published)
+/AGENTS.md
+/TODO.md
+/PROJECT_MAP.md
+/WALKTHROUGH.md
+/UI_REDESIGN_PLAN.md
+/UI_STABILIZATION_PLAN.md
+/ARTIST_METADATA_UX_PLAN.md

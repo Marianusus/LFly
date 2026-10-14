@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_not_found_title">Playlist non trovata</string>
+    <string name="playlist_back_action">Torna indietro</string>
+    <string name="playlist_title">Playlist</string>
+    <string name="playlist_reorder_title">Riordina brani</string>
+    <string name="playlist_reorder_finish_content_description">Fine riordinamento</string>
+    <string name="playlist_options_content_description">Opzioni playlist</string>
+    <string name="playlist_edit_action">Modifica playlist</string>
+    <string name="playlist_delete_action">Elimina playlist</string>
+    <string name="playlist_empty_title">Questa playlist è vuota</string>
+    <string name="playlist_empty_body">Aggiungi brani usando il menu a 3 puntini (⋮) su qualsiasi brano nell\'app.</string>
+    <string name="playlist_tracks_count">Brani (%1$d)</string>
+    <string name="playlist_name_label">Nome</string>
+    <string name="playlist_description_label">Descrizione (opzionale)</string>
+    <string name="playlist_cover_url_label">URL Copertina (opzionale)</string>
+    <string name="playlist_save_action">Salva</string>
+    <string name="playlist_cancel_action">Annulla</string>
+    <string name="playlist_delete_confirm_title">Elimina playlist?</string>
+    <string name="playlist_delete_confirm_message">Sei sicuro di voler eliminare \"%1$s\"? Questa operazione non può essere annullata.</string>
+    <string name="playlist_delete_confirm_action">Elimina</string>
+    <string name="playlist_creator_label">Creato da te</string>
+    <plurals name="playlist_song_count">
+        <item quantity="one">1 brano</item>
+        <item quantity="other">%1$d brani</item>
+    </plurals>
+    <string name="playlist_duration_suffix">" • %1$s"</string>
+    <string name="playlist_play_action">Riproduci</string>
+    <string name="playlist_shuffle_action">Mescola</string>
+    <string name="playlist_shuffle_content_description">Mescola</string>
+    <string name="playlist_playing_content_description">In riproduzione</string>
+    <string name="playlist_favorite_remove_content_description">Rimuovi dai preferiti</string>
+    <string name="playlist_favorite_add_content_description">Aggiungi ai preferiti</string>
+    <string name="playlist_more_options_content_description">Altre opzioni</string>
+    <string name="playlist_remove_from_playlist_action">Rimuovi dalla playlist</string>
+    <string name="playlist_play_next_action">Riproduci dopo</string>
+    <string name="playlist_add_to_queue_action">Aggiungi alla coda</string>
+    <string name="playlist_add_to_playlist_action">Aggiungi a playlist</string>
+    <string name="playlist_drag_handle_content_description">Trascina per riordinare</string>
+</resources>

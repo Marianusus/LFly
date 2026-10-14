@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_title">Cerca</string>
+    <string name="search_field_placeholder">Brani, artisti, podcast, album...</string>
+    <string name="search_clear_query">Cancella ricerca</string>
+
+    <string name="search_category_all">Tutto</string>
+    <string name="search_category_tracks">Brani</string>
+    <string name="search_category_videos">Video</string>
+    <string name="search_category_artists">Artisti</string>
+    <string name="search_category_albums">Album</string>
+    <string name="search_category_playlists">Playlist</string>
+
+    <string name="search_empty_results_title">Nessun risultato</string>
+    <string name="search_empty_results_message">Nessun risultato trovato per \"%1$s\"</string>
+    <string name="search_empty_tracks_title">Nessun brano</string>
+    <string name="search_empty_tracks_message">Nessun brano trovato per \"%1$s\"</string>
+    <string name="search_empty_videos_title">Nessun video</string>
+    <string name="search_empty_videos_message">Nessun video trovato per \"%1$s\"</string>
+    <string name="search_empty_artists_title">Nessun artista</string>
+    <string name="search_empty_artists_message">Nessun artista trovato per \"%1$s\"</string>
+    <string name="search_empty_albums_title">Nessun album</string>
+    <string name="search_empty_albums_message">Nessun album trovato per \"%1$s\"</string>
+    <string name="search_empty_playlists_title">Nessuna playlist</string>
+    <string name="search_empty_playlists_message">Nessuna playlist trovata per \"%1$s\"</string>
+
+    <string name="search_prompt_title">Trova la tua musica preferita</string>
+    <string name="search_prompt_message">Cerca brani, artisti e album con streaming lossless e testi sincronizzati.</string>
+    <string name="search_popular_title">Ricerche popolari</string>
+    <string name="search_suggestion_the_weeknd">The Weeknd</string>
+    <string name="search_suggestion_daft_punk">Daft Punk</string>
+    <string name="search_suggestion_billie_eilish">Billie Eilish</string>
+
+    <string name="search_youtube_badge">YouTube</string>
+    <string name="search_artist_badge">Artista</string>
+
+    <string name="search_top_result_header">Risultato principale</string>
+    <string name="search_top_result_badge">RISULTATO PRINCIPALE</string>
+    <string name="search_top_result_subtitle">Brano • %1$s</string>
+    <string name="search_play_desc">Riproduci</string>
+
+    <string name="search_playlist_track_count">%1$d brani</string>
+</resources>

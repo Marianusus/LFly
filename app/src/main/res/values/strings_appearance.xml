@@ -1,0 +1,10 @@
+<resources>
+    <string name="appearance_amoled_title">Nero AMOLED</string>
+    <string name="appearance_amoled_subtitle">Nero assoluto con vetro satinato e accento LFly</string>
+    <string name="appearance_white_title">Bianco</string>
+    <string name="appearance_white_subtitle">Canvas chiaro, vetro avorio e testo scuro ad alto contrasto</string>
+    <string name="appearance_dynamic_dark_title">Dinamico scuro</string>
+    <string name="appearance_dynamic_dark_subtitle">Sfondo scuro derivato dalla copertina in riproduzione</string>
+    <string name="appearance_dynamic_light_title">Dinamico chiaro</string>
+    <string name="appearance_dynamic_light_subtitle">Sfondo chiaro pastello derivato dalla copertina</string>
+</resources>

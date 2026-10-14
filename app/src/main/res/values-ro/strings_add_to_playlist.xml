@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_playlist_title">Adaugă la playlist</string>
+    <string name="add_to_playlist_close_content_description">Închide</string>
+    <string name="add_to_playlist_new_playlist">Playlist nou</string>
+    <string name="add_to_playlist_empty_title">Niciun playlist creat</string>
+    <string name="add_to_playlist_empty_body">Apasă \"Playlist nou\" pentru a crea unul imediat.</string>
+    <string name="add_to_playlist_name_prompt">Dă un nume playlistului tău:</string>
+    <string name="add_to_playlist_name_placeholder">Mixul meu preferat</string>
+    <string name="add_to_playlist_create_action">Creează și adaugă</string>
+    <string name="add_to_playlist_cancel_action">Anulează</string>
+    <plurals name="add_to_playlist_track_count">
+        <item quantity="one">1 melodie</item>
+        <item quantity="other">%1$d melodii</item>
+    </plurals>
+    <string name="add_to_playlist_already_added_content_description">Adăugat deja</string>
+    <string name="add_to_playlist_added">Adăugat</string>
+    <string name="add_to_playlist_add_content_description">Adaugă</string>
+</resources>

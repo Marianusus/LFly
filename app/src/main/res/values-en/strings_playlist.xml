@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_not_found_title">Playlist not found</string>
+    <string name="playlist_back_action">Go back</string>
+    <string name="playlist_title">Playlist</string>
+    <string name="playlist_reorder_title">Reorder songs</string>
+    <string name="playlist_reorder_finish_content_description">Finish reordering</string>
+    <string name="playlist_options_content_description">Playlist options</string>
+    <string name="playlist_edit_action">Edit playlist</string>
+    <string name="playlist_delete_action">Delete playlist</string>
+    <string name="playlist_empty_title">This playlist is empty</string>
+    <string name="playlist_empty_body">Add songs using the 3-dot menu (⋮) on any song in the app.</string>
+    <string name="playlist_tracks_count">Songs (%1$d)</string>
+    <string name="playlist_name_label">Name</string>
+    <string name="playlist_description_label">Description (optional)</string>
+    <string name="playlist_cover_url_label">Cover URL (optional)</string>
+    <string name="playlist_save_action">Save</string>
+    <string name="playlist_cancel_action">Cancel</string>
+    <string name="playlist_delete_confirm_title">Delete playlist?</string>
+    <string name="playlist_delete_confirm_message">Are you sure you want to delete \"%1$s\"? This action cannot be undone.</string>
+    <string name="playlist_delete_confirm_action">Delete</string>
+    <string name="playlist_creator_label">Created by You</string>
+    <plurals name="playlist_song_count">
+        <item quantity="one">1 song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+    <string name="playlist_duration_suffix">" • %1$s"</string>
+    <string name="playlist_play_action">Play</string>
+    <string name="playlist_shuffle_action">Shuffle</string>
+    <string name="playlist_shuffle_content_description">Shuffle</string>
+    <string name="playlist_playing_content_description">Now playing</string>
+    <string name="playlist_favorite_remove_content_description">Remove from favorites</string>
+    <string name="playlist_favorite_add_content_description">Add to favorites</string>
+    <string name="playlist_more_options_content_description">More options</string>
+    <string name="playlist_remove_from_playlist_action">Remove from playlist</string>
+    <string name="playlist_play_next_action">Play next</string>
+    <string name="playlist_add_to_queue_action">Add to queue</string>
+    <string name="playlist_add_to_playlist_action">Add to playlist</string>
+    <string name="playlist_drag_handle_content_description">Drag to reorder</string>
+</resources>

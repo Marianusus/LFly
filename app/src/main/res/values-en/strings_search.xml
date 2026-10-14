@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_title">Search</string>
+    <string name="search_field_placeholder">Songs, artists, podcasts, albums...</string>
+    <string name="search_clear_query">Clear search</string>
+
+    <string name="search_category_all">All</string>
+    <string name="search_category_tracks">Songs</string>
+    <string name="search_category_videos">Videos</string>
+    <string name="search_category_artists">Artists</string>
+    <string name="search_category_albums">Albums</string>
+    <string name="search_category_playlists">Playlists</string>
+
+    <string name="search_empty_results_title">No results</string>
+    <string name="search_empty_results_message">No results found for \"%1$s\"</string>
+    <string name="search_empty_tracks_title">No songs</string>
+    <string name="search_empty_tracks_message">No songs found for \"%1$s\"</string>
+    <string name="search_empty_videos_title">No videos</string>
+    <string name="search_empty_videos_message">No videos found for \"%1$s\"</string>
+    <string name="search_empty_artists_title">No artists</string>
+    <string name="search_empty_artists_message">No artists found for \"%1$s\"</string>
+    <string name="search_empty_albums_title">No albums</string>
+    <string name="search_empty_albums_message">No albums found for \"%1$s\"</string>
+    <string name="search_empty_playlists_title">No playlists</string>
+    <string name="search_empty_playlists_message">No playlists found for \"%1$s\"</string>
+
+    <string name="search_prompt_title">Find your favorite music</string>
+    <string name="search_prompt_message">Search songs, artists, and albums with lossless streaming and synced lyrics.</string>
+    <string name="search_popular_title">Popular searches</string>
+    <string name="search_suggestion_the_weeknd">The Weeknd</string>
+    <string name="search_suggestion_daft_punk">Daft Punk</string>
+    <string name="search_suggestion_billie_eilish">Billie Eilish</string>
+
+    <string name="search_youtube_badge">YouTube</string>
+    <string name="search_artist_badge">Artist</string>
+
+    <string name="search_top_result_header">Top Result</string>
+    <string name="search_top_result_badge">TOP RESULT</string>
+    <string name="search_top_result_subtitle">Song • %1$s</string>
+    <string name="search_play_desc">Play</string>
+
+    <string name="search_playlist_track_count">%1$d songs</string>
+</resources>

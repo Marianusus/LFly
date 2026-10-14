@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="add_to_playlist_title">Add to playlist</string>
+    <string name="add_to_playlist_close_content_description">Close</string>
+    <string name="add_to_playlist_new_playlist">New playlist</string>
+    <string name="add_to_playlist_empty_title">No playlists created</string>
+    <string name="add_to_playlist_empty_body">Tap \"New playlist\" to create one right away.</string>
+    <string name="add_to_playlist_name_prompt">Name your playlist:</string>
+    <string name="add_to_playlist_name_placeholder">My favorite mix</string>
+    <string name="add_to_playlist_create_action">Create and add</string>
+    <string name="add_to_playlist_cancel_action">Cancel</string>
+    <plurals name="add_to_playlist_track_count">
+        <item quantity="one">1 song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+    <string name="add_to_playlist_already_added_content_description">Already added</string>
+    <string name="add_to_playlist_added">Added</string>
+    <string name="add_to_playlist_add_content_description">Add</string>
+</resources>
