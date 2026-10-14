@@ -17,6 +17,7 @@ app/release/
 *.aab
 *.ap_
 *.dex
+/dist/
 
 # Keystores & secrets
 *.jks
