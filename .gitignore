@@ -40,3 +40,7 @@ keystore.properties
 
 # opencode / graphify local plugin
 /.opencode/
+
+# graphify knowledge-graph artifacts
+/graphify-out/
+/graphify.json
