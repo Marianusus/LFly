@@ -82,6 +82,11 @@ dependencies {
     implementation("com.google.mlkit:translate:17.0.3")
     implementation("com.google.mlkit:language-id:17.0.6")
 
+    // Party: nearby device discovery / transport + QR join
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
+    implementation("com.google.zxing:core:3.5.4")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

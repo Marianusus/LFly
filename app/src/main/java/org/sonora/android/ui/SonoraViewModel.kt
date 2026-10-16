@@ -70,6 +70,10 @@ import org.sonora.android.playback.EqualizerManager
 import org.sonora.android.playback.EqualizerPreset
 import org.sonora.android.playback.EqualizerState
 import org.sonora.android.playback.PlaybackManager
+import org.sonora.android.party.DiscoveredParty
+import org.sonora.android.party.PartyManager
+import org.sonora.android.party.PartyRole
+import org.sonora.android.party.PartyState
 import org.sonora.android.playback.RecommendationEngine
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.playback.TasteProfile
@@ -182,6 +186,7 @@ class SonoraViewModel @JvmOverloads constructor(
     val youTubeMusicClient: YouTubeMusicClient = YouTubeMusicClient(invidiousStreamResolver)
     val recommendationEngine: RecommendationEngine = playbackManager.recommendationEngine
     val equalizerManager: EqualizerManager = eqMgr ?: playbackManager.equalizerManager
+    val partyManager: PartyManager = PartyManager.getInstance(application)
     val spotifyPlaylistImporter: SpotifyPlaylistImporter by lazy {
         SpotifyPlaylistImporter(
             deezerClient = deezerClient,
@@ -199,6 +204,8 @@ class SonoraViewModel @JvmOverloads constructor(
 
     // Playback and Repository state streams
     val playbackState: StateFlow<PlaybackState> = playbackManager.playbackState
+    val partyState: StateFlow<PartyState> = partyManager.state
+    val partyDiscovered: StateFlow<List<DiscoveredParty>> = partyManager.discovered
     val favorites: StateFlow<List<Track>> = musicRepository.favorites
     val history: StateFlow<List<Track>> = musicRepository.history
     val playlists: StateFlow<List<Playlist>> = musicRepository.playlists
@@ -327,6 +334,10 @@ class SonoraViewModel @JvmOverloads constructor(
     // Queue Sheet state
     private val _isQueueSheetOpen = MutableStateFlow(false)
     val isQueueSheetOpen: StateFlow<Boolean> = _isQueueSheetOpen.asStateFlow()
+
+    // Party Sheet state
+    private val _isPartySheetOpen = MutableStateFlow(false)
+    val isPartySheetOpen: StateFlow<Boolean> = _isPartySheetOpen.asStateFlow()
 
     // Equalizer Modal State
     val equalizerState: StateFlow<EqualizerState> = equalizerManager.state
@@ -1030,7 +1041,11 @@ class SonoraViewModel @JvmOverloads constructor(
 
     /** Inserts [track] right after the currently playing one ("Riproduci dopo"). */
     fun addToQueueNext(track: Track) {
-        playbackManager.addNext(track)
+        if (partyManager.state.value.role == PartyRole.GUEST) {
+            partyManager.guestAddToQueue(track, asNext = true)
+        } else {
+            playbackManager.addNext(track)
+        }
     }
 
     fun playPrevious() {
@@ -1076,23 +1091,80 @@ class SonoraViewModel @JvmOverloads constructor(
         _isQueueSheetOpen.value = open
     }
 
+    // ==========================================
+    // Party (synchronized group listening)
+    // ==========================================
+
+    fun openPartySheet() {
+        _isPartySheetOpen.value = true
+    }
+
+    fun closePartySheet() {
+        _isPartySheetOpen.value = false
+    }
+
+    fun createParty() {
+        partyManager.clearError()
+        partyManager.startHosting()
+    }
+
+    fun scanForParties() {
+        partyManager.clearError()
+        partyManager.startDiscovery()
+    }
+
+    fun stopPartyScan() = partyManager.stopDiscovery()
+
+    fun joinParty(endpointId: String) = partyManager.join(endpointId)
+
+    fun joinPartyByCode(code: String) {
+        partyManager.clearError()
+        if (!partyManager.joinByCode(code)) {
+            Log.w("SonoraViewModel", "Invalid Party code: $code")
+        }
+    }
+
+    fun leaveParty() {
+        partyManager.leave()
+        _isPartySheetOpen.value = false
+    }
+
+    fun setPartyAllowGuestControl(allowed: Boolean) = partyManager.setAllowGuestControl(allowed)
+
+    fun setPartyAllowQueueAdd(allowed: Boolean) = partyManager.setAllowQueueAdd(allowed)
+
+    fun setPartyNudge(ms: Long) = partyManager.setNudge(ms)
+
+    fun clearPartyError() = partyManager.clearError()
+
     fun addToQueue(track: Track) {
-        playbackManager.addToQueue(track)
+        if (partyManager.state.value.role == PartyRole.GUEST) {
+            partyManager.guestAddToQueue(track, asNext = false)
+        } else {
+            playbackManager.addToQueue(track)
+        }
     }
 
     fun addToQueue(tracks: List<Track>) {
-        playbackManager.addToQueue(tracks)
+        if (partyManager.state.value.role == PartyRole.GUEST) {
+            tracks.forEach { partyManager.guestAddToQueue(it, asNext = false) }
+        } else {
+            playbackManager.addToQueue(tracks)
+        }
     }
 
     fun removeFromQueue(index: Int) {
+        if (partyManager.state.value.role == PartyRole.GUEST) return
         playbackManager.removeFromQueue(index)
     }
 
     fun clearQueue() {
+        if (partyManager.state.value.role == PartyRole.GUEST) return
         playbackManager.clearQueue()
     }
 
     fun moveQueueItem(from: Int, to: Int) {
+        if (partyManager.state.value.role == PartyRole.GUEST) return
         playbackManager.moveQueueItem(from, to)
     }
 

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_party">Party</string>
+
+    <string name="party_title">Party</string>
+    <string name="party_subtitle">Listen to the same song, each on your own headphones</string>
+
+    <string name="party_create">Create a Party</string>
+    <string name="party_join">Join</string>
+    <string name="party_leave">Leave</string>
+    <string name="party_end">End</string>
+
+    <string name="party_code_label">Party code</string>
+    <string name="party_show_qr">Show QR</string>
+    <string name="party_scan_qr">Scan QR</string>
+    <string name="party_enter_code">Enter code</string>
+    <string name="party_code_hint">ABC123</string>
+    <string name="party_code_invalid">Invalid code</string>
+
+    <string name="party_nearby_title">Nearby parties</string>
+    <string name="party_nearby_empty">No parties found. Move closer or use a code.</string>
+    <string name="party_connecting">Connecting…</string>
+    <string name="party_scanning">Scanning nearby…</string>
+    <string name="party_stop_scan">Stop</string>
+
+    <string name="party_you_are_host">You are the host</string>
+    <string name="party_guests">Guests</string>
+    <string name="party_connected_to">Connected to %1$s</string>
+
+    <string name="party_allow_control">Guests can change the song</string>
+    <string name="party_allow_queue">Guests can add to the queue</string>
+
+    <string name="party_sync">Synchronization</string>
+    <string name="party_synced">Synced</string>
+    <string name="party_syncing">Syncing…</string>
+    <string name="party_nudge">Headphone delay</string>
+    <string name="party_nudge_hint">Adjust if your audio sounds slightly behind the others.</string>
+
+    <string name="party_permissions">Bluetooth and network permissions are needed to find nearby devices.</string>
+    <string name="party_grant">Allow</string>
+
+    <string name="party_error_code_not_found">No Party with this code</string>
+    <string name="party_error_host_left">The host ended the Party</string>
+    <string name="party_error_host_disconnected">Lost connection to the host</string>
+    <string name="party_error_generic">Something went wrong</string>
+    <string name="party_error_unavailable">Party is not available on this device</string>
+    <string name="party_guest_not_available">This track is not available on your device</string>
+    <string name="party_action_not_allowed">Action not allowed by the host</string>
+
+    <plurals name="party_guest_count">
+        <item quantity="one">%d guest</item>
+        <item quantity="other">%d guests</item>
+    </plurals>
+</resources>

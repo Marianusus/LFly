@@ -40,10 +40,14 @@ import org.sonora.android.api.StreamResolver
 import org.sonora.android.api.StreamSource
 import org.sonora.android.api.Track
 import org.sonora.android.data.MusicRepository
+import org.sonora.android.party.SyncEngine
 import java.io.File
 import android.media.MediaMetadataRetriever
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+
+/** Transport actions a Party guest forwards to its host instead of playing locally. */
+enum class PartyTransportAction { PLAY_PAUSE, PLAY, PAUSE, NEXT, PREVIOUS, SEEK }
 
 /**
  * Central singleton managing player state, track queues, playback controls,
@@ -126,6 +130,70 @@ class PlaybackManager private constructor(private val context: Context) {
 
     // Pending action in case play is requested before service is attached
     private var pendingPlayTrack: Track? = null
+
+    // ── Party (group listening) hooks ────────────────────────────────────────
+    /** True while this device follows a Party host: autoplay/queue logic is suspended. */
+    @Volatile
+    var partyGuestMode: Boolean = false
+
+    /** Returns true when the Party layer already handled the action (guest forwarding). */
+    @Volatile
+    var partyTransportHandler: ((PartyTransportAction, Long) -> Boolean)? = null
+
+    /** Set while applying a host state so transport calls don't bounce back to the host. */
+    @Volatile
+    private var partyApplyingRemote: Boolean = false
+
+    private fun forwardToParty(action: PartyTransportAction, positionMs: Long = 0L): Boolean {
+        if (partyApplyingRemote) return false
+        return partyTransportHandler?.invoke(action, positionMs) == true
+    }
+
+    /**
+     * Applies a playback state pushed by the Party host (guest side).
+     *
+     * [targetPositionMs] is already compensated for clock offset and the local
+     * headphone nudge by the caller; the shared [SyncEngine] decides whether the
+     * local player actually needs a seek, so small drift is left alone.
+     */
+    fun applyRemoteState(
+        track: Track?,
+        targetPositionMs: Long,
+        isPlaying: Boolean
+    ) {
+        partyApplyingRemote = true
+        try {
+            val state = _playbackState.value
+            val current = state.currentTrack
+            if (track == null) return
+
+            if (current?.id != track.id) {
+                val index = state.queue.indexOfFirst { it.id == track.id }
+                if (index >= 0) {
+                    playFromQueueIndex(index)
+                } else {
+                    playTrack(track, state.sourceContext)
+                }
+                return
+            }
+
+            val p = player ?: return
+            if (SyncEngine.shouldSeek(p.currentPosition, targetPositionMs, isPlaying)) {
+                seekTo(targetPositionMs)
+            }
+            if (isPlaying) {
+                if (!p.isPlaying) {
+                    if (p.playbackState == Player.STATE_IDLE) resumeOrRecover() else p.play()
+                }
+            } else if (p.isPlaying) {
+                p.pause()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply remote Party state", e)
+        } finally {
+            partyApplyingRemote = false
+        }
+    }
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -355,6 +423,7 @@ class PlaybackManager private constructor(private val context: Context) {
      * Toggles play/pause state.
      */
     fun togglePlayPause() {
+        if (forwardToParty(PartyTransportAction.PLAY_PAUSE)) return
         val p = player
         if (p == null) {
             val current = _playbackState.value.currentTrack
@@ -372,6 +441,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun play() {
+        if (forwardToParty(PartyTransportAction.PLAY)) return
         resumeOrRecover()
     }
 
@@ -428,17 +498,39 @@ class PlaybackManager private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * Mirrors the host's queue on a Party guest without touching playback.
+     *
+     * The guest queue is read-only: it is whatever the host broadcasts, so autoplay
+     * and local queue edits are intentionally not applied here.
+     */
+    fun mirrorRemoteQueue(tracks: List<Track>, currentIndex: Int) {
+        if (tracks.isEmpty()) return
+        val sanitized = tracks.map { sanitizeTrack(it) }
+        val index = currentIndex.coerceIn(0, sanitized.lastIndex)
+        _playbackState.update {
+            it.copy(
+                queue = sanitized,
+                currentIndex = index,
+                userQueueSize = sanitized.size
+            )
+        }
+    }
+
     fun pause() {
+        if (forwardToParty(PartyTransportAction.PAUSE)) return
         player?.pause()
     }
 
     fun seekTo(positionMs: Long) {
+        if (forwardToParty(PartyTransportAction.SEEK, positionMs)) return
         val clamped = positionMs.coerceAtLeast(0L)
         _playbackState.update { it.copy(positionMs = clamped) }
         player?.seekTo(clamped)
     }
 
     fun playNext() {
+        if (forwardToParty(PartyTransportAction.NEXT)) return
         val state = _playbackState.value
         val queue = state.queue
         if (queue.isEmpty()) return
@@ -478,6 +570,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun playPrevious() {
+        if (forwardToParty(PartyTransportAction.PREVIOUS)) return
         val p = player
         val currentPos = p?.currentPosition ?: _playbackState.value.positionMs
 
@@ -1060,6 +1153,8 @@ class PlaybackManager private constructor(private val context: Context) {
             val playedMs = if (state.positionMs > 0L) state.positionMs else state.durationMs
             musicRepository.recordCompletion(track, playedMs)
         }
+        // In a Party the host owns the queue: wait for its next STATE instead of advancing.
+        if (partyGuestMode) return
         when (state.repeatMode) {
             RepeatMode.ONE -> {
                 seekTo(0L)
@@ -1104,6 +1199,8 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     private fun triggerAutoplay(seedTrack: Track, playImmediately: Boolean = false) {
+        // The host drives the queue during a Party; guests never self-expand it.
+        if (partyGuestMode) return
         if (isFetchingAutoplay) return
         isFetchingAutoplay = true
 

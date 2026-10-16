@@ -41,6 +41,7 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 - **Queue, autoplay, shuffle & repeat** — autoplay appends style/genre recommendations to keep the music going.
 - **Word‑level synced lyrics** — karaoke highlighting powered by Kugou (KRC) and LRCLIB, with **on‑device translation** via ML Kit.
 - **Background & lock‑screen playback** — a Media3 `MediaSessionService` with notification controls, Quick Settings tiles, Bluetooth/headset buttons and album art.
+- **Party — synchronized group listening** — start a session and nearby friends (Android + LFly) join by tapping the nearby list, a **QR code** or a **6‑character code**. Everyone hears the same track on their own headphones, with clock-synced playback, host-controlled guest permissions and a per-device headphone-delay nudge.
 - **Discover** — European Top Charts, full YouTube Music search (songs / videos / artists / albums / playlists) and rich artist pages.
 - **Import** — Spotify playlist and data‑export importers.
 - **Local music** — play audio you push to the device (see the helper script below).
@@ -99,6 +100,8 @@ If you enjoy LFly and want to support its development:
 ## Disclaimer
 
 LFly is an **unofficial**, personal/educational project and is **not affiliated** with YouTube, Google, Spotify, Monochrome or sonorahq. It does **not host or distribute** any audio content; it only resolves streams from third‑party sources. Use it responsibly and at your own risk.
+
+**Permissions:** besides network access, the **Party** feature uses Bluetooth (scan/advertise/connect) and Wi‑Fi/nearby‑devices permissions — plus location on Android 11 and below — solely to discover and pair with nearby devices on your local network. No device location is collected or transmitted, and no audio is relayed between devices.
 
 ## License
 

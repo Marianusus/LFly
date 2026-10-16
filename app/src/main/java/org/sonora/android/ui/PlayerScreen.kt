@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -135,6 +136,8 @@ fun PlayerScreen(
     onToggleLyrics: () -> Unit,
     onOpenQueue: () -> Unit = {},
     onOpenEqualizer: () -> Unit = {},
+    onOpenParty: () -> Unit = {},
+    isPartyActive: Boolean = false,
     onArtistClick: (String) -> Unit = {},
     translateLyrics: Boolean = false,
     targetLang: String = "it",
@@ -778,31 +781,33 @@ fun PlayerScreen(
                         )
                     }
 
-                    // EQ pill button
+                    // Party pill button
                     Row(
                         modifier = Modifier
                             .liquidGlass(
                                 shape = pillShape,
-                                backgroundColor = Color(0xFFFFFFFF).copy(alpha = 0.08f),
-                                borderColor = SonoraTheme.colors.cardBorder
+                                backgroundColor = if (isPartyActive) scheme.accent.copy(alpha = 0.22f)
+                                else Color(0xFFFFFFFF).copy(alpha = 0.08f),
+                                borderColor = if (isPartyActive) scheme.accent.copy(alpha = 0.40f)
+                                else SonoraTheme.colors.cardBorder
                             )
-                            .clickable(onClick = onOpenEqualizer)
+                            .clickable(onClick = onOpenParty)
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Equalizer,
-                            contentDescription = stringResource(R.string.player_equalizer),
-                            tint = scheme.accent,
+                            imageVector = Icons.Default.Groups,
+                            contentDescription = stringResource(R.string.player_party),
+                            tint = if (isPartyActive) scheme.accent else scheme.accent,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = stringResource(R.string.player_eq),
+                            text = stringResource(R.string.player_party),
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.SemiBold
                             ),
-                            color = SonoraTextPrimary
+                            color = if (isPartyActive) scheme.accent else SonoraTextPrimary
                         )
                     }
 

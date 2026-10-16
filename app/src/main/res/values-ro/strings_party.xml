@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_party">Party</string>
+
+    <string name="party_title">Party</string>
+    <string name="party_subtitle">Ascultați aceeași melodie, fiecare cu căștile lui</string>
+
+    <string name="party_create">Creează un Party</string>
+    <string name="party_join">Alătură-te</string>
+    <string name="party_leave">Ieși</string>
+    <string name="party_end">Încheie</string>
+
+    <string name="party_code_label">Codul Party</string>
+    <string name="party_show_qr">Arată QR</string>
+    <string name="party_scan_qr">Scanează QR</string>
+    <string name="party_enter_code">Introdu codul</string>
+    <string name="party_code_hint">ABC123</string>
+    <string name="party_code_invalid">Cod invalid</string>
+
+    <string name="party_nearby_title">Party-uri din apropiere</string>
+    <string name="party_nearby_empty">Nu s-a găsit niciun Party. Apropie-te sau folosește codul.</string>
+    <string name="party_connecting">Se conectează…</string>
+    <string name="party_scanning">Se caută în apropiere…</string>
+    <string name="party_stop_scan">Oprește</string>
+
+    <string name="party_you_are_host">Ești host</string>
+    <string name="party_guests">Oaspeți</string>
+    <string name="party_connected_to">Conectat la %1$s</string>
+
+    <string name="party_allow_control">Oaspeții pot schimba melodia</string>
+    <string name="party_allow_queue">Oaspeții pot adăuga în coadă</string>
+
+    <string name="party_sync">Sincronizare</string>
+    <string name="party_synced">Sincronizat</string>
+    <string name="party_syncing">Se sincronizează…</string>
+    <string name="party_nudge">Întârziere căști</string>
+    <string name="party_nudge_hint">Ajustează dacă audio-ul tău se aude puțin în urmă față de ceilalți.</string>
+
+    <string name="party_permissions">Sunt necesare permisiunile Bluetooth și rețea pentru a găsi dispozitivele din apropiere.</string>
+    <string name="party_grant">Permite</string>
+
+    <string name="party_error_code_not_found">Niciun Party cu acest cod</string>
+    <string name="party_error_host_left">Hostul a încheiat Party-ul</string>
+    <string name="party_error_host_disconnected">Conexiunea cu hostul s-a pierdut</string>
+    <string name="party_error_generic">Ceva nu a funcționat</string>
+    <string name="party_error_unavailable">Party nu este disponibil pe acest dispozitiv</string>
+    <string name="party_guest_not_available">Această melodie nu este disponibilă pe dispozitivul tău</string>
+    <string name="party_action_not_allowed">Acțiune nepermisă de host</string>
+
+    <plurals name="party_guest_count">
+        <item quantity="one">%d oaspete</item>
+        <item quantity="other">%d oaspeți</item>
+    </plurals>
+</resources>

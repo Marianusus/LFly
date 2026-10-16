@@ -1,6 +1,8 @@
 package org.sonora.android.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -48,6 +50,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,8 +71,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.sonora.android.R
 import org.sonora.android.api.Track
+import org.sonora.android.party.PartyPermissions
+import org.sonora.android.party.PartyRole
 import org.sonora.android.ui.components.AddToPlaylistDialog
 import org.sonora.android.ui.components.BottomChrome
+import org.sonora.android.ui.components.PartyBottomSheet
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.components.chromeSurface
 import org.sonora.android.ui.components.EqualizerDialog
@@ -152,6 +158,17 @@ fun MainScreen(
     val lyrics by viewModel.lyrics.collectAsState()
     val isLoadingLyrics by viewModel.isLoadingLyrics.collectAsState()
     val isQueueSheetOpen by viewModel.isQueueSheetOpen.collectAsState()
+    val isPartySheetOpen by viewModel.isPartySheetOpen.collectAsState()
+    val partyState by viewModel.partyState.collectAsState()
+    val partyDiscovered by viewModel.partyDiscovered.collectAsState()
+    val partyContext = LocalContext.current
+    var partyPermissionsGranted by remember { mutableStateOf(PartyPermissions.granted(partyContext)) }
+    val partyPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { partyPermissionsGranted = PartyPermissions.granted(partyContext) }
+    LaunchedEffect(isPartySheetOpen) {
+        if (isPartySheetOpen) partyPermissionsGranted = PartyPermissions.granted(partyContext)
+    }
     val isEqualizerDialogOpen by viewModel.isEqualizerDialogOpen.collectAsState()
     val equalizerState by viewModel.equalizerState.collectAsState()
     val trackToAddToPlaylist by viewModel.trackToAddToPlaylist.collectAsState()
@@ -825,6 +842,8 @@ fun MainScreen(
                     onToggleLyrics = { viewModel.toggleLyricsOpen() },
                     onOpenQueue = { viewModel.openQueueSheet() },
                     onOpenEqualizer = { viewModel.openEqualizerDialog() },
+                    onOpenParty = { viewModel.openPartySheet() },
+                    isPartyActive = partyState.role != PartyRole.IDLE,
                     onArtistClick = { artist ->
                         viewModel.setPlayerExpanded(false)
                         viewModel.openArtistByName(artist)
@@ -862,6 +881,27 @@ fun MainScreen(
                 onToggleAutoplay = { viewModel.toggleAutoplay() },
                 onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
                 sourceActions = trackSourceActions
+            )
+        }
+
+        // Party Bottom Sheet
+        if (isPartySheetOpen) {
+            PartyBottomSheet(
+                isOpen = isPartySheetOpen,
+                state = partyState,
+                discovered = partyDiscovered,
+                permissionsGranted = partyPermissionsGranted,
+                onDismissRequest = { viewModel.closePartySheet() },
+                onCreate = { viewModel.createParty() },
+                onScan = { viewModel.scanForParties() },
+                onStopScan = { viewModel.stopPartyScan() },
+                onJoin = { endpointId -> viewModel.joinParty(endpointId) },
+                onJoinByCode = { code -> viewModel.joinPartyByCode(code) },
+                onLeave = { viewModel.leaveParty() },
+                onToggleAllowControl = { viewModel.setPartyAllowGuestControl(it) },
+                onToggleAllowQueue = { viewModel.setPartyAllowQueueAdd(it) },
+                onNudgeChange = { viewModel.setPartyNudge(it) },
+                onRequestPermissions = { partyPermissionLauncher.launch(PartyPermissions.required().toTypedArray()) }
             )
         }
 

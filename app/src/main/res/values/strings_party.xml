@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_party">Party</string>
+
+    <string name="party_title">Party</string>
+    <string name="party_subtitle">Ascoltate la stessa canzone, ognuno con le proprie cuffie</string>
+
+    <string name="party_create">Crea una Party</string>
+    <string name="party_join">Unisciti</string>
+    <string name="party_leave">Esci</string>
+    <string name="party_end">Termina</string>
+
+    <string name="party_code_label">Codice Party</string>
+    <string name="party_show_qr">Mostra QR</string>
+    <string name="party_scan_qr">Scansiona QR</string>
+    <string name="party_enter_code">Inserisci codice</string>
+    <string name="party_code_hint">ABC123</string>
+    <string name="party_code_invalid">Codice non valido</string>
+
+    <string name="party_nearby_title">Party nelle vicinanze</string>
+    <string name="party_nearby_empty">Nessuna Party trovata. Avvicinati o usa il codice.</string>
+    <string name="party_connecting">Connessione…</string>
+    <string name="party_scanning">Ricerca nei dintorni…</string>
+    <string name="party_stop_scan">Ferma</string>
+
+    <string name="party_you_are_host">Sei l’host</string>
+    <string name="party_guests">Ospiti</string>
+    <string name="party_connected_to">Connesso a %1$s</string>
+
+    <string name="party_allow_control">Gli ospiti possono cambiare brano</string>
+    <string name="party_allow_queue">Gli ospiti possono aggiungere alla coda</string>
+
+    <string name="party_sync">Sincronizzazione</string>
+    <string name="party_synced">Sincronizzato</string>
+    <string name="party_syncing">Sincronizzazione in corso…</string>
+    <string name="party_nudge">Ritardo cuffie</string>
+    <string name="party_nudge_hint">Regola se senti il tuo audio leggermente in ritardo rispetto agli altri.</string>
+
+    <string name="party_permissions">Per trovare i dispositivi vicini servono i permessi Bluetooth e rete.</string>
+    <string name="party_grant">Consenti</string>
+
+    <string name="party_error_code_not_found">Nessuna Party con questo codice</string>
+    <string name="party_error_host_left">L’host ha chiuso la Party</string>
+    <string name="party_error_host_disconnected">Connessione con l’host persa</string>
+    <string name="party_error_generic">Qualcosa è andato storto</string>
+    <string name="party_error_unavailable">Party non disponibile su questo dispositivo</string>
+    <string name="party_guest_not_available">Questa traccia non è disponibile sul tuo dispositivo</string>
+    <string name="party_action_not_allowed">Azione non consentita dall’host</string>
+
+    <plurals name="party_guest_count">
+        <item quantity="one">%d ospite</item>
+        <item quantity="other">%d ospiti</item>
+    </plurals>
+</resources>
