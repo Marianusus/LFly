@@ -10,17 +10,24 @@ import kotlin.math.abs
  */
 object SyncEngine {
 
-    /** Drift above which a playing guest re-seeks (small drift is not worth an audible jump). */
-    const val SEEK_THRESHOLD_MS = 150L
+    /** Drift below this is ignored: correcting it is not worth any audible artefact. */
+    const val SMALL_DRIFT_MS = 40L
 
-    /** Drift beyond this is treated as a realignment (track start / jump) and always corrected. */
-    const val HARD_RESYNC_MS = 2_000L
+    /** Drift at or above this is corrected with a seek; below it, with playback speed. */
+    const val DRIFT_SEEK_MS = 400L
+
+    /** Playback-speed nudge (time-stretch, no pitch change) used to converge small drift. */
+    const val SPEED_UP = 1.02f
+    const val SLOW_DOWN = 0.98f
 
     /** Manual per-device headphone-latency compensation range (Bluetooth codecs differ). */
     const val NUDGE_RANGE_MS = 500L
 
     /** Default head start given to guests to resolve/prefetch a new track before it starts. */
     const val DEFAULT_START_LEAD_MS = 800L
+
+    /** How a guest should react to the current drift. */
+    enum class DriftAction { NONE, SPEED_UP, SLOW_DOWN, SEEK }
 
     /**
      * Position the guest should be at right now.
@@ -49,10 +56,18 @@ object SyncEngine {
         return (statePositionMs + elapsed - nudgeMs).coerceAtLeast(0L)
     }
 
-    /** True when the guest must seek to realign. */
-    fun shouldSeek(currentPositionMs: Long, targetPositionMs: Long, isPlaying: Boolean): Boolean {
-        val drift = abs(currentPositionMs - targetPositionMs)
-        return drift > HARD_RESYNC_MS || (isPlaying && drift > SEEK_THRESHOLD_MS)
+    /**
+     * Prefers smooth speed correction over seeking: seeking at every heartbeat is what
+     * caused audible micro-stops, so only large drift is corrected with a hard seek.
+     */
+    fun driftAction(currentPositionMs: Long, targetPositionMs: Long, isPlaying: Boolean): DriftAction {
+        if (!isPlaying) return DriftAction.NONE
+        val drift = targetPositionMs - currentPositionMs
+        return when {
+            abs(drift) >= DRIFT_SEEK_MS -> DriftAction.SEEK
+            abs(drift) >= SMALL_DRIFT_MS -> if (drift > 0) DriftAction.SPEED_UP else DriftAction.SLOW_DOWN
+            else -> DriftAction.NONE
+        }
     }
 
     /** Milliseconds to wait before starting a scheduled track (0 = start now). */

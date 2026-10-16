@@ -90,15 +90,43 @@ class SyncEngineTest {
     }
 
     @Test
-    fun smallDriftIsNotWorthASeek() {
-        assertFalse(SyncEngine.shouldSeek(currentPositionMs = 10_000L, targetPositionMs = 10_100L, isPlaying = true))
-        assertTrue(SyncEngine.shouldSeek(currentPositionMs = 10_000L, targetPositionMs = 10_200L, isPlaying = true))
+    fun tinyDriftIsLeftAlone() {
+        assertEquals(
+            SyncEngine.DriftAction.NONE,
+            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 10_020L, isPlaying = true)
+        )
     }
 
     @Test
-    fun pausedDevicesOnlyResyncOnHardJumps() {
-        assertFalse(SyncEngine.shouldSeek(currentPositionMs = 10_000L, targetPositionMs = 10_500L, isPlaying = false))
-        assertTrue(SyncEngine.shouldSeek(currentPositionMs = 10_000L, targetPositionMs = 13_000L, isPlaying = false))
+    fun smallDriftIsCorrectedWithSpeedNotASeek() {
+        assertEquals(
+            SyncEngine.DriftAction.SPEED_UP,
+            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 10_150L, isPlaying = true)
+        )
+        assertEquals(
+            SyncEngine.DriftAction.SLOW_DOWN,
+            SyncEngine.driftAction(currentPositionMs = 10_150L, targetPositionMs = 10_000L, isPlaying = true)
+        )
+    }
+
+    @Test
+    fun largeDriftFallsBackToASeek() {
+        assertEquals(
+            SyncEngine.DriftAction.SEEK,
+            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 10_500L, isPlaying = true)
+        )
+        assertEquals(
+            SyncEngine.DriftAction.SEEK,
+            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 4_000L, isPlaying = true)
+        )
+    }
+
+    @Test
+    fun pausedGuestsAreNeverResynced() {
+        assertEquals(
+            SyncEngine.DriftAction.NONE,
+            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 40_000L, isPlaying = false)
+        )
     }
 
     @Test

@@ -11,6 +11,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -153,8 +154,9 @@ class PlaybackManager private constructor(private val context: Context) {
      * Applies a playback state pushed by the Party host (guest side).
      *
      * [targetPositionMs] is already compensated for clock offset and the local
-     * headphone nudge by the caller; the shared [SyncEngine] decides whether the
-     * local player actually needs a seek, so small drift is left alone.
+     * headphone nudge by the caller. Small drift is corrected with a gentle playback-speed
+     * change (no audible gap); only large drift triggers a seek, avoiding the micro-stops
+     * that seeking on every heartbeat used to cause.
      */
     fun applyRemoteState(
         track: Track?,
@@ -168,6 +170,7 @@ class PlaybackManager private constructor(private val context: Context) {
             if (track == null) return
 
             if (current?.id != track.id) {
+                player?.setPlaybackParameters(PlaybackParameters.DEFAULT)
                 val index = state.queue.indexOfFirst { it.id == track.id }
                 if (index >= 0) {
                     playFromQueueIndex(index)
@@ -178,15 +181,28 @@ class PlaybackManager private constructor(private val context: Context) {
             }
 
             val p = player ?: return
-            if (SyncEngine.shouldSeek(p.currentPosition, targetPositionMs, isPlaying)) {
-                seekTo(targetPositionMs)
+
+            if (!isPlaying) {
+                p.setPlaybackParameters(PlaybackParameters.DEFAULT)
+                if (p.isPlaying) p.pause()
+                return
             }
-            if (isPlaying) {
-                if (!p.isPlaying) {
-                    if (p.playbackState == Player.STATE_IDLE) resumeOrRecover() else p.play()
+
+            when (SyncEngine.driftAction(p.currentPosition, targetPositionMs, true)) {
+                SyncEngine.DriftAction.SEEK -> {
+                    p.setPlaybackParameters(PlaybackParameters.DEFAULT)
+                    seekTo(targetPositionMs)
                 }
-            } else if (p.isPlaying) {
-                p.pause()
+                SyncEngine.DriftAction.SPEED_UP ->
+                    p.setPlaybackParameters(PlaybackParameters(SyncEngine.SPEED_UP, 1f))
+                SyncEngine.DriftAction.SLOW_DOWN ->
+                    p.setPlaybackParameters(PlaybackParameters(SyncEngine.SLOW_DOWN, 1f))
+                SyncEngine.DriftAction.NONE ->
+                    p.setPlaybackParameters(PlaybackParameters.DEFAULT)
+            }
+
+            if (!p.isPlaying) {
+                if (p.playbackState == Player.STATE_IDLE) resumeOrRecover() else p.play()
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to apply remote Party state", e)
@@ -194,6 +210,9 @@ class PlaybackManager private constructor(private val context: Context) {
             partyApplyingRemote = false
         }
     }
+
+    /** Live playback position (the state flow's value can lag behind the ticker). */
+    fun livePositionMs(): Long = player?.currentPosition ?: _playbackState.value.positionMs
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {

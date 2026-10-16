@@ -370,6 +370,7 @@ class PartyManager private constructor(private val context: Context) {
     }
 
     private fun applyState(message: PartyMessage.State) {
+        lastHostPlaying = message.isPlaying
         val track = message.track?.toTrack()
         val offset = clock.offsetMs() ?: 0L
         val nudge = _state.value.nudgeMs
@@ -418,8 +419,9 @@ class PartyManager private constructor(private val context: Context) {
             while (isActive) {
                 val s = playback.playbackState.value
                 val tick = now()
+                val live = playback.livePositionMs()
                 val expected = lastPosition + if (lastPlaying) (tick - lastTick) else 0L
-                val seeked = abs(s.positionMs - expected) > 1_200L
+                val seeked = abs(live - expected) > 1_200L
                 val queueSig = "${s.queue.size}:${s.currentIndex}:${s.queue.firstOrNull()?.id}:${s.queue.lastOrNull()?.id}"
                 val changed = s.currentTrack?.id != lastTrackId ||
                     s.isPlaying != lastPlaying ||
@@ -435,7 +437,7 @@ class PartyManager private constructor(private val context: Context) {
                     lastPlaying = s.isPlaying
                     lastIndex = s.currentIndex
                     lastQueueSig = queueSig
-                    lastPosition = s.positionMs
+                    lastPosition = live
                     lastTick = tick
                 }
                 delay(500L)
@@ -482,7 +484,7 @@ class PartyManager private constructor(private val context: Context) {
         broadcast(
             PartyMessage.State(
                 track = s.currentTrack?.let { PartyTrack.from(it) },
-                positionMs = s.positionMs,
+                positionMs = playback.livePositionMs(),
                 isPlaying = s.isPlaying,
                 startsAtHostMs = startAt,
                 seq = seq
@@ -496,7 +498,7 @@ class PartyManager private constructor(private val context: Context) {
             endpointId,
             PartyMessage.State(
                 track = s.currentTrack?.let { PartyTrack.from(it) },
-                positionMs = s.positionMs,
+                positionMs = playback.livePositionMs(),
                 isPlaying = s.isPlaying,
                 startsAtHostMs = now(),
                 seq = ++seq
