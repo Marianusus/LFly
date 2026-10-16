@@ -138,11 +138,15 @@ class SonoraMediaSessionService : MediaSessionService() {
                     .build()
             }
 
-            // Route every play request (notification, lock screen, media button, Bluetooth)
-            // through recovery so a player stuck in STATE_IDLE after an error actually
-            // restarts instead of ignoring a bare play().
+            // Route every play/pause request (notification, lock screen, media button,
+            // Bluetooth, Quick Settings) through PlaybackManager so recovery works and a
+            // Party guest forwards the command to its host instead of acting locally.
             override fun play() {
-                PlaybackManager.getInstance(this@SonoraMediaSessionService).resumeOrRecover()
+                PlaybackManager.getInstance(this@SonoraMediaSessionService).play()
+            }
+
+            override fun pause() {
+                PlaybackManager.getInstance(this@SonoraMediaSessionService).pause()
             }
 
             override fun seekToNext() {

@@ -145,6 +145,10 @@ class PlaybackManager private constructor(private val context: Context) {
     @Volatile
     private var partyApplyingRemote: Boolean = false
 
+    /** Last drift correction applied to a Party guest (hysteresis state). */
+    @Volatile
+    private var partyDriftAction: SyncEngine.DriftAction = SyncEngine.DriftAction.NONE
+
     private fun forwardToParty(action: PartyTransportAction, positionMs: Long = 0L): Boolean {
         if (partyApplyingRemote) return false
         return partyTransportHandler?.invoke(action, positionMs) == true
@@ -154,15 +158,10 @@ class PlaybackManager private constructor(private val context: Context) {
      * Applies a playback state pushed by the Party host (guest side).
      *
      * [targetPositionMs] is already compensated for clock offset and the local
-     * headphone nudge by the caller. Small drift is corrected with a gentle playback-speed
-     * change (no audible gap); only large drift triggers a seek, avoiding the micro-stops
-     * that seeking on every heartbeat used to cause.
+     * headphone nudge by the caller. When the host is on a different track, the guest
+     * switches to it; otherwise only the position/playing state is corrected.
      */
-    fun applyRemoteState(
-        track: Track?,
-        targetPositionMs: Long,
-        isPlaying: Boolean
-    ) {
+    fun applyRemoteState(track: Track?, targetPositionMs: Long, isPlaying: Boolean) {
         partyApplyingRemote = true
         try {
             val state = _playbackState.value
@@ -171,6 +170,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
             if (current?.id != track.id) {
                 player?.setPlaybackParameters(PlaybackParameters.DEFAULT)
+                partyDriftAction = SyncEngine.DriftAction.NONE
                 val index = state.queue.indexOfFirst { it.id == track.id }
                 if (index >= 0) {
                     playFromQueueIndex(index)
@@ -180,35 +180,69 @@ class PlaybackManager private constructor(private val context: Context) {
                 return
             }
 
-            val p = player ?: return
-
-            if (!isPlaying) {
-                p.setPlaybackParameters(PlaybackParameters.DEFAULT)
-                if (p.isPlaying) p.pause()
-                return
-            }
-
-            when (SyncEngine.driftAction(p.currentPosition, targetPositionMs, true)) {
-                SyncEngine.DriftAction.SEEK -> {
-                    p.setPlaybackParameters(PlaybackParameters.DEFAULT)
-                    seekTo(targetPositionMs)
-                }
-                SyncEngine.DriftAction.SPEED_UP ->
-                    p.setPlaybackParameters(PlaybackParameters(SyncEngine.SPEED_UP, 1f))
-                SyncEngine.DriftAction.SLOW_DOWN ->
-                    p.setPlaybackParameters(PlaybackParameters(SyncEngine.SLOW_DOWN, 1f))
-                SyncEngine.DriftAction.NONE ->
-                    p.setPlaybackParameters(PlaybackParameters.DEFAULT)
-            }
-
-            if (!p.isPlaying) {
-                if (p.playbackState == Player.STATE_IDLE) resumeOrRecover() else p.play()
-            }
+            applyRemotePositionLocked(targetPositionMs, isPlaying)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to apply remote Party state", e)
         } finally {
             partyApplyingRemote = false
         }
+    }
+
+    /**
+     * Corrects the guest's position/playing state only, never changing the track.
+     * Safe to call repeatedly (used to realign right after a new track starts).
+     */
+    fun applyRemotePosition(targetPositionMs: Long, isPlaying: Boolean) {
+        partyApplyingRemote = true
+        try {
+            applyRemotePositionLocked(targetPositionMs, isPlaying)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply remote Party position", e)
+        } finally {
+            partyApplyingRemote = false
+        }
+    }
+
+    private fun applyRemotePositionLocked(targetPositionMs: Long, isPlaying: Boolean) {
+        val p = player ?: return
+
+        if (!isPlaying) {
+            p.setPlaybackParameters(PlaybackParameters.DEFAULT)
+            partyDriftAction = SyncEngine.DriftAction.NONE
+            if (p.isPlaying) p.pause()
+            return
+        }
+
+        val drift = targetPositionMs - p.currentPosition
+        when (SyncEngine.driftAction(drift, true, partyDriftAction)) {
+            SyncEngine.DriftAction.SEEK -> {
+                p.setPlaybackParameters(PlaybackParameters.DEFAULT)
+                partyDriftAction = SyncEngine.DriftAction.NONE
+                seekTo(targetPositionMs)
+            }
+            SyncEngine.DriftAction.SPEED_UP -> {
+                partyDriftAction = SyncEngine.DriftAction.SPEED_UP
+                p.setPlaybackParameters(PlaybackParameters(SyncEngine.SPEED_UP, 1f))
+            }
+            SyncEngine.DriftAction.SLOW_DOWN -> {
+                partyDriftAction = SyncEngine.DriftAction.SLOW_DOWN
+                p.setPlaybackParameters(PlaybackParameters(SyncEngine.SLOW_DOWN, 1f))
+            }
+            SyncEngine.DriftAction.NONE -> {
+                partyDriftAction = SyncEngine.DriftAction.NONE
+                p.setPlaybackParameters(PlaybackParameters.DEFAULT)
+            }
+        }
+
+        if (!p.isPlaying) {
+            if (p.playbackState == Player.STATE_IDLE) resumeOrRecover() else p.play()
+        }
+    }
+
+    /** Restores normal playback speed and clears Party drift state (called when leaving a Party). */
+    fun resetPartyPlaybackAdjustments() {
+        partyDriftAction = SyncEngine.DriftAction.NONE
+        player?.setPlaybackParameters(PlaybackParameters.DEFAULT)
     }
 
     /** Live playback position (the state flow's value can lag behind the ticker). */

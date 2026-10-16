@@ -10,11 +10,14 @@ import kotlin.math.abs
  */
 object SyncEngine {
 
-    /** Drift below this is ignored: correcting it is not worth any audible artefact. */
+    /** Below this the guest is left alone: no correction is worth the artefact. */
     const val SMALL_DRIFT_MS = 40L
 
-    /** Drift at or above this is corrected with a seek; below it, with playback speed. */
-    const val DRIFT_SEEK_MS = 400L
+    /** Above this a speed nudge starts; between [SMALL_DRIFT_MS] and this the previous action is held (hysteresis). */
+    const val ENTER_SPEED_MS = 150L
+
+    /** Above this a hard seek is used instead of a speed nudge. */
+    const val DRIFT_SEEK_MS = 500L
 
     /** Playback-speed nudge (time-stretch, no pitch change) used to converge small drift. */
     const val SPEED_UP = 1.02f
@@ -57,16 +60,20 @@ object SyncEngine {
     }
 
     /**
-     * Prefers smooth speed correction over seeking: seeking at every heartbeat is what
-     * caused audible micro-stops, so only large drift is corrected with a hard seek.
+     * Next correction for a guest, with hysteresis: a speed nudge starts above
+     * [ENTER_SPEED_MS] and only stops below [SMALL_DRIFT_MS], so the correction does not
+     * flip-flop on every heartbeat (which was audible as a wobble).
+     *
+     * @param driftMs `target − current` (positive = the guest is behind and must catch up)
      */
-    fun driftAction(currentPositionMs: Long, targetPositionMs: Long, isPlaying: Boolean): DriftAction {
+    fun driftAction(driftMs: Long, isPlaying: Boolean, previous: DriftAction): DriftAction {
         if (!isPlaying) return DriftAction.NONE
-        val drift = targetPositionMs - currentPositionMs
+        val magnitude = abs(driftMs)
         return when {
-            abs(drift) >= DRIFT_SEEK_MS -> DriftAction.SEEK
-            abs(drift) >= SMALL_DRIFT_MS -> if (drift > 0) DriftAction.SPEED_UP else DriftAction.SLOW_DOWN
-            else -> DriftAction.NONE
+            magnitude >= DRIFT_SEEK_MS -> DriftAction.SEEK
+            magnitude >= ENTER_SPEED_MS -> if (driftMs > 0) DriftAction.SPEED_UP else DriftAction.SLOW_DOWN
+            magnitude <= SMALL_DRIFT_MS -> DriftAction.NONE
+            else -> if (previous == DriftAction.SEEK) DriftAction.NONE else previous
         }
     }
 

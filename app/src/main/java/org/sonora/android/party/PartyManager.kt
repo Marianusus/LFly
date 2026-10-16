@@ -72,8 +72,10 @@ class PartyManager private constructor(private val context: Context) {
         private const val TAG = "PartyManager"
         private const val SERVICE_ID = "org.sonora.android.PARTY"
         private val STRATEGY = Strategy.P2P_STAR
-        private const val HEARTBEAT_MS = 4_000L
+        private const val HEARTBEAT_MS = 1_500L
         private const val PING_INTERVAL_MS = 5_000L
+        private const val PING_BURST_MS = 300L
+        private const val PING_BURST_MAX = 20
         private const val PREFS = "sonora_party"
         private const val KEY_NUDGE = "nudge_ms"
 
@@ -106,10 +108,16 @@ class PartyManager private constructor(private val context: Context) {
 
     private var hostLoopJob: Job? = null
     private var pingJob: Job? = null
-    private var pendingStartJob: Job? = null
+    private var alignJob: Job? = null
     private var seq = 0L
     private var lastHostPlaying = false
     private var connectingEndpointId: String? = null
+
+    /** Last State received while the clock offset was not ready yet; applied once it is. */
+    private var pendingState: PartyMessage.State? = null
+
+    /** Most recent host State; re-applied to realign right after a new track starts. */
+    private var lastRawState: PartyMessage.State? = null
 
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -354,7 +362,14 @@ class PartyManager private constructor(private val context: Context) {
             is PartyMessage.Queue -> applyQueue(message)
             is PartyMessage.Pong -> {
                 val offset = clock.addRound(message.t0, message.t1, now())
-                if (offset != null) _state.update { it.copy(syncReady = true) }
+                if (offset != null) {
+                    _state.update { it.copy(syncReady = true) }
+                    // The clock is now usable: apply the State we had to buffer.
+                    pendingState?.let { pending ->
+                        pendingState = null
+                        applyStateWithOffset(pending, offset)
+                    }
+                }
             }
             is PartyMessage.Bye -> resetToIdle("host_left")
             else -> Unit
@@ -371,36 +386,52 @@ class PartyManager private constructor(private val context: Context) {
 
     private fun applyState(message: PartyMessage.State) {
         lastHostPlaying = message.isPlaying
+        lastRawState = message
+
+        // Never act on a State before the clock offset is known: with a zero offset the
+        // target would be off by the difference between the two devices' clocks (huge).
+        val offset = clock.offsetMs()
+        if (offset == null) {
+            pendingState = message
+            hostEndpointId?.let { send(it, PartyMessage.Ping(now())) }
+            return
+        }
+        pendingState = null
+        applyStateWithOffset(message, offset)
+    }
+
+    private fun applyStateWithOffset(message: PartyMessage.State, offsetMs: Long) {
         val track = message.track?.toTrack()
-        val offset = clock.offsetMs() ?: 0L
-        val nudge = _state.value.nudgeMs
-        val delayMs = SyncEngine.delayUntilStartMs(message.startsAtHostMs, offset, now())
-        pendingStartJob?.cancel()
-        if (delayMs > 8L) {
-            pendingStartJob = scope.launch {
-                delay(delayMs)
-                val target = SyncEngine.targetPositionMs(
-                    statePositionMs = message.positionMs,
-                    startsAtHostMs = message.startsAtHostMs,
-                    hostTimeAtSendMs = 0L,
-                    isPlaying = message.isPlaying,
-                    clockOffsetMs = clock.offsetMs() ?: 0L,
-                    localNowMs = now(),
-                    nudgeMs = nudge
-                )
-                playback.applyRemoteState(track, target, message.isPlaying)
+        val previousId = playback.playbackState.value.currentTrack?.id
+        playback.applyRemoteState(track, targetFor(message, offsetMs), message.isPlaying)
+        if (track != null && track.id != previousId) scheduleAlignBurst()
+    }
+
+    private fun targetFor(message: PartyMessage.State, offsetMs: Long): Long =
+        SyncEngine.targetPositionMs(
+            statePositionMs = message.positionMs,
+            startsAtHostMs = message.startsAtHostMs,
+            hostTimeAtSendMs = 0L,
+            isPlaying = message.isPlaying,
+            clockOffsetMs = offsetMs,
+            localNowMs = now(),
+            nudgeMs = _state.value.nudgeMs
+        )
+
+    /**
+     * After a track change the guest resolves its own stream and would otherwise start
+     * from 0 until the next heartbeat. Re-applies the host state a few times so the guest
+     * lands on the host's position as soon as its stream is ready.
+     */
+    private fun scheduleAlignBurst() {
+        alignJob?.cancel()
+        alignJob = scope.launch {
+            repeat(4) {
+                delay(400L)
+                val raw = lastRawState ?: return@launch
+                val offset = clock.offsetMs() ?: return@launch
+                playback.applyRemotePosition(targetFor(raw, offset), raw.isPlaying)
             }
-        } else {
-            val target = SyncEngine.targetPositionMs(
-                statePositionMs = message.positionMs,
-                startsAtHostMs = message.startsAtHostMs,
-                hostTimeAtSendMs = 0L,
-                isPlaying = message.isPlaying,
-                clockOffsetMs = offset,
-                localNowMs = now(),
-                nudgeMs = nudge
-            )
-            playback.applyRemoteState(track, target, message.isPlaying)
         }
     }
 
@@ -456,9 +487,12 @@ class PartyManager private constructor(private val context: Context) {
         }
         pingJob?.cancel()
         pingJob = scope.launch {
+            var attempts = 0
             while (isActive) {
                 hostEndpointId?.let { send(it, PartyMessage.Ping(now())) }
-                delay(PING_INTERVAL_MS)
+                attempts++
+                // Burst until the clock offset is known, then settle to the slow interval.
+                delay(if (!clock.isReady && attempts <= PING_BURST_MAX) PING_BURST_MS else PING_INTERVAL_MS)
             }
         }
     }
@@ -553,13 +587,16 @@ class PartyManager private constructor(private val context: Context) {
     private fun resetToIdle(reason: String?) {
         hostLoopJob?.cancel(); hostLoopJob = null
         pingJob?.cancel(); pingJob = null
-        pendingStartJob?.cancel(); pendingStartJob = null
+        alignJob?.cancel(); alignJob = null
+        pendingState = null
+        lastRawState = null
         hostEndpointId = null
         connectingEndpointId = null
         guests.clear()
         clock.reset()
         playback.partyTransportHandler = null
         playback.partyGuestMode = false
+        playback.resetPartyPlaybackAdjustments()
         _discovered.value = emptyList()
         _state.update {
             PartyState(

@@ -93,7 +93,7 @@ class SyncEngineTest {
     fun tinyDriftIsLeftAlone() {
         assertEquals(
             SyncEngine.DriftAction.NONE,
-            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 10_020L, isPlaying = true)
+            SyncEngine.driftAction(driftMs = 20L, isPlaying = true, previous = SyncEngine.DriftAction.NONE)
         )
     }
 
@@ -101,11 +101,11 @@ class SyncEngineTest {
     fun smallDriftIsCorrectedWithSpeedNotASeek() {
         assertEquals(
             SyncEngine.DriftAction.SPEED_UP,
-            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 10_150L, isPlaying = true)
+            SyncEngine.driftAction(driftMs = 200L, isPlaying = true, previous = SyncEngine.DriftAction.NONE)
         )
         assertEquals(
             SyncEngine.DriftAction.SLOW_DOWN,
-            SyncEngine.driftAction(currentPositionMs = 10_150L, targetPositionMs = 10_000L, isPlaying = true)
+            SyncEngine.driftAction(driftMs = -200L, isPlaying = true, previous = SyncEngine.DriftAction.NONE)
         )
     }
 
@@ -113,11 +113,11 @@ class SyncEngineTest {
     fun largeDriftFallsBackToASeek() {
         assertEquals(
             SyncEngine.DriftAction.SEEK,
-            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 10_500L, isPlaying = true)
+            SyncEngine.driftAction(driftMs = 800L, isPlaying = true, previous = SyncEngine.DriftAction.NONE)
         )
         assertEquals(
             SyncEngine.DriftAction.SEEK,
-            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 4_000L, isPlaying = true)
+            SyncEngine.driftAction(driftMs = -6_000L, isPlaying = true, previous = SyncEngine.DriftAction.NONE)
         )
     }
 
@@ -125,7 +125,34 @@ class SyncEngineTest {
     fun pausedGuestsAreNeverResynced() {
         assertEquals(
             SyncEngine.DriftAction.NONE,
-            SyncEngine.driftAction(currentPositionMs = 10_000L, targetPositionMs = 40_000L, isPlaying = false)
+            SyncEngine.driftAction(driftMs = 30_000L, isPlaying = false, previous = SyncEngine.DriftAction.SPEED_UP)
+        )
+    }
+
+    @Test
+    fun speedCorrectionHoldsInsideTheDeadband() {
+        // Above the enter threshold: start speeding up.
+        assertEquals(
+            SyncEngine.DriftAction.SPEED_UP,
+            SyncEngine.driftAction(driftMs = 180L, isPlaying = true, previous = SyncEngine.DriftAction.NONE)
+        )
+        // Inside the deadband (40..150) the previous action is held instead of flip-flopping.
+        assertEquals(
+            SyncEngine.DriftAction.SPEED_UP,
+            SyncEngine.driftAction(driftMs = 100L, isPlaying = true, previous = SyncEngine.DriftAction.SPEED_UP)
+        )
+        // Back below the exit threshold: settle to normal speed.
+        assertEquals(
+            SyncEngine.DriftAction.NONE,
+            SyncEngine.driftAction(driftMs = 30L, isPlaying = true, previous = SyncEngine.DriftAction.SPEED_UP)
+        )
+    }
+
+    @Test
+    fun seekNeverHoldsAsASpeedAction() {
+        assertEquals(
+            SyncEngine.DriftAction.NONE,
+            SyncEngine.driftAction(driftMs = 100L, isPlaying = true, previous = SyncEngine.DriftAction.SEEK)
         )
     }
 
