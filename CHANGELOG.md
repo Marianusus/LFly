@@ -96,7 +96,7 @@ This release rolls up everything built since **v1.1**: the Now Playing V2 redesi
 ### Install
 
 ```bash
-adb install -r "Sonora Version 1.3.apk"
+adb install -r "Sonora-Version-1.3.apk"
 ```
 
 ### Known limitations
