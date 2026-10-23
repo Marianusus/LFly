@@ -21,6 +21,7 @@
     <string name="album_metadata_minutes">, %1$d min</string>
     <plurals name="album_songs_count">
         <item quantity="one">%1$d melodie</item>
-        <item quantity="other">%1$d melodii</item>
+        <item quantity="few">%1$d melodii</item>
+        <item quantity="other">%1$d de melodii</item>
     </plurals>
 </resources>

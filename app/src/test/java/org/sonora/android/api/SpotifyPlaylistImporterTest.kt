@@ -95,6 +95,17 @@ class SpotifyPlaylistImporterTest {
         assertEquals("spotify_test12345", resolved.id)
         assertEquals("Spotify", resolved.provider)
         assertNull("Imported track must never persist a runtime stream URL", resolved.streamUrl)
+        assertEquals(listOf("Test Artist"), resolved.artists?.map { it.name })
+    }
+
+    @Test
+    fun resolveTrackSplitsFeaturedArtistsWithoutTouchingCommas() = runTest {
+        val feat = importer.resolveTrack(
+            SpotifyRawTrack(id = "feat1", title = "Song", artist = "Tyler, The Creator feat. Kali Uchis")
+        )
+        assertEquals(listOf("Tyler, The Creator", "Kali Uchis"), feat.artists?.map { it.name })
+        assertEquals(ArtistRole.PRIMARY, feat.artists!![0].role)
+        assertEquals(ArtistRole.FEATURED, feat.artists!![1].role)
     }
 
     @Test

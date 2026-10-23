@@ -52,6 +52,8 @@
     <string name="settings_translate_lyrics_title">Translate lyrics</string>
     <string name="settings_translate_lyrics_subtitle">Translate lyrics on-device with ML Kit</string>
     <string name="settings_translation_target_language_label">Target language (all ML Kit languages)</string>
+    <string name="settings_translation_clear_models">Delete translation models</string>
+    <string name="settings_translation_clear_models_subtitle">Frees the space used by downloaded languages (~40 MB each)</string>
     <string name="settings_translation_highlight_label">Lyrics highlight</string>
     <string name="settings_highlight_auto">Auto</string>
     <string name="settings_highlight_word">Words</string>
@@ -89,4 +91,23 @@
     <string name="settings_appearance_section_subtitle">Liquid Glass canvas and animations</string>
     <string name="settings_reduce_motion_title">Reduce motion</string>
     <string name="settings_reduce_motion_subtitle">Disable shimmer, scale and animated gradients</string>
+    <string name="settings_country_section_title">Country</string>
+    <string name="settings_country_section_subtitle">Choose the country for charts and trending songs.</string>
+    <string name="settings_country_row_title">Charts country</string>
+    <string name="settings_country_dialog_title">Choose a country</string>
+    <string name="settings_lyrics_sources_title">Lyrics sources</string>
+    <string name="settings_lyrics_sources_subtitle">Priority, syllable sync and API keys</string>
+    <string name="settings_lyrics_sources_priority">Priority</string>
+    <string name="settings_lyrics_sources_priority_hint">Drag to reorder. Word-level sources take priority; within the same type, the higher source wins.</string>
+    <string name="settings_lyrics_sources_syllable">Prefer syllable sync</string>
+    <string name="settings_lyrics_sources_syllable_subtitle">Keep looking for word-level lyrics even if a line-synced source already answered</string>
+    <string name="settings_lyrics_sources_key">PaxSenix API key</string>
+    <string name="settings_lyrics_sources_key_hint">Required for Spotify and Musixmatch through PaxSenix</string>
+    <string name="settings_lyrics_sources_reset">Reset defaults</string>
+    <string name="settings_lyrics_sources_done">Done</string>
+    <string name="settings_lyrics_sources_minimum">Keep at least one source enabled</string>
+    <string name="settings_lyrics_sources_active">%1$d active sources</string>
+    <string name="settings_liquid_glass_title">Liquid Glass</string>
+    <string name="settings_liquid_glass_subtitle">Real refracting glass on the bottom bar and mini player. Android 12+; uses more GPU.</string>
+    <string name="settings_liquid_glass_unavailable">Requires Android 12 or newer</string>
 </resources>

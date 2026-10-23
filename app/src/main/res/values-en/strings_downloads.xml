@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_action">Download</string>
+    <string name="download_cancel">Cancel download</string>
+    <string name="download_remove">Remove download</string>
+    <string name="download_retry">Retry download</string>
+    <string name="download_failed_banner">Download failed</string>
+
+    <string name="settings_downloads_title">Downloads</string>
+    <string name="settings_downloads_subtitle">Quality, network and offline storage</string>
+    <string name="settings_download_quality_label">Download quality</string>
+    <string name="settings_download_wifi_only">Download on Wi-Fi only</string>
+    <string name="settings_download_wifi_only_desc">Avoid using mobile data</string>
+    <string name="settings_download_storage">Used space: %1$s</string>
+    <string name="settings_download_storage_empty">No downloaded songs</string>
+    <string name="settings_download_lyrics">Download lyrics too</string>
+    <string name="settings_download_lyrics_desc">Save lyrics for offline listening, using each track’s chosen source</string>
+    <string name="settings_offline_lyrics_desc">Choose the source and download lyrics for your downloaded tracks</string>
+    <string name="settings_download_clear">Delete all downloads</string>
+
+    <string name="library_downloads_title">Offline songs</string>
+    <string name="library_no_downloads_title">No offline songs yet</string>
+    <string name="library_no_downloads_body">Download the songs you love to listen without a connection.</string>
+    <string name="library_offline_chip">Offline</string>
+
+    <string name="playlist_download_content_description">Download playlist</string>
+    <string name="playlist_download_remove_content_description">Remove playlist downloads</string>
+    <string name="player_download_desc">Download song</string>
+    <string name="download_delete_local_file">Delete from downloads</string>
+
+    <string name="offline_lyrics_title">Offline lyrics</string>
+    <string name="offline_lyrics_summary">%1$d downloaded tracks · %2$d with lyrics</string>
+    <string name="offline_lyrics_filter_all">All</string>
+    <string name="offline_lyrics_filter_with">With lyrics</string>
+    <string name="offline_lyrics_filter_without">Without lyrics</string>
+    <string name="offline_lyrics_filter_empty">No tracks in this filter</string>
+    <string name="offline_lyrics_download_missing">Download missing (%1$d)</string>
+    <string name="offline_lyrics_status_none">Lyrics not downloaded</string>
+    <string name="offline_lyrics_status_fetching">Fetching lyrics…</string>
+    <string name="offline_lyrics_status_found">Lyrics · %1$s</string>
+    <string name="offline_lyrics_status_not_found">Lyrics not found</string>
+    <string name="offline_lyrics_status_error">Couldn’t fetch lyrics</string>
+    <string name="offline_lyrics_choose_source">Choose lyrics source</string>
+    <string name="offline_lyrics_action_download">Download lyrics</string>
+    <string name="offline_lyrics_action_redownload">Download again</string>
+    <string name="offline_lyrics_action_remove">Remove lyrics</string>
+    <string name="offline_lyrics_remove_title">Remove lyrics?</string>
+    <string name="offline_lyrics_remove_body">The lyrics file will be deleted from this device.</string>
+    <string name="offline_lyrics_remove_confirm">Remove</string>
+    <string name="offline_lyrics_remove_cancel">Cancel</string>
+    <string name="offline_lyrics_empty_title">No downloaded tracks</string>
+    <string name="offline_lyrics_empty_body">Download tracks from your library to manage their offline lyrics.</string>
+</resources>

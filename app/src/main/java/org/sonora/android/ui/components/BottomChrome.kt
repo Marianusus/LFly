@@ -25,6 +25,9 @@ object BottomChrome {
     /** Gap between the mini player and the navigation bar. */
     val StackGap = 8.dp
 
+    /** Height of the expanded Liquid Glass chrome (now playing + gap + tab bar). */
+    val GlassExpandedHeight = NavBarHeight * 2 + StackGap
+
     /** Extra breathing room so the last item is fully visible above the chrome. */
     val ContentBreathingRoom = 8.dp
 

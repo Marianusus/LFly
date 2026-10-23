@@ -413,19 +413,29 @@ open class DeezerClient(
             album?.cover
         ) ?: fallbackAlbum?.coverUrl
 
+        val displayArtist = artist?.name ?: fallbackAlbum?.artist ?: "Unknown Artist"
+        val credits = contributors.orEmpty()
+            .mapNotNull { ref -> ref.name?.trim()?.takeIf { it.isNotBlank() } }
+            .map { ArtistCredit(it) }
+            .ifEmpty { ArtistCredits.fromText(displayArtist) }
+
         return Track(
             id = id.toString(),
             title = title.orEmpty(),
-            artist = artist?.name ?: fallbackAlbum?.artist ?: "Unknown Artist",
+            artist = displayArtist,
             album = album?.title ?: fallbackAlbum?.title,
             durationMs = (duration ?: 0L) * 1000L,
             coverUrl = resolvedCover,
             streamUrl = preview,
             provider = PROVIDER_NAME,
-            artistId = artist?.id?.takeIf { it > 0 }?.toString(),
+            artistId = artist?.id?.takeIf { it > 0 }?.toString()
+                ?: contributors.orEmpty().firstNotNullOfOrNull { ref ->
+                    ref.id.takeIf { it > 0 }?.toString()
+                },
             bpm = bpm?.takeIf { it > 0f },
             gain = gain,
-            rank = rank
+            rank = rank,
+            artists = credits.takeIf { it.isNotEmpty() }
         )
     }
 
@@ -489,6 +499,7 @@ open class DeezerClient(
         val duration: Long? = null,
         val preview: String? = null,
         val artist: DeezerArtistRefDto? = null,
+        val contributors: List<DeezerArtistRefDto>? = null,
         val album: DeezerAlbumRefDto? = null,
         val bpm: Float? = null,
         val gain: Float? = null,

@@ -4,7 +4,7 @@
     <string name="settings_tab_music">Musica</string>
     <string name="settings_tab_api">API</string>
     <string name="settings_accent_section_title">Colore accento</string>
-    <string name="settings_accent_section_subtitle">Si applica ai temi Nero AMOLED e Bianco</string>
+    <string name="settings_accent_section_subtitle">Si applica a tutti i temi; nei temi dinamici segue la copertina quando disponibile</string>
     <string name="accent_emerald">Smeraldo</string>
     <string name="accent_blue">Blu</string>
     <string name="accent_indigo">Indaco</string>
@@ -15,4 +15,15 @@
     <string name="accent_amber">Ambra</string>
     <string name="accent_teal">Verde acqua</string>
     <string name="accent_cyan">Ciano</string>
+
+    <string name="accent_champagne_gold">Champagne</string>
+    <string name="accent_rose_gold">Oro rosa</string>
+    <string name="accent_platinum">Platino</string>
+    <string name="accent_titanium">Titanio</string>
+    <string name="accent_sapphire">Zaffiro</string>
+    <string name="accent_midnight">Mezzanotte</string>
+    <string name="accent_burgundy">Bordeaux</string>
+    <string name="accent_bronze">Bronzo</string>
+    <string name="accent_obsidian">Ossidiana</string>
+    <string name="accent_sand">Sabbia</string>
 </resources>

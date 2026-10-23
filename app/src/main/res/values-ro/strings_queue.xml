@@ -21,4 +21,11 @@
     <string name="queue_drag_to_reorder_content_description">Trage pentru a reordona</string>
     <string name="queue_empty_title">Coada este goală</string>
     <string name="queue_empty_subtitle">Atinge \'Adaugă la coadă\' pe melodii pentru a le pune în coadă.</string>
+    <string name="queue_title">Coadă</string>
+    <string name="queue_up_next_tab">În coadă</string>
+    <string name="queue_radio_tab">Radio</string>
+    <string name="queue_autoplay_compact">Redare automată</string>
+    <string name="queue_drag_hint">Trage pentru a reordona</string>
+    <string name="queue_radio_empty_title">Nicio sugestie</string>
+    <string name="queue_radio_empty_subtitle">Activează redarea automată pentru a umple radioul.</string>
 </resources>

@@ -3,6 +3,8 @@ package org.sonora.android.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +52,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -68,8 +73,13 @@ import org.sonora.android.api.Artist
 import org.sonora.android.api.Track
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.ui.components.LocalBottomChromeInset
+import org.sonora.android.ui.components.DownloadMenuEntry
+import org.sonora.android.ui.components.TrackDownloadButton
 import org.sonora.android.ui.components.SectionHeader
 import org.sonora.android.ui.components.SourceSwitchMenuItems
+import org.sonora.android.ui.components.LocalTrackContextMenu
+import org.sonora.android.ui.components.TrackAnchor
+import org.sonora.android.ui.components.ArtistLinks
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.components.shimmer
 import org.sonora.android.ui.theme.GlassCard
@@ -319,6 +329,7 @@ private fun ArtistHeroPanel(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ArtistGlassTrackRow(
     index: Int,
@@ -336,6 +347,8 @@ private fun ArtistGlassTrackRow(
 ) {
     val scheme = LocalBackgroundScheme.current
     var menuExpanded by remember { mutableStateOf(false) }
+    val anchor = remember { TrackAnchor() }
+    val contextMenu = LocalTrackContextMenu.current
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(Radius.Small)
 
@@ -344,7 +357,18 @@ private fun ArtistGlassTrackRow(
             .fillMaxWidth()
             .pressScale(interaction)
             .clip(shape)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .onGloballyPositioned { coordinates ->
+                if (coordinates.isAttached) anchor.rect = coordinates.boundsInWindow()
+            }
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+                onLongClick = {
+                    if (contextMenu != null && anchor.rect != Rect.Zero) contextMenu.open(track, anchor.rect)
+                    else menuExpanded = true
+                }
+            ),
         shape = shape
     ) {
         Row(
@@ -389,12 +413,10 @@ private fun ArtistGlassTrackRow(
                 )
 
                 if (track.artist.isNotBlank()) {
-                    Text(
-                        text = track.artist,
+                    ArtistLinks(
+                        track = track,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                        color = SonoraTextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = SonoraTextSecondary
                     )
                 }
             }
@@ -406,6 +428,8 @@ private fun ArtistGlassTrackRow(
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
                 color = SonoraTextTertiary
             )
+
+            TrackDownloadButton(track = track)
 
             IconButton(
                 onClick = onFavoriteToggle,
@@ -440,6 +464,7 @@ private fun ArtistGlassTrackRow(
                         containerColor = org.sonora.android.ui.theme.SonoraOpaqueSurfaceCard,
                         border = androidx.compose.foundation.BorderStroke(1.dp, SonoraTheme.colors.cardBorder)
                     ) {
+                        DownloadMenuEntry(track = track, onDismiss = { menuExpanded = false }, accent = scheme.accent, secondary = scheme.onBackgroundSecondary)
                         if (onPlayNextTrack != null) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.artist_action_play_next), color = SonoraTextPrimary) },

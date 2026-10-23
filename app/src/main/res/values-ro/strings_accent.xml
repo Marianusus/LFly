@@ -4,7 +4,7 @@
     <string name="settings_tab_music">Muzică</string>
     <string name="settings_tab_api">API</string>
     <string name="settings_accent_section_title">Culoare de accent</string>
-    <string name="settings_accent_section_subtitle">Se aplică temelor Negru AMOLED și Alb</string>
+    <string name="settings_accent_section_subtitle">Se aplică tuturor temelor; în temele dinamice urmează coperta când este disponibilă</string>
     <string name="accent_emerald">Smarald</string>
     <string name="accent_blue">Albastru</string>
     <string name="accent_indigo">Indigo</string>
@@ -15,4 +15,15 @@
     <string name="accent_amber">Chihlimbar</string>
     <string name="accent_teal">Turcoaz</string>
     <string name="accent_cyan">Cyan</string>
+
+    <string name="accent_champagne_gold">Aur șampanie</string>
+    <string name="accent_rose_gold">Aur roz</string>
+    <string name="accent_platinum">Platină</string>
+    <string name="accent_titanium">Titaniu</string>
+    <string name="accent_sapphire">Safir</string>
+    <string name="accent_midnight">Miezul nopții</string>
+    <string name="accent_burgundy">Burgund</string>
+    <string name="accent_bronze">Bronz</string>
+    <string name="accent_obsidian">Obsidian</string>
+    <string name="accent_sand">Nisip</string>
 </resources>

@@ -2,6 +2,7 @@
 <resources>
     <string name="yt_detail_retry">Reîncearcă</string>
     <string name="yt_detail_no_tracks">Nicio melodie disponibilă</string>
+    <string name="yt_detail_no_tracks_body">Nu există piese disponibile pentru această colecție.</string>
     <string name="yt_detail_popular_tracks">Melodii populare</string>
     <string name="yt_detail_albums">Albume</string>
     <string name="yt_detail_singles_eps">Single-uri și EP-uri</string>
@@ -17,6 +18,7 @@
     <string name="yt_detail_save_to_library">Salvează în bibliotecă</string>
     <plurals name="yt_detail_track_count">
         <item quantity="one">%1$d melodie</item>
-        <item quantity="other">%1$d melodii</item>
+        <item quantity="few">%1$d melodii</item>
+        <item quantity="other">%1$d de melodii</item>
     </plurals>
 </resources>

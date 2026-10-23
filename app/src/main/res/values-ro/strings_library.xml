@@ -5,6 +5,9 @@
     <string name="library_new_playlist_content_description">Playlist nou</string>
     <string name="library_favorites_title">Melodii favorite</string>
     <string name="library_history_title">Istoric</string>
+    <string name="library_favorites_subtitle">Melodiile pe care le iubești</string>
+    <string name="library_history_subtitle">Ascultate recent</string>
+    <string name="library_downloads_subtitle">Disponibile offline</string>
     <string name="library_followed_artists_title">Artiști urmăriți</string>
     <string name="library_no_playlists_title">Nicio playlist</string>
     <string name="library_no_playlists_body">Creează o playlist sau importă-ți melodiile din Spotify cu 1 click.</string>
@@ -27,5 +30,9 @@
     <plurals name="library_playlist_track_count">
         <item quantity="one">Playlist • %1$d melodie</item>
         <item quantity="other">Playlist • %1$d melodii</item>
+    </plurals>
+    <plurals name="library_mix_track_count">
+        <item quantity="one">Mix • %1$d piesă</item>
+        <item quantity="other">Mix • %1$d piese</item>
     </plurals>
 </resources>

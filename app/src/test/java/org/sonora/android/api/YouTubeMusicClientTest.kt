@@ -211,6 +211,56 @@ class YouTubeMusicClientTest {
     }
 
     @Test
+    fun searchDropsGenericYouTubeMusicArtistAndDerivesItFromTitle() {
+        val client = YouTubeMusicClient()
+        val json = """{"contents":[{"musicPlaylistShelfRenderer":{"contents":[
+            {"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"vidNoArtist"},"flexColumns":[
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Random Upload"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Song"},{"text":" • "},{"text":"YouTube Music"},{"text":" • "},{"text":"3:00"}]}}}]}},
+            {"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"vidDashTitle"},"flexColumns":[
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Real Artist - Real Song"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Song"},{"text":" • "},{"text":"YouTube Music"},{"text":" • "},{"text":"3:00"}]}}}]}}
+        ]}}]}"""
+        val tracks = client.parseSearchTracks(com.google.gson.JsonParser.parseString(json))
+        assertEquals(1, tracks.size)
+        assertEquals("yt_vidDashTitle", tracks[0].id)
+        assertEquals("Real Artist", tracks[0].artist)
+        assertTrue(isGenericYouTubeArtist("YouTube Music"))
+        assertTrue(isGenericYouTubeArtist("YouTube Music - Topic"))
+        assertFalse(isGenericYouTubeArtist("Nujabes"))
+    }
+
+    @Test
+    fun albumSingleTracksInheritArtistAlbumAndCoverFromHeader() {
+        val client = YouTubeMusicClient()
+        val json = """{"header":{"musicResponsiveHeaderRenderer":{
+            "title":{"runs":[{"text":"Morenito"}]},
+            "subtitle":{"runs":[{"text":"Single"},{"text":" • "},{"text":"2026"}]},
+            "straplineTextOne":{"runs":[{"text":"INNA"}]},
+            "secondSubtitle":{"runs":[{"text":"1 song"}]},
+            "thumbnail":{"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[{"url":"http://x/cover.jpg"}]}}}
+        }},"contents":{"musicShelfRenderer":{"contents":[
+            {"musicResponsiveListItemRenderer":{
+                "playlistItemData":{"videoId":"eyZOn6_TT0k"},
+                "flexColumns":[
+                    {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Morenito"}]}}},
+                    {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[]}}},
+                    {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"12M plays"}]}}}
+                ]
+            }}
+        ]}}}"""
+        val detail = client.parseYouTubeAlbumDetail(com.google.gson.JsonParser.parseString(json))
+        assertNotNull(detail)
+        assertEquals("Morenito", detail!!.album.title)
+        assertEquals("INNA", detail.album.artist)
+        assertEquals(1, detail.tracks.size)
+        assertEquals("INNA", detail.tracks[0].artist)
+        assertEquals("Morenito", detail.tracks[0].album)
+        assertEquals("http://x/cover.jpg", detail.tracks[0].coverUrl)
+        assertEquals(2026, detail.tracks[0].releaseYear)
+    }
+
+    @Test
     fun testParseStreamCountReadsPlaysAndViews() {
         assertEquals(3_600_000_000L, YouTubeMusicClient.parseStreamCount("3.6B plays"))
         assertEquals(20_000_000L, YouTubeMusicClient.parseStreamCount("20M views"))
@@ -221,6 +271,32 @@ class YouTubeMusicClientTest {
         org.junit.Assert.assertNull(YouTubeMusicClient.parseStreamCount("3:44"))
         org.junit.Assert.assertNull(YouTubeMusicClient.parseStreamCount("Song"))
         org.junit.Assert.assertNull(YouTubeMusicClient.parseStreamCount(""))
+    }
+
+    @Test
+    fun parseSearchSuggestionsPrefersEndpointQueryAndDeduplicates() {
+        val json = """
+            {
+              "contents": [
+                {"searchSuggestionsSectionRenderer": {"contents": [
+                  {"searchSuggestionRenderer": {
+                    "suggestion": {"runs": [{"text": "radioh", "bold": true}, {"text": "ead"}]},
+                    "navigationEndpoint": {"searchEndpoint": {"query": "radiohead"}}
+                  }},
+                  {"searchSuggestionRenderer": {
+                    "suggestion": {"runs": [{"text": "radiohead let down"}]}
+                  }},
+                  {"searchSuggestionRenderer": {
+                    "suggestion": {"runs": [{"text": "radiohead"}]},
+                    "navigationEndpoint": {"searchEndpoint": {"query": "radiohead"}}
+                  }}
+                ]}}
+              ]
+            }
+        """.trimIndent()
+        val client = YouTubeMusicClient()
+        val suggestions = client.parseSearchSuggestions(com.google.gson.JsonParser.parseString(json))
+        assertEquals(listOf("radiohead", "radiohead let down"), suggestions)
     }
 
     private fun t(id: String, title: String, artist: String) = Track(

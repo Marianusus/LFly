@@ -20,4 +20,11 @@
     <string name="queue_drag_to_reorder_content_description">Trascina per riordinare</string>
     <string name="queue_empty_title">La coda è vuota</string>
     <string name="queue_empty_subtitle">Tocca \'Aggiungi alla coda\' sui brani per metterli in coda.</string>
+    <string name="queue_title">Coda</string>
+    <string name="queue_up_next_tab">In coda</string>
+    <string name="queue_radio_tab">Radio</string>
+    <string name="queue_autoplay_compact">Autoplay</string>
+    <string name="queue_drag_hint">Trascina per riordinare</string>
+    <string name="queue_radio_empty_title">Nessun suggerimento</string>
+    <string name="queue_radio_empty_subtitle">Attiva l’autoplay per riempire la radio.</string>
 </resources>

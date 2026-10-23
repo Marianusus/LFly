@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_action">Descarcă</string>
+    <string name="download_cancel">Anulează descărcarea</string>
+    <string name="download_remove">Elimină descărcarea</string>
+    <string name="download_retry">Reîncearcă descărcarea</string>
+    <string name="download_failed_banner">Descărcarea a eșuat</string>
+
+    <string name="settings_downloads_title">Descărcări</string>
+    <string name="settings_downloads_subtitle">Calitate, rețea și spațiu offline</string>
+    <string name="settings_download_quality_label">Calitate descărcare</string>
+    <string name="settings_download_wifi_only">Descarcă doar prin Wi-Fi</string>
+    <string name="settings_download_wifi_only_desc">Evită consumul de date mobile</string>
+    <string name="settings_download_storage">Spațiu ocupat: %1$s</string>
+    <string name="settings_download_storage_empty">Nicio melodie descărcată</string>
+    <string name="settings_download_lyrics">Descarcă și versurile</string>
+    <string name="settings_download_lyrics_desc">Salvează versurile pentru ascultare offline, folosind sursa aleasă pentru fiecare piesă</string>
+    <string name="settings_offline_lyrics_desc">Alege sursa și descarcă versurile pentru piesele descărcate</string>
+    <string name="settings_download_clear">Șterge toate descărcările</string>
+
+    <string name="library_downloads_title">Melodii offline</string>
+    <string name="library_no_downloads_title">Nicio melodie offline</string>
+    <string name="library_no_downloads_body">Descarcă melodiile preferate pentru a le asculta și fără conexiune.</string>
+    <string name="library_offline_chip">Offline</string>
+
+    <string name="playlist_download_content_description">Descarcă playlistul</string>
+    <string name="playlist_download_remove_content_description">Elimină descărcările playlistului</string>
+    <string name="player_download_desc">Descarcă melodia</string>
+    <string name="download_delete_local_file">Șterge din descărcări</string>
+
+    <string name="offline_lyrics_title">Versuri offline</string>
+    <string name="offline_lyrics_summary">%1$d piese descărcate · %2$d cu versuri</string>
+    <string name="offline_lyrics_filter_all">Toate</string>
+    <string name="offline_lyrics_filter_with">Cu versuri</string>
+    <string name="offline_lyrics_filter_without">Fără versuri</string>
+    <string name="offline_lyrics_filter_empty">Nicio piesă în acest filtru</string>
+    <string name="offline_lyrics_download_missing">Descarcă lipsă (%1$d)</string>
+    <string name="offline_lyrics_status_none">Versuri nedescărcate</string>
+    <string name="offline_lyrics_status_fetching">Se preiau versurile…</string>
+    <string name="offline_lyrics_status_found">Versuri · %1$s</string>
+    <string name="offline_lyrics_status_not_found">Versuri negăsite</string>
+    <string name="offline_lyrics_status_error">Nu s-au putut prelua versurile</string>
+    <string name="offline_lyrics_choose_source">Alege sursa versurilor</string>
+    <string name="offline_lyrics_action_download">Descarcă versurile</string>
+    <string name="offline_lyrics_action_redownload">Descarcă din nou</string>
+    <string name="offline_lyrics_action_remove">Elimină versurile</string>
+    <string name="offline_lyrics_remove_title">Elimini versurile?</string>
+    <string name="offline_lyrics_remove_body">Fișierul cu versuri va fi șters de pe acest dispozitiv.</string>
+    <string name="offline_lyrics_remove_confirm">Elimină</string>
+    <string name="offline_lyrics_remove_cancel">Anulează</string>
+    <string name="offline_lyrics_empty_title">Nicio piesă descărcată</string>
+    <string name="offline_lyrics_empty_body">Descarcă piese din bibliotecă pentru a le gestiona versurile offline.</string>
+</resources>

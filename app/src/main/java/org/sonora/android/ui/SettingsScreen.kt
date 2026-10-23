@@ -34,12 +34,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Refresh
@@ -78,16 +81,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 import org.sonora.android.api.AudioQuality
 import org.sonora.android.api.PlaybackSource
 import org.sonora.android.api.HealthStatus
 import org.sonora.android.api.HighlightMode
+import org.sonora.android.api.lyrics.sources.LyricsSource
 import org.sonora.android.api.ProviderHealth
 import org.sonora.android.AppLanguage
 import org.sonora.android.R
+import org.sonora.android.api.EuropeChartsClient
 import org.sonora.android.playback.AudioCacheManager
 import org.sonora.android.playback.EqualizerState
 import org.sonora.android.ui.components.LocalBottomChromeInset
+import org.sonora.android.ui.components.LyricsSourcesDialog
 import org.sonora.android.ui.components.SegmentedPills
 import org.sonora.android.ui.theme.SonoraAmoledBlack
 import org.sonora.android.ui.theme.SonoraDivider
@@ -115,6 +122,7 @@ import org.sonora.android.ui.theme.MidnightNeonSecondary
 import org.sonora.android.ui.theme.LiquidGlassCardBackground
 import org.sonora.android.ui.theme.LiquidGlassCardBorder
 import org.sonora.android.ui.theme.AccentPalette
+import org.sonora.android.ui.components.backdrop.isRenderEffectSupported
 
 private enum class SettingsTab(@StringRes val labelRes: Int) {
     GENERAL(R.string.settings_tab_general),
@@ -153,8 +161,19 @@ fun SettingsScreen(
     onAppearanceModeChange: (AppearanceMode) -> Unit = {},
     reduceMotion: Boolean = false,
     onReduceMotionChange: (Boolean) -> Unit = {},
+    liquidGlass: Boolean = false,
+    onLiquidGlassChange: (Boolean) -> Unit = {},
     currentAudioQuality: AudioQuality,
     onAudioQualityChange: (AudioQuality) -> Unit,
+    downloadQuality: AudioQuality = AudioQuality.MEDIUM,
+    onDownloadQualityChange: (AudioQuality) -> Unit = {},
+    downloadWifiOnly: Boolean = true,
+    onDownloadWifiOnlyChange: (Boolean) -> Unit = {},
+    downloadLyrics: Boolean = false,
+    onDownloadLyricsChange: (Boolean) -> Unit = {},
+    onOpenOfflineLyrics: () -> Unit = {},
+    downloadsSizeBytes: Long = 0L,
+    onClearDownloads: () -> Unit = {},
     isAutoplayEnabled: Boolean,
     onAutoplayChange: (Boolean) -> Unit,
     cacheSizeBytes: Long,
@@ -176,9 +195,21 @@ fun SettingsScreen(
     onLyricsProviderMusixmatchChange: (Boolean) -> Unit = {},
     lyricsProviderLrclib: Boolean = true,
     onLyricsProviderLrclibChange: (Boolean) -> Unit = {},
+    lyricsSources: Set<LyricsSource> = LyricsSource.offered.toSet(),
+    lyricsSourceOrder: List<LyricsSource> = LyricsSource.entries,
+    prioritizeSyllableSync: Boolean = false,
+    paxsenixApiKey: String = "",
+    onLyricsSourceEnabledChange: (LyricsSource, Boolean) -> Unit = { _, _ -> },
+    onLyricsSourceOrderChange: (List<LyricsSource>) -> Unit = {},
+    onPrioritizeSyllableSyncChange: (Boolean) -> Unit = {},
+    onPaxsenixApiKeyChange: (String) -> Unit = {},
+    onResetLyricsSources: () -> Unit = {},
+    onClearTranslationModels: () -> Unit = {},
     onLyricsHighlightModeChange: (HighlightMode) -> Unit = {},
     appLanguage: String = AppLanguage.SYSTEM,
     onAppLanguageChange: (String) -> Unit = {},
+    homeCountryCode: String = "it",
+    onHomeCountryChange: (String) -> Unit = {},
     accentColor: Int = AccentPalette.defaultArgb(),
     onAccentColorChange: (Int) -> Unit = {},
     sourcePreference: PlaybackSource = PlaybackSource.AUTO,
@@ -187,6 +218,28 @@ fun SettingsScreen(
 ) {
     var cacheClearedMessage by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(SettingsTab.GENERAL) }
+    var lyricsSourcesOpen by remember { mutableStateOf(false) }
+    if (lyricsSourcesOpen) {
+        LyricsSourcesDialog(
+            sources = lyricsSources,
+            order = lyricsSourceOrder,
+            prioritizeSyllableSync = prioritizeSyllableSync,
+            apiKey = paxsenixApiKey,
+            onDismiss = { lyricsSourcesOpen = false },
+            onApply = { chosen, order, syllable, key ->
+                onLyricsSourceOrderChange(order)
+                LyricsSource.entries.forEach { source ->
+                    val enabled = source in chosen
+                    if (enabled != (source in lyricsSources)) {
+                        onLyricsSourceEnabledChange(source, enabled)
+                    }
+                }
+                onPrioritizeSyllableSyncChange(syllable)
+                onPaxsenixApiKeyChange(key)
+            },
+            onReset = onResetLyricsSources,
+        )
+    }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -255,6 +308,12 @@ fun SettingsScreen(
                             onAppLanguageChange = onAppLanguageChange
                         )
                     }
+                    item {
+                        CountrySection(
+                            currentCountryCode = homeCountryCode,
+                            onCountryChange = onHomeCountryChange
+                        )
+                    }
                     item { AboutSonoraSection() }
                 }
 
@@ -264,7 +323,9 @@ fun SettingsScreen(
                             appearanceMode = appearanceMode,
                             onAppearanceModeChange = onAppearanceModeChange,
                             reduceMotion = reduceMotion,
-                            onReduceMotionChange = onReduceMotionChange
+                            onReduceMotionChange = onReduceMotionChange,
+                            liquidGlass = liquidGlass,
+                            onLiquidGlassChange = onLiquidGlassChange
                         )
                     }
                     item {
@@ -286,6 +347,19 @@ fun SettingsScreen(
                         AudioQualitySection(
                             currentQuality = currentAudioQuality,
                             onQualitySelected = onAudioQualityChange
+                        )
+                    }
+                    item {
+                        DownloadSettingsSection(
+                            currentQuality = downloadQuality,
+                            onQualitySelected = onDownloadQualityChange,
+                            wifiOnly = downloadWifiOnly,
+                            onWifiOnlyChange = onDownloadWifiOnlyChange,
+                            downloadLyrics = downloadLyrics,
+                            onDownloadLyricsChange = onDownloadLyricsChange,
+                            onOpenOfflineLyrics = onOpenOfflineLyrics,
+                            sizeBytes = downloadsSizeBytes,
+                            onClearDownloads = onClearDownloads
                         )
                     }
                     item {
@@ -311,7 +385,10 @@ fun SettingsScreen(
                             musixmatchEnabled = lyricsProviderMusixmatch,
                             onMusixmatchChange = onLyricsProviderMusixmatchChange,
                             lrclibEnabled = lyricsProviderLrclib,
-                            onLrclibChange = onLyricsProviderLrclibChange
+                            onLrclibChange = onLyricsProviderLrclibChange,
+                            sources = lyricsSources,
+                            onOpenSources = { lyricsSourcesOpen = true },
+                            onClearTranslationModels = onClearTranslationModels
                         )
                     }
                     item {
@@ -446,6 +523,178 @@ private fun appLanguageLabel(tag: String): String = when (tag) {
     AppLanguage.ENGLISH -> stringResource(R.string.language_english)
     AppLanguage.ROMANIAN -> stringResource(R.string.language_romanian)
     else -> stringResource(R.string.language_system)
+}
+
+@Composable
+private fun CountrySection(
+    currentCountryCode: String,
+    onCountryChange: (String) -> Unit
+) {
+    var pickerOpen by remember { mutableStateOf(false) }
+    val current = EuropeChartsClient.COUNTRIES.firstOrNull { it.code == currentCountryCode }
+        ?: EuropeChartsClient.COUNTRIES.firstOrNull { it.code == "it" }
+
+    if (pickerOpen) {
+        CountryPickerDialog(
+            currentCountryCode = currentCountryCode,
+            onDismiss = { pickerOpen = false },
+            onSelect = { code ->
+                pickerOpen = false
+                onCountryChange(code)
+            }
+        )
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SonoraTheme.cardShape,
+        colors = CardDefaults.cardColors(containerColor = SonoraSurfaceCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, SonoraDivider)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .background(SonoraPurple.copy(alpha = 0.15f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Public,
+                        contentDescription = null,
+                        tint = SonoraPurple,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = stringResource(R.string.settings_country_section_title),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = SonoraTextPrimary
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_country_section_subtitle),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = SonoraTextSecondary
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SonoraSurfaceHighlight)
+                    .then(
+                        if (SonoraTheme.colors.isLiquidGlass) {
+                            Modifier.border(1.dp, SonoraTheme.colors.cardBorder, RoundedCornerShape(12.dp))
+                        } else Modifier
+                    )
+                    .clickable { pickerOpen = true }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_country_row_title),
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = SonoraTextPrimary
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = current?.let { "${countryFlagEmoji(it.code)}  ${it.name}" }
+                            ?: stringResource(R.string.settings_country_row_title),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = SonoraTextSecondary
+                        )
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = SonoraTextSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CountryPickerDialog(
+    currentCountryCode: String,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    val accent = SonoraTheme.colors.primaryAccent
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SonoraSurfaceCard,
+        title = {
+            Text(
+                text = stringResource(R.string.settings_country_dialog_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = SonoraTextPrimary
+            )
+        },
+        text = {
+            LazyColumn(modifier = Modifier.height(420.dp)) {
+                items(
+                    items = EuropeChartsClient.COUNTRIES,
+                    key = { it.code }
+                ) { country ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onSelect(country.code) }
+                            .padding(horizontal = 8.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = countryFlagEmoji(country.code),
+                            fontSize = 17.sp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = country.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (country.code == currentCountryCode) accent else SonoraTextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (country.code == currentCountryCode) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = accent
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.action_close), color = SonoraTextSecondary)
+            }
+        }
+    )
+}
+
+private fun countryFlagEmoji(code: String): String {
+    if (code.length != 2) return "\uD83C\uDF0D"
+    return runCatching {
+        String(Character.toChars(0x1F1E6 + (code[0].uppercaseChar() - 'A'))) +
+            String(Character.toChars(0x1F1E6 + (code[1].uppercaseChar() - 'A')))
+    }.getOrDefault("\uD83C\uDF0D")
 }
 
 @Composable
@@ -915,6 +1164,257 @@ private fun AudioQualitySection(
 }
 
 @Composable
+private fun DownloadSettingsSection(
+    currentQuality: AudioQuality,
+    onQualitySelected: (AudioQuality) -> Unit,
+    wifiOnly: Boolean,
+    onWifiOnlyChange: (Boolean) -> Unit,
+    downloadLyrics: Boolean,
+    onDownloadLyricsChange: (Boolean) -> Unit,
+    onOpenOfflineLyrics: () -> Unit,
+    sizeBytes: Long,
+    onClearDownloads: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SonoraTheme.cardShape,
+        colors = CardDefaults.cardColors(containerColor = SonoraSurfaceCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, SonoraDivider)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .background(SonoraEmerald.copy(alpha = 0.15f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = SonoraEmerald,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = stringResource(R.string.settings_downloads_title),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = SonoraTextPrimary
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_downloads_subtitle),
+                        style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = stringResource(R.string.settings_download_quality_label),
+                style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val tiers = listOf(
+                Triple(AudioQuality.LOW, stringResource(R.string.settings_quality_low_name), stringResource(R.string.settings_quality_low_desc)),
+                Triple(AudioQuality.MEDIUM, stringResource(R.string.settings_quality_medium_name), stringResource(R.string.settings_quality_medium_desc)),
+                Triple(AudioQuality.HIGH, stringResource(R.string.settings_quality_high_name), stringResource(R.string.settings_quality_high_desc)),
+                Triple(AudioQuality.ULTRA, stringResource(R.string.settings_quality_ultra_name), stringResource(R.string.settings_quality_ultra_desc))
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                tiers.forEach { (quality, name, desc) ->
+                    val isSelected = quality == currentQuality
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) SonoraEmerald.copy(alpha = 0.12f)
+                                else SonoraSurfaceHighlight
+                            )
+                            .border(
+                                width = if (isSelected) 1.5.dp else if (SonoraTheme.colors.isLiquidGlass) 1.dp else 0.dp,
+                                color = if (isSelected) SonoraEmerald else if (SonoraTheme.colors.isLiquidGlass) SonoraTheme.colors.cardBorder else Color.Transparent,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { onQualitySelected(quality) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) SonoraEmerald else SonoraTextPrimary
+                                )
+                            )
+                            Text(
+                                text = desc,
+                                style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                            )
+                        }
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(SonoraEmerald, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = stringResource(R.string.settings_selected_content_description),
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_download_wifi_only),
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = SonoraTextPrimary
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_download_wifi_only_desc),
+                        style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                    )
+                }
+                Switch(
+                    checked = wifiOnly,
+                    onCheckedChange = onWifiOnlyChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.Black,
+                        checkedTrackColor = SonoraEmerald,
+                        uncheckedThumbColor = SonoraTextSecondary,
+                        uncheckedTrackColor = SonoraDivider
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_download_lyrics),
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = SonoraTextPrimary
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_download_lyrics_desc),
+                        style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                    )
+                }
+                Switch(
+                    checked = downloadLyrics,
+                    onCheckedChange = onDownloadLyricsChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.Black,
+                        checkedTrackColor = SonoraEmerald,
+                        uncheckedThumbColor = SonoraTextSecondary,
+                        uncheckedTrackColor = SonoraDivider
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenOfflineLyrics)
+                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.offline_lyrics_title),
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = SonoraTextPrimary
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_offline_lyrics_desc),
+                        style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = SonoraTextSecondary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (sizeBytes > 0L) {
+                        stringResource(R.string.settings_download_storage, formatDownloadBytes(sizeBytes))
+                    } else {
+                        stringResource(R.string.settings_download_storage_empty)
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                )
+                if (sizeBytes > 0L) {
+                    TextButton(onClick = onClearDownloads) {
+                        Text(
+                            text = stringResource(R.string.settings_download_clear),
+                            color = Color(0xFFE57373),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatDownloadBytes(bytes: Long): String {
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024.0) {
+        String.format(Locale.US, "%.1f GB", mb / 1024.0)
+    } else {
+        String.format(Locale.US, "%.1f MB", mb)
+    }
+}
+
+@Composable
 private fun EqualizerSettingsSection(
     equalizerState: EqualizerState?,
     onOpenEqualizer: () -> Unit
@@ -1186,7 +1686,10 @@ private fun TranslationSection(
     musixmatchEnabled: Boolean,
     onMusixmatchChange: (Boolean) -> Unit,
     lrclibEnabled: Boolean,
-    onLrclibChange: (Boolean) -> Unit
+    onLrclibChange: (Boolean) -> Unit,
+    sources: Set<LyricsSource> = LyricsSource.offered.toSet(),
+    onOpenSources: () -> Unit = {},
+    onClearTranslationModels: () -> Unit = {}
 ) {
     var languagePickerOpen by remember { mutableStateOf(false) }
     if (languagePickerOpen) {
@@ -1323,6 +1826,38 @@ private fun TranslationSection(
                 )
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SonoraSurfaceHighlight)
+                    .clickable(onClick = onClearTranslationModels)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_translation_clear_models),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = SonoraTextPrimary
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_translation_clear_models_subtitle),
+                        style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = null,
+                    tint = SonoraTextSecondary
+                )
+            }
+
             Spacer(modifier = Modifier.height(14.dp))
 
             Text(
@@ -1379,21 +1914,39 @@ private fun TranslationSection(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            ProviderToggleRow(
-                title = stringResource(R.string.settings_provider_musixmatch_title),
-                subtitle = stringResource(R.string.settings_provider_musixmatch_subtitle),
-                checked = musixmatchEnabled,
-                onCheckedChange = onMusixmatchChange
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            ProviderToggleRow(
-                title = stringResource(R.string.settings_provider_lrclib_title),
-                subtitle = stringResource(R.string.settings_provider_lrclib_subtitle),
-                checked = lrclibEnabled,
-                onCheckedChange = onLrclibChange
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SonoraSurfaceHighlight)
+                    .clickable(onClick = onOpenSources)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_lyrics_sources_title),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = SonoraTextPrimary,
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_lyrics_sources_subtitle),
+                        style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary),
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_lyrics_sources_active, sources.size),
+                        style = MaterialTheme.typography.labelSmall.copy(color = SonoraTextTertiary),
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = SonoraTextSecondary,
+                )
+            }
         }
     }
 }
@@ -1885,7 +2438,9 @@ private fun AppearanceSection(
     appearanceMode: AppearanceMode,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     reduceMotion: Boolean,
-    onReduceMotionChange: (Boolean) -> Unit
+    onReduceMotionChange: (Boolean) -> Unit,
+    liquidGlass: Boolean,
+    onLiquidGlassChange: (Boolean) -> Unit
 ) {
     val scheme = SonoraTheme.colors
     Card(
@@ -1989,6 +2544,41 @@ private fun AppearanceSection(
                         }
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            val glassSupported = isRenderEffectSupported()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_liquid_glass_title),
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (glassSupported) SonoraTextPrimary else SonoraTextSecondary
+                        )
+                    )
+                    Text(
+                        text = stringResource(
+                            if (glassSupported) R.string.settings_liquid_glass_subtitle
+                            else R.string.settings_liquid_glass_unavailable
+                        ),
+                        style = MaterialTheme.typography.bodySmall.copy(color = SonoraTextSecondary)
+                    )
+                }
+                Switch(
+                    checked = liquidGlass && glassSupported,
+                    onCheckedChange = onLiquidGlassChange,
+                    enabled = glassSupported,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = scheme.primaryAccent
+                    )
+                )
             }
 
             Spacer(modifier = Modifier.height(18.dp))

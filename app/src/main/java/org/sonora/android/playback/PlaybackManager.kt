@@ -44,6 +44,8 @@ import org.sonora.android.data.MusicRepository
 import org.sonora.android.party.SyncEngine
 import java.io.File
 import android.media.MediaMetadataRetriever
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
@@ -84,6 +86,27 @@ class PlaybackManager private constructor(private val context: Context) {
                 track
             }
         }
+
+        /**
+         * Builds the track that actually reaches the player.
+         *
+         * A fuzzy local match may supply the audio file (and, when there is no download
+         * cover, the artwork), but it must never replace the catalog identity: favorites,
+         * dislikes, history and the queue all key off [track]'s id, so swapping it for the
+         * local track made the player heart look at an id that was never favorited.
+         */
+        internal fun playableTrackFor(
+            track: Track,
+            localMatch: Track?,
+            streamUrl: String,
+            resolvedCoverUrl: String?,
+            localCoverUrl: String?,
+            isResolvedLocal: Boolean
+        ): Track = track.copy(
+            streamUrl = streamUrl,
+            coverUrl = resolvedCoverUrl ?: localCoverUrl ?: localMatch?.coverUrl ?: track.coverUrl,
+            provider = if (isResolvedLocal) "Local" else track.provider
+        )
     }
 
     private val managerScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -101,6 +124,24 @@ class PlaybackManager private constructor(private val context: Context) {
     // Media3 player & session references (provided by SonoraMediaSessionService)
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
+    private val audioManager: AudioManager by lazy {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+
+    /** Re-points this player's AudioTrack at a local output, or back to the system default. */
+    fun setAudioOutput(deviceId: Int?) {
+        val device: AudioDeviceInfo? = deviceId?.let { id ->
+            runCatching {
+                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                    .firstOrNull { it.id == id }
+            }.getOrNull()
+        }
+        player?.setPreferredAudioDevice(device)
+        AudioRouting.select(deviceId)
+    }
+
+    fun audioOutputs(): List<AudioRouting.Device> =
+        AudioRouting.outputs(context, AudioRouting.selectedId.value)
 
     // State flow for UI
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -324,6 +365,9 @@ class PlaybackManager private constructor(private val context: Context) {
 
         exoPlayer.addListener(playerListener)
         exoPlayer.addAnalyticsListener(analyticsListener)
+        AudioRouting.infoFor(context, AudioRouting.selectedId.value)?.let {
+            exoPlayer.setPreferredAudioDevice(it)
+        }
 
         // Attach native equalizer and bass boost to ExoPlayer's audio session
         val currentAudioSession = exoPlayer.audioSessionId
@@ -381,6 +425,14 @@ class PlaybackManager private constructor(private val context: Context) {
 
     private suspend fun fetchArtworkBytes(url: String?): ByteArray? = withContext(Dispatchers.IO) {
         if (url.isNullOrBlank()) return@withContext null
+        // Offline downloads can point their cover at a local file.
+        if (url.startsWith("file://") || url.startsWith("/")) {
+            return@withContext try {
+                File(url.removePrefix("file://")).readBytes()
+            } catch (e: Exception) {
+                null
+            }
+        }
         try {
             val request = Request.Builder()
                 .url(url)
@@ -661,7 +713,10 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun toggleFavorite(track: Track? = _playbackState.value.currentTrack): Boolean {
-        val target = track ?: return false
+        val requested = track ?: return false
+        // A favorite saved while a downloaded copy is playing must keep the catalog identity
+        // (original provider/id), not the Local file snapshot.
+        val target = DownloadManager.canonicalTrackFor(requested) ?: requested
         val isFav = musicRepository.toggleFavorite(target)
         Log.i(TAG, "Toggled favorite for '${target.title}': $isFav")
         return isFav
@@ -708,10 +763,11 @@ class PlaybackManager private constructor(private val context: Context) {
     fun addToQueue(track: Track) {
         val sanitized = sanitizeTrack(track)
         val wasEmpty = _playbackState.value.queue.isEmpty() || _playbackState.value.currentTrack == null
+        // Append to the END of the user queue, i.e. just before any autoplay/radio tracks.
+        val insertAt = _playbackState.value.userQueueSize
+            .coerceIn(0, _playbackState.value.queue.size)
         _playbackState.update { state ->
             val updated = state.queue.toMutableList()
-            // Append to the END of the user queue, i.e. just before any autoplay/radio tracks.
-            val insertAt = state.userQueueSize.coerceIn(0, updated.size)
             updated.add(insertAt, sanitized)
             val newCurrentIndex = if (state.currentIndex == -1 && wasEmpty) 0 else state.currentIndex
             val newCurrentTrack = if (state.currentTrack == null && wasEmpty) sanitized else state.currentTrack
@@ -727,7 +783,17 @@ class PlaybackManager private constructor(private val context: Context) {
             playFromQueueIndex(0)
         } else {
             if (_playbackState.value.isShuffle) {
-                rebuildShuffleList(_playbackState.value.queue.size, _playbackState.value.currentIndex)
+                if (shuffledIndices.isEmpty()) {
+                    rebuildShuffleList(_playbackState.value.queue.size, _playbackState.value.currentIndex)
+                } else {
+                    shufflePointer = ShuffleIndexMath.onInsert(
+                        indices = shuffledIndices,
+                        pointer = shufflePointer,
+                        insertAt = insertAt,
+                        count = 1,
+                        asNext = false
+                    )
+                }
             }
             Log.i(TAG, "Added '${sanitized.title}' to user queue. User queue size: ${_playbackState.value.userQueueSize}")
             managerScope.launch(Dispatchers.Main) {
@@ -750,9 +816,10 @@ class PlaybackManager private constructor(private val context: Context) {
         if (tracks.isEmpty()) return
         val sanitized = tracks.map { sanitizeTrack(it) }
         val wasEmpty = _playbackState.value.queue.isEmpty() || _playbackState.value.currentTrack == null
+        val insertAt = _playbackState.value.userQueueSize
+            .coerceIn(0, _playbackState.value.queue.size)
         _playbackState.update { state ->
             val updated = state.queue.toMutableList()
-            val insertAt = state.userQueueSize.coerceIn(0, updated.size)
             updated.addAll(insertAt, sanitized)
             val newCurrentIndex = if (state.currentIndex == -1 && wasEmpty) 0 else state.currentIndex
             val newCurrentTrack = if (state.currentTrack == null && wasEmpty) sanitized.first() else state.currentTrack
@@ -768,7 +835,17 @@ class PlaybackManager private constructor(private val context: Context) {
             playFromQueueIndex(0)
         } else {
             if (_playbackState.value.isShuffle) {
-                rebuildShuffleList(_playbackState.value.queue.size, _playbackState.value.currentIndex)
+                if (shuffledIndices.isEmpty()) {
+                    rebuildShuffleList(_playbackState.value.queue.size, _playbackState.value.currentIndex)
+                } else {
+                    shufflePointer = ShuffleIndexMath.onInsert(
+                        indices = shuffledIndices,
+                        pointer = shufflePointer,
+                        insertAt = insertAt,
+                        count = sanitized.size,
+                        asNext = false
+                    )
+                }
             }
             Log.i(TAG, "Added ${sanitized.size} tracks to user queue. User queue size: ${_playbackState.value.userQueueSize}")
             managerScope.launch(Dispatchers.Main) {
@@ -812,7 +889,17 @@ class PlaybackManager private constructor(private val context: Context) {
             )
         }
         if (_playbackState.value.isShuffle) {
-            rebuildShuffleList(_playbackState.value.queue.size, _playbackState.value.currentIndex)
+            if (shuffledIndices.isEmpty()) {
+                rebuildShuffleList(_playbackState.value.queue.size, _playbackState.value.currentIndex)
+            } else {
+                shufflePointer = ShuffleIndexMath.onInsert(
+                    indices = shuffledIndices,
+                    pointer = shufflePointer,
+                    insertAt = insertAt,
+                    count = 1,
+                    asNext = true
+                )
+            }
         }
         Log.i(TAG, "Inserted '${sanitized.title}' after current. User queue size: ${_playbackState.value.userQueueSize}")
         managerScope.launch(Dispatchers.Main) {
@@ -848,19 +935,30 @@ class PlaybackManager private constructor(private val context: Context) {
             else -> state.currentIndex
         }
 
+        if (state.isShuffle) {
+            shufflePointer = ShuffleIndexMath.onRemove(shuffledIndices, shufflePointer, index)
+        }
+        // In shuffle, deleting the current track continues with the next shuffled track,
+        // not with the linearly next queue item.
+        val playIndex = if (isRemovingCurrent && state.isShuffle && shuffledIndices.isNotEmpty()) {
+            shuffledIndices.getOrNull(shufflePointer) ?: newIndex
+        } else {
+            newIndex
+        }
+
         _playbackState.update {
             val newUserQueueSize = (state.userQueueSize - if (index < state.userQueueSize) 1 else 0)
                 .coerceIn(0, updated.size)
             it.copy(
                 queue = updated,
-                currentIndex = newIndex,
-                currentTrack = if (isRemovingCurrent) updated[newIndex] else it.currentTrack,
+                currentIndex = playIndex,
+                currentTrack = if (isRemovingCurrent) updated[playIndex] else it.currentTrack,
                 userQueueSize = newUserQueueSize
             )
         }
 
         if (isRemovingCurrent) {
-            playFromQueueIndex(newIndex)
+            playFromQueueIndex(playIndex)
         } else {
             prefetchNextTrack()
             checkAndTriggerAutoplayIfNeeded()
@@ -871,9 +969,9 @@ class PlaybackManager private constructor(private val context: Context) {
         val state = _playbackState.value
         val queue = state.queue
         if (from !in queue.indices || to !in queue.indices || from == to) return
-        // Only the user queue is reorderable; never let a drag move a radio track into it
-        // (or vice-versa), which would corrupt the user-queue boundary.
-        if (from >= state.userQueueSize || to >= state.userQueueSize) return
+        // Reorder within a section only: never let a drag move a radio track into
+        // the user queue (or vice-versa), which would corrupt the boundary.
+        if (!canMoveWithinQueueSection(from, to, state.userQueueSize)) return
 
         val updated = queue.toMutableList()
         val item = updated.removeAt(from)
@@ -895,7 +993,7 @@ class PlaybackManager private constructor(private val context: Context) {
         }
 
         if (_playbackState.value.isShuffle) {
-            rebuildShuffleList(updated.size, newIndex)
+            ShuffleIndexMath.onMove(shuffledIndices, from, to)
         }
     }
 
@@ -903,6 +1001,8 @@ class PlaybackManager private constructor(private val context: Context) {
         player?.stop()
         player?.clearMediaItems()
         prefetchedTrackIds.clear()
+        shuffledIndices.clear()
+        shufflePointer = -1
         _playbackState.update {
             it.copy(
                 queue = emptyList(),
@@ -921,6 +1021,56 @@ class PlaybackManager private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * Visible queue "Svuota": drop every track ahead of the current one while the
+     * playing track keeps going.
+     */
+    fun clearUpcoming() {
+        val state = _playbackState.value
+        val result = clearUpcoming(state.queue, state.currentIndex) ?: return
+        if (state.isShuffle && shuffledIndices.isNotEmpty()) {
+            shufflePointer = ShuffleIndexMath.onRemoveRange(
+                indices = shuffledIndices,
+                pointer = shufflePointer,
+                from = result.removedFrom,
+                toExclusive = result.removedTo
+            )
+        }
+        _playbackState.update {
+            it.copy(
+                queue = result.queue,
+                userQueueSize = result.userQueueSize
+            )
+        }
+    }
+
+    /**
+     * Bitchord-style clear: drop only the tracks the user queued ahead of the current
+     * one. The playing track and the radio/autoplay tail stay in place.
+     */
+    fun clearUserQueue() {
+        val state = _playbackState.value
+        val result = clearUserUpcoming(state.queue, state.currentIndex, state.userQueueSize)
+            ?: return
+
+        if (state.isShuffle && shuffledIndices.isNotEmpty()) {
+            shufflePointer = ShuffleIndexMath.onRemoveRange(
+                indices = shuffledIndices,
+                pointer = shufflePointer,
+                from = result.removedFrom,
+                toExclusive = result.removedTo
+            )
+        }
+
+        _playbackState.update {
+            it.copy(
+                queue = result.queue,
+                userQueueSize = result.userQueueSize
+            )
+        }
+        prefetchNextTrack()
+    }
+
     // ==========================================
     // Internal Playback & Resolution Logic
     // ==========================================
@@ -931,6 +1081,7 @@ class PlaybackManager private constructor(private val context: Context) {
      * Used to avoid showing the loading spinner for queue tracks that were already prefetched.
      */
     private fun hasResolvedStream(track: Track): Boolean {
+        if (DownloadManager.isDownloaded(track.id)) return true
         if (track.provider.equals("Local", ignoreCase = true)) {
             return !track.streamUrl.isNullOrBlank()
         }
@@ -943,6 +1094,13 @@ class PlaybackManager private constructor(private val context: Context) {
     fun playFromQueueIndex(index: Int) {
         val state = _playbackState.value
         if (index !in state.queue.indices) return
+
+        // A direct tap can jump anywhere in the queue: keep the shuffle cursor in sync so
+        // the following "next" continues from the tapped track.
+        if (state.isShuffle && shuffledIndices.isNotEmpty()) {
+            val position = shuffledIndices.indexOf(index)
+            if (position >= 0) shufflePointer = position
+        }
 
         val target = state.queue[index]
         _playbackState.update {
@@ -970,13 +1128,21 @@ class PlaybackManager private constructor(private val context: Context) {
             try {
                 _playbackState.update { it.copy(isLoading = !hasResolvedStream(track), error = null) }
 
+                // Downloaded tracks keep their cover next to the audio file: use it first so
+                // artwork still loads when the device is offline.
+                val localCoverPath = DownloadManager.localCoverPathFor(track.id)
+
                 // Preload album artwork bytes concurrently with stream resolution for Spotify-like rich notification
                 val cachedArtwork = artworkMemoryCache[track.id]
                 val artworkDeferred = if (cachedArtwork != null) {
                     CompletableDeferred(cachedArtwork)
                 } else {
                     async(Dispatchers.IO) {
-                        val bytes = fetchArtworkBytes(track.coverUrl)
+                        val bytes = if (localCoverPath != null) {
+                            runCatching { File(localCoverPath).readBytes() }.getOrNull()
+                        } else {
+                            null
+                        } ?: fetchArtworkBytes(track.coverUrl)
                         if (bytes != null) artworkMemoryCache[track.id] = bytes
                         bytes
                     }
@@ -990,12 +1156,17 @@ class PlaybackManager private constructor(private val context: Context) {
                     File(track.streamUrl).exists()
                 )
 
-                val localTrackMatch = if (!isDirectLocal) {
+                // Exact offline download mapping (independent of fuzzy title/artist matching).
+                // When an exact download exists we skip the fuzzy scan: the download already
+                // owns the audio file and the catalog identity must not be replaced.
+                val downloadedPath = if (isDirectLocal) null else DownloadManager.localPathFor(track.id)
+                val localTrackMatch = if (!isDirectLocal && downloadedPath == null) {
                     musicRepository.findLocalTrack(track.title, track.artist)
                 } else null
 
                 val localAudioPath = when {
                     isDirectLocal -> track.streamUrl
+                    downloadedPath != null -> downloadedPath
                     localTrackMatch != null -> localTrackMatch.streamUrl
                     else -> null
                 }
@@ -1087,15 +1258,18 @@ class PlaybackManager private constructor(private val context: Context) {
                 }
 
                 val isResolvedLocal = localAudioPath != null || streamUrl.startsWith("/") || streamUrl.startsWith("file://")
-                val playableTrack = if (localTrackMatch != null) {
-                    localTrackMatch.copy(streamUrl = streamUrl, provider = "Local")
-                } else {
-                    track.copy(
-                        streamUrl = streamUrl,
-                        coverUrl = resolvedCoverUrl ?: track.coverUrl,
-                        provider = if (isResolvedLocal) "Local" else track.provider
-                    )
-                }
+                val localCoverUrl = localCoverPath?.let { "file://$it" }
+                // Keep the catalog identity even when a local file supplied the audio. Adopting
+                // the local track's id made the player heart check a different id from the one
+                // favorites are stored under (canonicalTrackFor), so tapping did nothing.
+                val playableTrack = playableTrackFor(
+                    track = track,
+                    localMatch = localTrackMatch,
+                    streamUrl = streamUrl,
+                    resolvedCoverUrl = resolvedCoverUrl,
+                    localCoverUrl = localCoverUrl,
+                    isResolvedLocal = isResolvedLocal
+                )
                 _playbackState.update { state ->
                     val updatedQueue = state.queue.toMutableList()
                     val idx = updatedQueue.indexOfFirst { it.id == playableTrack.id }
@@ -1305,9 +1479,8 @@ class PlaybackManager private constructor(private val context: Context) {
 
                     if (_playbackState.value.isShuffle) {
                         val newTotalSize = _playbackState.value.queue.size
-                        val newIndices = (oldQueueSize until newTotalSize).toMutableList()
-                        Collections.shuffle(newIndices)
-                        shuffledIndices.addAll(newIndices)
+                        val newIndices = (oldQueueSize until newTotalSize).toList()
+                        ShuffleIndexMath.onAppend(shuffledIndices, newIndices)
                     }
 
                     Log.i(TAG, "Autoplay appended ${recommendations.size} tracks to queue. Total queue size: ${_playbackState.value.queue.size}")
@@ -1386,6 +1559,12 @@ class PlaybackManager private constructor(private val context: Context) {
 
         if (nextIndex in queue.indices && nextIndex != state.currentIndex) {
             val nextTrack = queue[nextIndex]
+
+            // Already available offline: nothing to prefetch from the network.
+            if (DownloadManager.isDownloaded(nextTrack.id)) {
+                prefetchedTrackIds.add(nextTrack.id)
+                return
+            }
 
             // If this track has already been prefetched, skip to prevent infinite loops
             if (prefetchedTrackIds.contains(nextTrack.id)) {

@@ -5,6 +5,9 @@
     <string name="library_new_playlist_content_description">Nuova playlist</string>
     <string name="library_favorites_title">Brani preferiti</string>
     <string name="library_history_title">Cronologia</string>
+    <string name="library_favorites_subtitle">I brani che ami</string>
+    <string name="library_history_subtitle">Ascoltati di recente</string>
+    <string name="library_downloads_subtitle">Disponibili offline</string>
     <string name="library_followed_artists_title">Artisti seguiti</string>
     <string name="library_no_playlists_title">Nessuna playlist</string>
     <string name="library_no_playlists_body">Crea una playlist o importa le tue canzoni da Spotify con 1 click.</string>
@@ -27,5 +30,9 @@
     <plurals name="library_playlist_track_count">
         <item quantity="one">Playlist • %1$d brano</item>
         <item quantity="other">Playlist • %1$d brani</item>
+    </plurals>
+    <plurals name="library_mix_track_count">
+        <item quantity="one">Mix • %1$d brano</item>
+        <item quantity="other">Mix • %1$d brani</item>
     </plurals>
 </resources>

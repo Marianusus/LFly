@@ -17,4 +17,5 @@
     <string name="main_context_album_fmt">Album: %1$s</string>
     <string name="main_track_count">%1$d brani</string>
     <string name="main_popular_tracks_title">Brani popolari</string>
+    <string name="main_context_mix_fmt">Mix: %1$s</string>
 </resources>

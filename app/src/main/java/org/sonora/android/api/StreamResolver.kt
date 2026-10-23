@@ -343,6 +343,66 @@ open class StreamResolver(
     }
 
     /**
+     * Resolves a full stream for an offline download at the requested quality tier.
+     *
+     * Uses the same provider chain/order as streaming; the quality is only a preference
+     * forwarded to the providers that support it. Video-only and imported tracks fall back
+     * to the standard resolver when the tiered chain cannot find a match.
+     */
+    open suspend fun resolveStreamForDownload(
+        track: Track,
+        quality: AudioQuality
+    ): StreamSource? = withContext(Dispatchers.IO) {
+        val isYouTube = track.id.startsWith("yt_") || track.provider.equals("YouTube", ignoreCase = true)
+        val wantsLossless = quality == AudioQuality.ULTRA
+
+        // Monochrome always serves lossless FLAC, so only use it when ULTRA was requested.
+        // For smaller tiers prefer the providers that actually honor the requested bitrate.
+        if (isYouTube) {
+            if (wantsLossless && !track.isVideo) {
+                val cleanTitle = sanitizeTitle(track.title, track.artist)
+                val cleanArtist = sanitizeArtist(track.artist)
+                resolveMonochromeDirect(cleanTitle, cleanArtist, track.durationMs, quality)
+                    ?.let { stream ->
+                        Log.i(TAG, "✓ DOWNLOAD STREAM (Monochrome $quality) for '${track.title}'")
+                        return@withContext stream.copy(isPreview = false)
+                    }
+            }
+
+            val tiered = resolveTieredStream(
+                title = track.title,
+                artist = track.artist,
+                durationMs = track.durationMs,
+                quality = quality,
+                skipMonochrome = true
+            )
+            if (tiered != null && !tiered.isPreview && isStreamPlayable(tiered.url)) {
+                Log.i(TAG, "✓ DOWNLOAD STREAM RESOLVED for '${track.title}' ($quality): " +
+                        "Provider=${tiered.provider}, Bitrate=${tiered.bitrate}kbps")
+                return@withContext tiered
+            }
+            return@withContext resolveViaYouTubeMusic(track) ?: resolveStream(track)
+        }
+
+        // Others (imported/legacy): streaming provider chain at the requested quality.
+        val resolved = resolveTieredStream(
+            title = track.title,
+            artist = track.artist,
+            durationMs = track.durationMs,
+            quality = quality,
+            skipMonochrome = !wantsLossless
+        )
+        if (resolved != null && !resolved.isPreview && !isDeezerPreviewUrl(resolved.url) &&
+            isStreamPlayable(resolved.url)
+        ) {
+            Log.i(TAG, "✓ DOWNLOAD STREAM RESOLVED for '${track.title}' ($quality): " +
+                    "Provider=${resolved.provider}, Bitrate=${resolved.bitrate}kbps")
+            return@withContext resolved
+        }
+        resolveStream(track)
+    }
+
+    /**
      * Resolves the complete [StreamSource] metadata by title and artist.
      */
     suspend fun resolveStream(
@@ -616,7 +676,9 @@ open class StreamResolver(
     private suspend fun resolveTieredStream(
         title: String,
         artist: String,
-        durationMs: Long
+        durationMs: Long,
+        quality: AudioQuality? = null,
+        skipMonochrome: Boolean = false
     ): StreamSource? {
         val cleanTitle = sanitizeTitle(title, artist)
         val cleanArtist = sanitizeArtist(artist)
@@ -627,7 +689,7 @@ open class StreamResolver(
         // TIER 1: Monochrome HiFi Streamer (Bit-perfect Lossless FLAC 1411 kbps)
         // Resolves from tracks.monochrome.st and dynamic healthy HiFi mirror pool
         // =========================================================================
-        try {
+        if (!skipMonochrome) try {
             val healthyMonochrome = apiHealthManager.getHealthyEndpoints(EndpointType.MONOCHROME).map { it.baseUrl }
             if (healthyMonochrome.isNotEmpty()) {
                 monochromeApiClient.updateInstances(healthyMonochrome)
@@ -638,7 +700,7 @@ open class StreamResolver(
                 monochromeApiClient.resolveStream(
                     title = cleanTitle,
                     artist = cleanArtist,
-                    preferredQuality = AudioQuality.ULTRA,
+                    preferredQuality = quality ?: AudioQuality.ULTRA,
                     durationMs = durationMs
                 )
             }
@@ -676,7 +738,7 @@ open class StreamResolver(
 
             val saavnStart = System.currentTimeMillis()
             val jioResult = withTimeoutOrNull(TIER_TIMEOUT_MS) {
-                jioSaavnFallbackClient.resolveStream(cleanTitle, cleanArtist, AudioQuality.HIGH)
+                jioSaavnFallbackClient.resolveStream(cleanTitle, cleanArtist, quality ?: AudioQuality.HIGH)
             }
 
             if (jioResult != null && jioResult.isSuccess) {
@@ -712,7 +774,7 @@ open class StreamResolver(
 
             val cobaltStart = System.currentTimeMillis()
             val cobaltResult = withTimeoutOrNull(TIER_TIMEOUT_MS) {
-                cobaltAudioResolver.resolveStream(cleanTitle, cleanArtist, AudioQuality.HIGH, durationMs)
+                cobaltAudioResolver.resolveStream(cleanTitle, cleanArtist, quality ?: AudioQuality.HIGH, durationMs)
             }
 
             if (cobaltResult != null && cobaltResult.isSuccess) {
@@ -748,7 +810,7 @@ open class StreamResolver(
 
             val invidiousStart = System.currentTimeMillis()
             val invidiousResult = withTimeoutOrNull(TIER_TIMEOUT_MS) {
-                invidiousStreamResolver.resolveStream(cleanTitle, cleanArtist, AudioQuality.HIGH, durationMs)
+                invidiousStreamResolver.resolveStream(cleanTitle, cleanArtist, quality ?: AudioQuality.HIGH, durationMs)
             }
 
             if (invidiousResult != null && invidiousResult.isSuccess) {

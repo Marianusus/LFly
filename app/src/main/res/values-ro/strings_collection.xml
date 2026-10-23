@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="collection_more_options">Mai multe opțiuni</string>
+    <string name="collection_show_more">Arată mai mult</string>
+    <string name="collection_show_less">Arată mai puțin</string>
+    <string name="collection_now_playing">Se redă</string>
+    <string name="collection_go_to_now_playing">Mergi la piesa redată</string>
+    <string name="collection_play_action">Redă</string>
+    <string name="collection_shuffle_action">Amestecă</string>
+    <string name="collection_duration_hours">%1$d h %2$d min</string>
+    <string name="collection_duration_minutes">%1$d min</string>
+    <string name="collection_duration_seconds">%1$d sec</string>
+    <string name="collection_updated">Actualizată %1$s</string>
+    <string name="collection_add_to_queue">Adaugă în coadă</string>
+    <string name="collection_discover_tracks">Descoperă piese</string>
+    <string name="playlist_not_found_body">Playlistul nu mai există sau a fost eliminat.</string>
+    <string name="collection_error_title">Nu se poate încărca</string>
+    <string name="collection_album_empty_title">Album fără piese</string>
+    <string name="collection_album_empty_body">Nu există piese disponibile pentru acest album.</string>
+    <plurals name="collection_track_count">
+        <item quantity="one">%1$d piesă</item>
+        <item quantity="few">%1$d piese</item>
+        <item quantity="other">%1$d de piese</item>
+    </plurals>
+</resources>

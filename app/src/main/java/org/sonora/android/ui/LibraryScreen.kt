@@ -1,7 +1,6 @@
 package org.sonora.android.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,13 +28,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,15 +56,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -81,26 +84,37 @@ import org.sonora.android.api.Track
 import org.sonora.android.api.YouTubePlaylistImporter
 import org.sonora.android.data.FollowedArtist
 import org.sonora.android.data.MusicRepository
+import org.sonora.android.data.Mix
 import org.sonora.android.data.Playlist
-import org.sonora.android.playback.PlaybackState
+import org.sonora.android.playback.DownloadProgress
+import org.sonora.android.ui.components.DownloadMenuEntry
 import org.sonora.android.ui.components.ImportDialog
 import org.sonora.android.ui.components.LocalBottomChromeInset
 import org.sonora.android.ui.components.SectionHeader
-import org.sonora.android.ui.components.TrackItem
+import org.sonora.android.ui.components.SourceSwitchMenuItems
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.components.mapQueueReorderByKey
 import org.sonora.android.ui.components.stableTrackKeys
-import org.sonora.android.ui.theme.GlassCard
-import org.sonora.android.ui.theme.GlassPanel
 import org.sonora.android.ui.theme.GlassPlaceholder
-import org.sonora.android.ui.theme.GlassTopBar
+import org.sonora.android.ui.collection.CollectionEmptyState
+import org.sonora.android.ui.collection.CollectionHero
+import org.sonora.android.ui.collection.CollectionMetrics
+import org.sonora.android.ui.collection.CollectionNowPlayingThread
+import org.sonora.android.ui.collection.CollectionSectionHeader
+import org.sonora.android.ui.collection.CollectionTopBar
+import org.sonora.android.ui.collection.CollectionTrackRow
+import org.sonora.android.ui.collection.formatCollectionDuration
+import org.sonora.android.ui.collection.joinCollectionMeta
 import org.sonora.android.ui.theme.LocalBackgroundScheme
+import org.sonora.android.ui.theme.LocalMotionPreferences
 import org.sonora.android.ui.theme.Radius
 import org.sonora.android.ui.theme.SonoraAmoledBlack
+import org.sonora.android.ui.theme.SonoraBackground
 import org.sonora.android.ui.theme.SonoraSurfaceCard
 import org.sonora.android.ui.theme.SonoraTheme
 import org.sonora.android.ui.theme.Spacing
 import org.sonora.android.ui.theme.pressScale
+import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -111,9 +125,10 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 private const val COLLECTION_TRACKS_BASE_INDEX = 0
 
 /** Fixed, always-present collections pinned to the top of the library. */
-private enum class LibraryCollection(val titleRes: Int) {
-    FAVORITES(R.string.library_favorites_title),
-    HISTORY(R.string.library_history_title)
+private enum class LibraryCollection(val titleRes: Int, val subtitleRes: Int) {
+    FAVORITES(R.string.library_favorites_title, R.string.library_favorites_subtitle),
+    HISTORY(R.string.library_history_title, R.string.library_history_subtitle),
+    DOWNLOADS(R.string.library_downloads_title, R.string.library_downloads_subtitle)
 }
 
 /**
@@ -127,12 +142,15 @@ fun LibraryScreen(
     favorites: List<Track>,
     playlists: List<Playlist>,
     history: List<Track>,
-    playbackState: PlaybackState,
+    currentTrackId: String?,
+    isPlaying: Boolean,
     isFavorite: (String) -> Boolean,
     onTrackClick: (Track) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
     onPlayAllFavorites: () -> Unit,
     onShuffleFavorites: () -> Unit,
+    onToggleFavoritesDownload: (() -> Unit)? = null,
+    favoritesDownloadProgress: DownloadProgress = DownloadProgress(),
     onCreatePlaylist: (String) -> Unit,
     onAddToQueue: (Track) -> Unit = {},
     onPlayNextTrack: (Track) -> Unit = {},
@@ -146,7 +164,13 @@ fun LibraryScreen(
     onPlayAllHistory: (() -> Unit)? = null,
     onShuffleHistory: (() -> Unit)? = null,
     onReorderFavorites: ((Int, Int) -> Unit)? = null,
+    onPlayDownloads: ((List<Track>) -> Unit)? = null,
+    onShuffleDownloads: ((List<Track>) -> Unit)? = null,
     sourceActions: TrackSourceActions? = null,
+    isOnline: Boolean = true,
+    downloadedTracks: List<Track> = emptyList(),
+    savedMixes: List<Mix> = emptyList(),
+    onMixClick: (Mix) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -155,6 +179,10 @@ fun LibraryScreen(
     var openCollection by remember { mutableStateOf<LibraryCollection?>(null) }
     val listState = rememberLazyListState()
     val detailState = rememberLazyListState()
+    // The yt-dlp collection is merged into the offline section instead of being a separate row.
+    val visiblePlaylists = remember(playlists) {
+        playlists.filterNot { it.id == MusicRepository.PLAYLIST_DOWNLOADED_ID }
+    }
 
     BackHandler(enabled = openCollection != null) { openCollection = null }
     LaunchedEffect(openCollection) {
@@ -170,11 +198,13 @@ fun LibraryScreen(
             val tracks = when (collection) {
                 LibraryCollection.FAVORITES -> favorites
                 LibraryCollection.HISTORY -> history
+                LibraryCollection.DOWNLOADS -> downloadedTracks
             }
             CollectionDetail(
                 collection = collection,
                 tracks = tracks,
-                playbackState = playbackState,
+                currentTrackId = currentTrackId,
+                isPlaying = isPlaying,
                 isFavorite = isFavorite,
                 listState = detailState,
                 onBack = { openCollection = null },
@@ -184,18 +214,24 @@ fun LibraryScreen(
                     when (collection) {
                         LibraryCollection.FAVORITES -> onPlayAllFavorites()
                         LibraryCollection.HISTORY -> onPlayAllHistory?.invoke() ?: tracks.firstOrNull()?.let(onTrackClick)
+                        LibraryCollection.DOWNLOADS -> onPlayDownloads?.invoke(tracks)
+                            ?: tracks.firstOrNull()?.let(onTrackClick)
                     }
                 },
                 onShuffle = {
                     when (collection) {
                         LibraryCollection.FAVORITES -> onShuffleFavorites()
                         LibraryCollection.HISTORY -> onShuffleHistory?.invoke() ?: tracks.shuffled().firstOrNull()?.let(onTrackClick)
+                        LibraryCollection.DOWNLOADS -> onShuffleDownloads?.invoke(tracks)
+                            ?: tracks.shuffled().firstOrNull()?.let(onTrackClick)
                     }
                 },
                 onAddToQueue = onAddToQueue,
                 onPlayNextTrack = onPlayNextTrack,
                 onAddToPlaylist = onAddToPlaylist,
                 onReorderFavorites = onReorderFavorites,
+                onToggleDownload = if (collection == LibraryCollection.FAVORITES) onToggleFavoritesDownload else null,
+                downloadProgress = favoritesDownloadProgress,
                 sourceActions = sourceActions
             )
         } else {
@@ -290,7 +326,7 @@ fun LibraryScreen(
                     item {
                         LibraryCollectionRow(
                             title = stringResource(LibraryCollection.FAVORITES.titleRes),
-                            subtitle = pluralStringResource(R.plurals.library_playlist_track_count, favorites.size, favorites.size),
+                            subtitle = pluralStringResource(R.plurals.collection_track_count, favorites.size, favorites.size),
                             onClick = { openCollection = LibraryCollection.FAVORITES }
                         ) {
                             LikedSongsCover()
@@ -300,14 +336,35 @@ fun LibraryScreen(
                     item {
                         LibraryCollectionRow(
                             title = stringResource(LibraryCollection.HISTORY.titleRes),
-                            subtitle = pluralStringResource(R.plurals.library_playlist_track_count, history.size, history.size),
+                            subtitle = pluralStringResource(R.plurals.collection_track_count, history.size, history.size),
                             onClick = { openCollection = LibraryCollection.HISTORY }
                         ) {
                             HistoryCover()
                         }
                     }
 
-                    if (playlists.isEmpty()) {
+                    // Offline-only collection: appears when the device has no validated internet.
+                    if (!isOnline) {
+                        item {
+                            LibraryCollectionRow(
+                                title = stringResource(LibraryCollection.DOWNLOADS.titleRes),
+                                subtitle = pluralStringResource(R.plurals.collection_track_count, downloadedTracks.size, downloadedTracks.size),
+                                onClick = { openCollection = LibraryCollection.DOWNLOADS }
+                            ) {
+                                DownloadsCover()
+                            }
+                        }
+                    }
+
+                    // Saved mixes appear inline with a small "Mix · N brani" subtitle.
+                    items(savedMixes, key = { "saved_mix_${it.id}" }) { mix ->
+                        LibraryMixRow(
+                            mix = mix,
+                            onClick = { onMixClick(mix) }
+                        )
+                    }
+
+                    if (visiblePlaylists.isEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -344,7 +401,7 @@ fun LibraryScreen(
                             }
                         }
                     } else {
-                        items(playlists, key = { it.id }) { playlist ->
+                        items(visiblePlaylists, key = { it.id }) { playlist ->
                             LibraryPlaylistRow(
                                 playlist = playlist,
                                 onClick = { onPlaylistClick(playlist) }
@@ -509,6 +566,70 @@ private fun LibraryCollectionRow(
 }
 
 @Composable
+private fun LibraryMixRow(
+    mix: Mix,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val snapshotPlaylist = remember(mix.id, mix.savedTracks) {
+        Playlist(
+            id = mix.id,
+            name = mix.name,
+            tracks = mix.savedTracks.orEmpty()
+        )
+    }
+    val scheme = LocalBackgroundScheme.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressScale(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(scheme.glassTint),
+            contentAlignment = Alignment.Center
+        ) {
+            PlaylistCoverMosaic(
+                playlist = snapshotPlaylist,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = mix.name,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                ),
+                color = scheme.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = pluralStringResource(
+                    R.plurals.library_mix_track_count,
+                    mix.savedTrackCount,
+                    mix.savedTrackCount
+                ),
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                color = scheme.onBackgroundSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 private fun LibraryPlaylistRow(
     playlist: Playlist,
     onClick: () -> Unit
@@ -585,6 +706,28 @@ private fun LikedSongsCover(modifier: Modifier = Modifier, iconSize: Int = 26) {
 }
 
 @Composable
+private fun DownloadsCover(modifier: Modifier = Modifier, iconSize: Int = 26) {
+    val scheme = LocalBackgroundScheme.current
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.linearGradient(
+                    listOf(scheme.accent.copy(alpha = 0.55f), scheme.glassTint)
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.DownloadDone,
+            contentDescription = null,
+            tint = scheme.onBackground,
+            modifier = Modifier.size(iconSize.dp)
+        )
+    }
+}
+
+@Composable
 private fun HistoryCover(modifier: Modifier = Modifier, iconSize: Int = 26) {
     val scheme = LocalBackgroundScheme.current
     Box(
@@ -607,14 +750,15 @@ private fun HistoryCover(modifier: Modifier = Modifier, iconSize: Int = 26) {
 }
 
 // ==========================================
-// Spotify-style collection detail (UI-only)
+// Shared collection detail (favorites / history / downloads)
 // ==========================================
 
 @Composable
 private fun CollectionDetail(
     collection: LibraryCollection,
     tracks: List<Track>,
-    playbackState: PlaybackState,
+    currentTrackId: String?,
+    isPlaying: Boolean,
     isFavorite: (String) -> Boolean,
     listState: LazyListState,
     onBack: () -> Unit,
@@ -626,39 +770,59 @@ private fun CollectionDetail(
     onPlayNextTrack: (Track) -> Unit = {},
     onAddToPlaylist: ((Track) -> Unit)?,
     onReorderFavorites: ((Int, Int) -> Unit)? = null,
-    sourceActions: TrackSourceActions? = null
+    onToggleDownload: (() -> Unit)? = null,
+    downloadProgress: DownloadProgress = DownloadProgress(),
+    sourceActions: TrackSourceActions? = null,
 ) {
     val scheme = LocalBackgroundScheme.current
+    val motion = LocalMotionPreferences.current
+    val scope = rememberCoroutineScope()
     val coverUrl = tracks.firstOrNull { !it.coverUrl.isNullOrBlank() }?.coverUrl
-
     val canReorder = collection == LibraryCollection.FAVORITES &&
         onReorderFavorites != null && tracks.size > 1
     var isReorderMode by remember { mutableStateOf(false) }
 
-    // Switching between favorites and history must not leak a stale reorder mode.
     LaunchedEffect(collection) { isReorderMode = false }
+    LaunchedEffect(canReorder) { if (!canReorder) isReorderMode = false }
 
     val trackKeys = remember(tracks) { stableTrackKeys(tracks) }
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
         val mapped = mapQueueReorderByKey(trackKeys, from.key, to.key, COLLECTION_TRACKS_BASE_INDEX)
-        if (mapped != null) {
-            onReorderFavorites?.invoke(mapped.first, mapped.second)
+        if (mapped != null) onReorderFavorites?.invoke(mapped.first, mapped.second)
+    }
+    val collapsed by remember(listState) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 120
         }
     }
+    val currentIndex = remember(tracks, currentTrackId) {
+        tracks.indexOfFirst { it.id == currentTrackId }
+    }
+    val hasCurrent = currentIndex >= 0
+    val firstTrackItem = 2 + if (hasCurrent) 1 else 0
 
-    org.sonora.android.ui.theme.SonoraBackground(
+    SonoraBackground(
         modifier = Modifier.fillMaxSize(),
-        coverUrl = coverUrl
+        coverUrl = coverUrl,
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Reorder controls stay outside the LazyColumn so they never scroll out of reach.
-            GlassTopBar(title = stringResource(collection.titleRes), onBack = onBack) {
+            CollectionTopBar(
+                title = stringResource(collection.titleRes),
+                collapsed = collapsed || isReorderMode,
+                onBack = onBack,
+            ) {
                 if (canReorder) {
-                    IconButton(onClick = { isReorderMode = !isReorderMode }) {
+                    IconButton(
+                        onClick = { isReorderMode = !isReorderMode },
+                        modifier = Modifier.size(CollectionMetrics.ActionSize),
+                    ) {
                         Icon(
                             imageVector = if (isReorderMode) Icons.Default.Check else Icons.Default.SwapVert,
-                            contentDescription = stringResource(if (isReorderMode) R.string.library_reorder_finish_content_description else R.string.library_reorder_content_description),
-                            tint = scheme.onBackground
+                            contentDescription = stringResource(
+                                if (isReorderMode) R.string.library_reorder_finish_content_description
+                                else R.string.library_reorder_content_description
+                            ),
+                            tint = scheme.onBackground,
                         )
                     }
                 }
@@ -669,332 +833,185 @@ private fun CollectionDetail(
                     .fillMaxWidth()
                     .weight(1f),
                 state = listState,
-                contentPadding = PaddingValues(bottom = LocalBottomChromeInset.current + 24.dp),
-                verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                contentPadding = PaddingValues(bottom = LocalBottomChromeInset.current + Spacing.xl),
             ) {
-            item {
-                CollectionHero(
-                    collection = collection,
-                    trackCount = tracks.size,
-                    hasTracks = tracks.isNotEmpty(),
-                    onPlayAll = onPlayAll,
-                    onShuffle = onShuffle,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Spacing.gutter, vertical = Spacing.sm)
-                )
-            }
-
-            if (tracks.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Spacing.xl, vertical = Spacing.xl),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        GlassPlaceholder {
-                            Icon(
-                                imageVector = if (collection == LibraryCollection.FAVORITES) {
-                                    Icons.Default.Favorite
-                                } else {
-                                    Icons.Default.History
-                                },
-                                contentDescription = null,
-                                tint = scheme.onBackgroundTertiary,
-                                modifier = Modifier
-                                    .align(Alignment.CenterHorizontally)
-                                    .size(44.dp)
-                            )
-                            Spacer(modifier = Modifier.height(Spacing.sm))
-                            Text(
-                                text = stringResource(
-                                    if (collection == LibraryCollection.FAVORITES) {
-                                        R.string.library_no_favorites_title
-                                    } else {
-                                        R.string.library_no_history_title
-                                    }
-                                ),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = scheme.onBackground,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(Spacing.xs))
-                            Text(
-                                text = stringResource(
-                                    if (collection == LibraryCollection.FAVORITES) {
-                                        R.string.library_no_favorites_body
-                                    } else {
-                                        R.string.library_no_history_body
-                                    }
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = scheme.onBackgroundSecondary,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
+                item(key = "hero", contentType = "hero") {
+                    CollectionHero(
+                        title = stringResource(collection.titleRes),
+                        subtitle = stringResource(collection.subtitleRes),
+                        metadata = collectionMetadata(tracks),
+                        hasTracks = tracks.isNotEmpty(),
+                        onPlay = onPlayAll,
+                        onShuffle = onShuffle,
+                        downloadProgress = if (collection == LibraryCollection.FAVORITES) downloadProgress else null,
+                        onToggleDownload = onToggleDownload,
+                        modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.sm),
+                        artwork = {
+                            when (collection) {
+                                LibraryCollection.FAVORITES -> LikedSongsCover(iconSize = 84)
+                                LibraryCollection.HISTORY -> HistoryCover(iconSize = 84)
+                                LibraryCollection.DOWNLOADS -> DownloadsCover(iconSize = 84)
+                            }
+                        },
+                    )
                 }
-            } else {
-                item { SectionHeader(title = stringResource(R.string.library_tracks_count, tracks.size)) }
 
-                itemsIndexed(
-                    tracks,
-                    key = { index, _ -> trackKeys.getOrElse(index) { "track_$index" } }
-                ) { index, track ->
-                    val isCurrent = playbackState.currentTrack?.id == track.id
-                    val rowKey = trackKeys.getOrElse(index) { "track_$index" }
-                    if (isReorderMode) {
-                        ReorderableItem(state = reorderState, key = rowKey, enabled = true) { isDragging ->
-                            GlassTrackRow(
-                                modifier = Modifier.padding(horizontal = Spacing.sm),
-                                isDragging = isDragging
-                            ) {
-                                ReorderableCollectionRow(
-                                    track = track,
-                                    isCurrent = isCurrent,
-                                    isDragging = isDragging,
-                                    dragHandleModifier = Modifier.longPressDraggableHandle()
+                if (tracks.isEmpty()) {
+                    item(key = "empty", contentType = "empty") {
+                        CollectionEmptyState(
+                            icon = when (collection) {
+                                LibraryCollection.FAVORITES -> Icons.Default.Favorite
+                                LibraryCollection.HISTORY -> Icons.Default.History
+                                LibraryCollection.DOWNLOADS -> Icons.Default.DownloadDone
+                            },
+                            title = stringResource(
+                                when (collection) {
+                                    LibraryCollection.FAVORITES -> R.string.library_no_favorites_title
+                                    LibraryCollection.HISTORY -> R.string.library_no_history_title
+                                    LibraryCollection.DOWNLOADS -> R.string.library_no_downloads_title
+                                }
+                            ),
+                            message = stringResource(
+                                when (collection) {
+                                    LibraryCollection.FAVORITES -> R.string.library_no_favorites_body
+                                    LibraryCollection.HISTORY -> R.string.library_no_history_body
+                                    LibraryCollection.DOWNLOADS -> R.string.library_no_downloads_body
+                                }
+                            ),
+                        )
+                    }
+                } else {
+                    item(key = "tracklist-header", contentType = "header") {
+                        CollectionSectionHeader(
+                            title = stringResource(R.string.library_tracks_count, tracks.size),
+                            detail = formatCollectionDuration(tracks.sumOf { it.durationMs }),
+                        )
+                    }
+
+                    if (hasCurrent) {
+                        item(key = "now-playing", contentType = "now-playing") {
+                            val currentTrack = tracks.getOrNull(currentIndex)
+                            if (currentTrack != null) {
+                                CollectionNowPlayingThread(
+                                    title = currentTrack.title,
+                                    isPlaying = isPlaying,
+                                    onClick = {
+                                        scope.launch {
+                                            val target = firstTrackItem + currentIndex
+                                            if (motion.reduceMotion) listState.scrollToItem(target)
+                                            else listState.animateScrollToItem(target)
+                                        }
+                                    },
                                 )
                             }
                         }
-                    } else {
-                        GlassTrackRow(modifier = Modifier.padding(horizontal = Spacing.sm)) {
-                            TrackItem(
+                    }
+
+                    itemsIndexed(
+                        items = tracks,
+                        key = { index, _ -> trackKeys.getOrElse(index) { "track_$index" } },
+                        contentType = { _, _ -> "track" },
+                    ) { index, track ->
+                        val rowKey = trackKeys.getOrElse(index) { "track_$index" }
+                        val reorderEnabled = isReorderMode && canReorder
+                        val isCurrent = track.id == currentTrackId
+
+                        ReorderableItem(
+                            state = reorderState,
+                            key = rowKey,
+                            enabled = reorderEnabled,
+                        ) { isDragging ->
+                            CollectionTrackRow(
                                 track = track,
-                                isPlaying = isCurrent && playbackState.isPlaying,
-                                isCurrentTrack = isCurrent,
-                                isFavorite = if (collection == LibraryCollection.FAVORITES) {
-                                    true
-                                } else {
-                                    isFavorite(track.id)
+                                trackNumber = null,
+                                showArtwork = true,
+                                showArtist = true,
+                                isCurrent = isCurrent,
+                                isPlaying = isCurrent && isPlaying,
+                                isFavorite = if (collection == LibraryCollection.FAVORITES) true else isFavorite(track.id),
+                                onPlay = {
+                                    if (!isReorderMode) onTrackClick(track)
                                 },
-                                onTrackClick = { onTrackClick(track) },
                                 onFavoriteClick = { onFavoriteToggle(track) },
-                                onAddToQueue = { onAddToQueue(track) },
-                                onPlayNextTrack = { onPlayNextTrack(track) },
-                                onAddToPlaylist = onAddToPlaylist?.let { { it(track) } },
-                                sourceActions = sourceActions,
-                                modifier = Modifier.fillMaxWidth()
+                                fallbackCoverUrl = coverUrl,
+                                reorderMode = reorderEnabled,
+                                isDragging = isDragging,
+                                dragHandleModifier = if (reorderEnabled) {
+                                    Modifier.longPressDraggableHandle()
+                                } else {
+                                    Modifier
+                                },
+                                menuContent = { dismiss ->
+                                    DownloadMenuEntry(
+                                        track = track,
+                                        onDismiss = dismiss,
+                                        accent = scheme.accent,
+                                        primary = scheme.onBackground,
+                                        secondary = scheme.onBackgroundSecondary,
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.album_play_next_action), color = scheme.onBackground) },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = scheme.onBackgroundSecondary)
+                                        },
+                                        onClick = {
+                                            dismiss()
+                                            onPlayNextTrack(track)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.album_add_to_queue_action), color = scheme.onBackground) },
+                                        leadingIcon = {
+                                            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = scheme.onBackgroundSecondary)
+                                        },
+                                        onClick = {
+                                            dismiss()
+                                            onAddToQueue(track)
+                                        },
+                                    )
+                                    if (onAddToPlaylist != null) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.album_add_to_playlist_action), color = scheme.onBackground) },
+                                            leadingIcon = {
+                                                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, tint = scheme.onBackgroundSecondary)
+                                            },
+                                            onClick = {
+                                                dismiss()
+                                                onAddToPlaylist(track)
+                                            },
+                                        )
+                                    }
+                                    if (sourceActions != null &&
+                                        (track.id.startsWith("yt_") || track.id.startsWith("spotify_")) &&
+                                        !track.provider.equals("Local", ignoreCase = true)
+                                    ) {
+                                        SourceSwitchMenuItems(
+                                            sourceOverride = sourceActions.overrideFor(track.id),
+                                            onPlayViaSource = { src ->
+                                                dismiss()
+                                                sourceActions.onSelect(track, src)
+                                            },
+                                            onUseGlobalSource = {
+                                                dismiss()
+                                                sourceActions.onClear(track)
+                                            },
+                                        )
+                                    }
+                                },
                             )
                         }
                     }
                 }
             }
-            }
-        }
-    }
-}
-
-/** Compact row used only in reorder mode: cover + title/artist + long-press drag handle. */
-@Composable
-private fun ReorderableCollectionRow(
-    track: Track,
-    isCurrent: Boolean,
-    isDragging: Boolean = false,
-    dragHandleModifier: Modifier,
-    modifier: Modifier = Modifier
-) {
-    val scheme = LocalBackgroundScheme.current
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(scheme.glassTint),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!track.coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = track.coverUrl,
-                    contentDescription = track.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = scheme.onBackgroundTertiary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(Spacing.md))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 15.sp
-                ),
-                color = if (isCurrent) scheme.accent else scheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (track.artist.isNotBlank()) {
-                Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                    color = scheme.onBackgroundSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(Spacing.sm))
-
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .then(dragHandleModifier),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.DragHandle,
-                contentDescription = stringResource(R.string.library_drag_handle_content_description),
-                tint = if (isDragging) scheme.accent else scheme.onBackgroundSecondary,
-                modifier = Modifier.size(22.dp)
-            )
         }
     }
 }
 
 @Composable
-private fun CollectionHero(
-    collection: LibraryCollection,
-    trackCount: Int,
-    hasTracks: Boolean,
-    onPlayAll: () -> Unit,
-    onShuffle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val scheme = LocalBackgroundScheme.current
-    GlassPanel(modifier = modifier, shape = RoundedCornerShape(Radius.Large)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.lg),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(190.dp)
-                    .clip(RoundedCornerShape(Radius.Medium))
-            ) {
-                when (collection) {
-                    LibraryCollection.FAVORITES -> LikedSongsCover(iconSize = 84)
-                    LibraryCollection.HISTORY -> HistoryCover(iconSize = 84)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(Spacing.lg))
-
-            Text(
-                text = stringResource(collection.titleRes),
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
-                ),
-                color = scheme.onBackground,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.xs))
-
-            Text(
-                text = pluralStringResource(R.plurals.library_playlist_track_count, trackCount, trackCount),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onBackgroundSecondary,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.lg))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(
-                    onClick = onPlayAll,
-                    enabled = hasTracks,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = scheme.accent,
-                        contentColor = accentContentColor()
-                    ),
-                    shape = RoundedCornerShape(Radius.Medium),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.sm))
-                    Text(text = stringResource(R.string.library_play_action), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-
-                OutlinedButton(
-                    onClick = onShuffle,
-                    enabled = hasTracks,
-                    border = BorderStroke(1.dp, scheme.glassBorder),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = scheme.glassTint,
-                        contentColor = scheme.onBackground
-                    ),
-                    shape = RoundedCornerShape(Radius.Medium)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Shuffle,
-                        contentDescription = stringResource(R.string.library_shuffle_content_description),
-                        tint = if (hasTracks) scheme.accent else scheme.onBackgroundTertiary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.xs))
-                    Text(text = stringResource(R.string.library_shuffle_action), fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-/** Glass surface wrapper for track rows (favorites / history). */
-@Composable
-private fun GlassTrackRow(
-    modifier: Modifier = Modifier,
-    isDragging: Boolean = false,
-    content: @Composable () -> Unit
-) {
-    val scheme = LocalBackgroundScheme.current
-    val dragScale by animateFloatAsState(
-        targetValue = if (isDragging) 1.02f else 1f,
-        label = "collectionTrackDragScale"
-    )
-    GlassCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .scale(dragScale)
-            .pressScale(),
-        shape = RoundedCornerShape(Radius.Small),
-        tint = if (isDragging) scheme.accent.copy(alpha = 0.16f) else scheme.glassTint,
-        border = if (isDragging) scheme.accent.copy(alpha = 0.55f) else scheme.glassBorder
-    ) {
-        content()
-    }
-}
+private fun collectionMetadata(tracks: List<Track>): String? = joinCollectionMeta(
+    pluralStringResource(R.plurals.collection_track_count, tracks.size, tracks.size),
+    formatCollectionDuration(tracks.sumOf { it.durationMs }),
+)
 
 @Composable
 private fun LibraryFollowedArtist(

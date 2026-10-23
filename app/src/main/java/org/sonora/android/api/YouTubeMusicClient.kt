@@ -37,13 +37,16 @@ open class YouTubeMusicClient(
         private const val TAG = "YouTubeMusicClient"
         const val BASE_URL = "https://music.youtube.com"
         private const val YTM_SEARCH_URL = "$BASE_URL/youtubei/v1/search"
+        private const val YTM_SUGGESTIONS_URL = "$BASE_URL/youtubei/v1/music/get_search_suggestions"
         private const val BROWSE_URL = "$BASE_URL/youtubei/v1/browse"
+        private const val TRANSCRIPT_URL = "$BASE_URL/youtubei/v1/get_transcript"
         private const val NEXT_URL = "$BASE_URL/youtubei/v1/next"
         private const val YTM_PLAYER_URL = "$BASE_URL/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false"
         private const val SONGS_FILTER_PARAMS = "EgWKAQIIAWoKEAUQAxAEEAkQBQ==" // Filters results to songs
         private const val ALBUMS_FILTER_PARAMS = "EgWKAQIYAWoKEAkQChAFEAMQBA==" // Filters results to albums
         private const val VIDEOS_FILTER_PARAMS = "EgWKAQIQAWoKEAkQChAFEAMQBA==" // Filters results to videos
         private const val PLAYLISTS_FILTER_PARAMS = "EgWKAQIoAWoKEAkQChAFEAMQBA==" // Filters results to playlists
+        private const val ARTISTS_FILTER_PARAMS = "EgWKAQIgAWoKEAkQChAFEAMQBA==" // Filters results to artists
         private const val MAX_RADIO_PAGES = 4
         private const val MAX_SEARCH_PAGES = 5
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
@@ -188,9 +191,10 @@ open class YouTubeMusicClient(
             val invidiousResults = invidiousFallback.searchTracks(trimmed, limit = limit)
             if (invidiousResults.isSuccess) {
                 val list = invidiousResults.getOrDefault(emptyList())
-                if (list.isNotEmpty()) {
-                    Log.i(TAG, "✓ Invidious fallback returned ${list.size} tracks for '$trimmed'")
-                    return@withContext Result.success(list)
+                val usable = list.filterNot { isGenericYouTubeArtist(it.artist) }
+                if (usable.isNotEmpty()) {
+                    Log.i(TAG, "✓ Invidious fallback returned ${usable.size} tracks for '$trimmed'")
+                    return@withContext Result.success(usable)
                 }
             }
         } catch (e: Throwable) {
@@ -199,6 +203,92 @@ open class YouTubeMusicClient(
 
         Result.success(emptyList())
     }
+
+    /**
+     * YouTube Music typeahead completions for the search field.
+     *
+     * This is the same lightweight endpoint the YouTube Music search box uses:
+     * it returns only query strings, not result shelves. Failures are reported
+     * as an empty list so the UI can keep the exact-query row and local history
+     * without interrupting typing.
+     */
+    open suspend fun searchSuggestions(input: String, limit: Int = 6): Result<List<String>> = withContext(Dispatchers.IO) {
+        val trimmed = input.trim()
+        if (trimmed.isBlank()) return@withContext Result.success(emptyList())
+        try {
+            val payload = JsonObject().apply {
+                add("context", webRemixContext())
+                addProperty("input", trimmed)
+            }
+            val request = Request.Builder()
+                .url(YTM_SUGGESTIONS_URL)
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .addHeader("Content-Type", "application/json")
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .addHeader("Origin", "https://music.youtube.com")
+                .addHeader("Referer", "https://music.youtube.com/")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("HTTP ${response.code} from suggestions")
+                val body = response.body?.string().orEmpty()
+                if (body.isBlank()) return@withContext Result.success(emptyList())
+                val root = JsonParser.parseString(body)
+                Result.success(parseSearchSuggestions(root).take(limit.coerceAtLeast(1)))
+            }
+        } catch (e: Throwable) {
+            Log.d(TAG, "Search suggestions unavailable for '$trimmed': ${e.message}")
+            Result.success(emptyList())
+        }
+    }
+
+    private fun webRemixContext(): JsonObject = JsonObject().apply {
+        val clientObj = JsonObject().apply {
+            addProperty("clientName", "WEB_REMIX")
+            addProperty("clientVersion", "1.20240722.01.00")
+            addProperty("hl", "en")
+            addProperty("gl", "US")
+        }
+        add("client", clientObj)
+    }
+
+    internal fun parseSearchSuggestions(root: JsonElement): List<String> {
+        val renderers = mutableListOf<JsonObject>()
+        collectRenderers(root, "searchSuggestionRenderer", renderers)
+        return renderers.mapNotNull { renderer ->
+            val endpointQuery = renderer
+                .objectOrNull("navigationEndpoint")
+                ?.objectOrNull("searchEndpoint")
+                ?.stringOrNull("query")
+            val runsQuery = renderer.objectOrNull("suggestion")
+                ?.arrayOrNull("runs")
+                ?.mapNotNull { it.asJsonObjectOrNull()?.stringOrNull("text") }
+                ?.joinToString("")
+            (endpointQuery ?: runsQuery)?.trim()?.takeIf { it.isNotBlank() }
+        }.distinct()
+    }
+
+    private fun collectRenderers(element: JsonElement, name: String, output: MutableList<JsonObject>, depth: Int = 0) {
+        if (depth > 24) return
+        if (element.isJsonObject) {
+            val obj = element.asJsonObject
+            obj.objectOrNull(name)?.let(output::add)
+            obj.entrySet().forEach { (_, value) -> collectRenderers(value, name, output, depth + 1) }
+        } else if (element.isJsonArray) {
+            element.asJsonArray.forEach { collectRenderers(it, name, output, depth + 1) }
+        }
+    }
+
+    private fun JsonObject.objectOrNull(name: String): JsonObject? =
+        get(name)?.takeIf { it.isJsonObject }?.asJsonObject
+
+    private fun JsonObject.arrayOrNull(name: String): JsonArray? =
+        get(name)?.takeIf { it.isJsonArray }?.asJsonArray
+
+    private fun JsonObject.stringOrNull(name: String): String? =
+        get(name)?.takeIf { it.isJsonPrimitive }?.asString
+
+    private fun JsonElement.asJsonObjectOrNull(): JsonObject? =
+        takeIf { it.isJsonObject }?.asJsonObject
 
     /**
      * Dedicated video search ("Video" tab). Uses the InnerTube video filter so a music query
@@ -211,6 +301,7 @@ open class YouTubeMusicClient(
         if (trimmed.isBlank()) return@withContext Result.success(emptyList())
         try {
             val videos = queryInnerTube(trimmed, params = VIDEOS_FILTER_PARAMS, limit = limit)
+                .filterNot { isGenericYouTubeArtist(it.artist) }
                 .map { it.copy(isVideo = true) }
             Log.i(TAG, "✓ YouTube Music video search returned ${videos.size} videos for '$trimmed'")
             Result.success(videos)
@@ -225,9 +316,10 @@ open class YouTubeMusicClient(
      * the song-filtered search.
      *
      * Order follows the general ranking, so video-only tracks are never pushed out by songs. When the
-     * same videoId exists in the song-filtered set, its richer metadata (duration / album / cover) is
-     * grafted onto the general entry. Remaining song-only entries are appended afterwards.
-     * Dedup: exact id first, then normalized title+artist.
+     * same videoId exists in the song-filtered set, its richer metadata (duration / album / cover)
+     * is grafted onto the general entry. Remaining song-only entries are appended afterwards.
+     * Dedup: exact id first, then normalized title + the full artist set + duration, so a
+     * legitimate feat./remix version is never collapsed into the base song.
      */
     internal fun mergeSearchResults(
         general: List<Track>,
@@ -239,12 +331,19 @@ open class YouTubeMusicClient(
 
         val result = ArrayList<Track>(minOf(limit, general.size + songs.size))
         val seenIds = HashSet<String>()
-        val seenKeys = HashSet<String>()
+        val seenKeys = mutableListOf<TrackDedupKey>()
         fun add(track: Track) {
             if (result.size >= limit) return
             if (!seenIds.add(track.id)) return
-            val key = normalizedKey(track.title, track.artist)
-            if (key.isNotBlank() && seenKeys.contains(key)) return
+            val key = dedupKey(track)
+            // Same title + same full artist set + same duration (or one unknown)
+            // is the same recording. Different feat./remix titles stay distinct.
+            val duplicate = key.title.isNotBlank() && seenKeys.any { seen ->
+                seen.title == key.title &&
+                    seen.artists == key.artists &&
+                    (seen.durationMs == key.durationMs || seen.durationMs == 0L || key.durationMs == 0L)
+            }
+            if (duplicate) return
             seenKeys.add(key)
             result.add(track)
         }
@@ -256,7 +355,9 @@ open class YouTubeMusicClient(
                 if (enriched == null) item else item.copy(
                     album = item.album ?: enriched.album,
                     durationMs = if (item.durationMs > 0L) item.durationMs else enriched.durationMs,
-                    coverUrl = item.coverUrl ?: enriched.coverUrl
+                    coverUrl = item.coverUrl ?: enriched.coverUrl,
+                    artistId = item.artistId ?: enriched.artistId,
+                    artists = item.artists?.takeIf { it.isNotEmpty() } ?: enriched.artists
                 )
             )
         }
@@ -265,17 +366,24 @@ open class YouTubeMusicClient(
         return result
     }
 
-    private fun normalizedKey(title: String, artist: String): String {
-        fun clean(value: String): String = value.lowercase()
-            .replace(Regex("\\(.*?\\)"), " ")
-            .replace(Regex("\\[.*?\\]"), " ")
-            .replace(Regex("\\b(feat\\.?|featuring|ft\\.?)"), " ")
-            .replace(Regex("\\b(remix|remaster(ed)?|deluxe|version|edit|live)\\b"), " ")
-            .replace(Regex("[^a-z0-9 ]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        val primaryArtist = artist.split(",", "&", " feat", " ft").firstOrNull() ?: artist
-        return "${clean(title)}|${clean(primaryArtist)}"
+    private data class TrackDedupKey(
+        val title: String,
+        val artists: String,
+        val durationMs: Long
+    )
+
+    private fun dedupKey(track: Track): TrackDedupKey {
+        val artists = track.artists.orEmpty()
+            .map { it.normalized }
+            .filter { it.isNotBlank() }
+            .sorted()
+            .joinToString("|")
+            .ifBlank { ArtistCredits.normalize(track.artist) }
+        return TrackDedupKey(
+            title = ArtistCredits.normalize(track.title),
+            artists = artists,
+            durationMs = track.durationMs.takeIf { it > 0L } ?: 0L
+        )
     }
 
     /** One search page: the parsed tracks plus the token for the next page, if any. */
@@ -303,24 +411,19 @@ open class YouTubeMusicClient(
 
     private fun fetchSearchPage(query: String?, params: String?, continuation: String?): SearchPage {
         val root = fetchSearchRoot(query, params, continuation) ?: return SearchPage(emptyList(), null)
+        return SearchPage(parseSearchTracks(root), findContinuationToken(root))
+    }
+
+    internal fun parseSearchTracks(root: JsonElement): List<Track> {
         val renderers = mutableListOf<JsonObject>()
         findResponsiveListItems(root, renderers)
-        val tracks = renderers.mapNotNull { parseTrackFromItem(it) }
-        return SearchPage(tracks, findContinuationToken(root))
+        return renderers.mapNotNull { parseTrackFromItem(it) }
+            .filterNot { isGenericYouTubeArtist(it.artist) }
     }
 
     private fun fetchSearchRoot(query: String?, params: String?, continuation: String? = null): JsonObject? {
         val payloadObj = JsonObject().apply {
-            val contextObj = JsonObject().apply {
-                val clientObj = JsonObject().apply {
-                    addProperty("clientName", "WEB_REMIX")
-                    addProperty("clientVersion", "1.20240722.01.00")
-                    addProperty("hl", "en")
-                    addProperty("gl", "US")
-                }
-                add("client", clientObj)
-            }
-            add("context", contextObj)
+            add("context", webRemixContext())
             if (continuation != null) {
                 addProperty("continuation", continuation)
             } else {
@@ -370,6 +473,13 @@ open class YouTubeMusicClient(
         }
     }
 
+    private fun artistFromVideoTitle(title: String): String? {
+        if (!title.contains(" - ")) return null
+        return title.substringBefore(" - ").trim().takeIf {
+            it.isNotBlank() && !isGenericYouTubeArtist(it)
+        }
+    }
+
     private fun parseTrackFromItem(item: JsonObject): Track? {
         return try {
             val flexCols = item.getAsJsonArray("flexColumns") ?: return null
@@ -405,9 +515,11 @@ open class YouTubeMusicClient(
             }
             if (videoId.isNullOrBlank()) return null
 
-            // 2. Artist, Album, Duration from Column 1
-            var artist = "YouTube Music"
+            // 2. Artists, album, duration from Column 1
+            var artists: List<ArtistCredit> = emptyList()
+            var artist = ""
             var album: String? = null
+            var albumBrowseId: String? = null
             var durationMs = 0L
             var isVideo = false
 
@@ -422,41 +534,55 @@ open class YouTubeMusicClient(
                     if (runs != null && runs.size() > 0) {
                         val parts = mutableListOf<String>()
                         for (r in runs) {
-                            if (r.isJsonObject) {
-                                val textElem = r.asJsonObject.get("text")
-                                if (textElem != null && textElem.isJsonPrimitive) {
-                                    val t = textElem.asString.trim()
-                                    if (t.isNotBlank() && t != "•") {
-                                        parts.add(t)
-                                    }
-                                }
+                            if (!r.isJsonObject) continue
+                            val run = r.asJsonObject
+                            val textElem = run.get("text")
+                            if (textElem != null && textElem.isJsonPrimitive) {
+                                val t = textElem.asString.trim()
+                                if (t.isNotBlank() && t != "•") parts.add(t)
                             }
                         }
 
-                        // Identify duration in parts (e.g. "3:45" or "1:02:15")
-                        val durationRegex = Regex("^(\\d{1,2}:)?\\d{1,2}:\\d{2}$")
+                        // Duration (e.g. "3:45" / "1:02:15") and kind label.
                         val durationPart = parts.firstOrNull { durationRegex.matches(it) }
                         if (durationPart != null) {
                             durationMs = parseDurationMs(durationPart)
                             parts.remove(durationPart)
                         }
+                        if (parts.firstOrNull()?.equals("Video", ignoreCase = true) == true) isVideo = true
 
-                        // Remove generic kind prefixes like "Song" or "Video" (and remember the kind)
-                        if (parts.isNotEmpty() && (parts[0].equals("Song", ignoreCase = true) || parts[0].equals("Video", ignoreCase = true))) {
-                            if (parts[0].equals("Video", ignoreCase = true)) isVideo = true
-                            parts.removeAt(0)
+                        // Album comes only from a real album browse endpoint, never
+                        // from "the second metadata string" (which is the second artist).
+                        val albumInfo = albumInfoFromRuns(col1)
+                        albumBrowseId = albumInfo.second
+                        val albumTitle = albumInfo.first
+
+                        val textParts = parts.filterNot {
+                            durationRegex.matches(it) ||
+                                isKindLabel(it) ||
+                                parseStreamCount(it) != null ||
+                                it.equals("YouTube", ignoreCase = true) ||
+                                isGenericYouTubeArtist(it)
+                        }
+                        val artistPart = textParts.firstOrNull { it != albumTitle }
+
+                        artists = ArtistCredits.fromRuns(col1)
+                            .filterNot { isGenericYouTubeArtist(it.name) }
+                        if (artists.isEmpty()) {
+                            artists = ArtistCredits.fromText(artistPart)
+                                .filterNot { isGenericYouTubeArtist(it.name) }
                         }
 
-                        if (parts.isNotEmpty()) {
-                            artist = parts[0]
+                        artist = ArtistCredits.displayName(artists)
+                        if (artist.isBlank()) {
+                            artist = artistFromVideoTitle(title).orEmpty()
+                            if (artist.isNotBlank()) artists = ArtistCredits.fromText(artist)
                         }
-                        if (parts.size > 1) {
-                            val candidateAlbum = parts[1]
-                            if (!candidateAlbum.equals("YouTube", ignoreCase = true) &&
-                                !candidateAlbum.equals(title, ignoreCase = true) &&
-                                !candidateAlbum.equals(artist, ignoreCase = true)) {
-                                album = candidateAlbum
-                            }
+
+                        if (!albumTitle.isNullOrBlank() &&
+                            !albumTitle.equals(title, ignoreCase = true) &&
+                            !albumTitle.equals(artist, ignoreCase = true)) {
+                            album = albumTitle
                         }
                     }
                 }
@@ -484,12 +610,47 @@ open class YouTubeMusicClient(
                 streamUrl = null,
                 provider = "YouTube",
                 streams = streams,
-                isVideo = isVideo
+                isVideo = isVideo,
+                albumId = albumBrowseId,
+                artistId = ArtistCredits.firstArtistId(artists),
+                artists = artists.takeIf { it.isNotEmpty() },
             )
         } catch (t: Throwable) {
             Log.w(TAG, "Failed parsing InnerTube track item: ${t.message}")
             null
         }
+    }
+
+    /**
+     * Finds an album title/id only when a run really points at an album
+     * (`pageType` album or an `MPRE…` browse id). Returns `(title, browseId)`.
+     */
+    private fun albumInfoFromRuns(textObj: JsonObject?): Pair<String?, String?> {
+        val runs = textObj?.get("runs")?.takeIf { it.isJsonArray }?.asJsonArray ?: return null to null
+        for (element in runs) {
+            if (!element.isJsonObject) continue
+            val run = element.asJsonObject
+            val browse = run.get("navigationEndpoint")
+                ?.takeIf { it.isJsonObject }
+                ?.asJsonObject
+                ?.get("browseEndpoint")
+                ?.takeIf { it.isJsonObject }
+                ?.asJsonObject
+                ?: continue
+            val browseId = browse.optString("browseId")
+            val isAlbum = pageType(browse) == "MUSIC_PAGE_TYPE_ALBUM" ||
+                browseId?.startsWith("MPRE") == true
+            if (!isAlbum) continue
+            val title = run.optString("text")?.trim()?.takeIf { it.isNotBlank() }
+            return title to browseId
+        }
+        return null to null
+    }
+
+    private fun isKindLabel(value: String): Boolean = when (value.trim().lowercase()) {
+        "song", "songs", "video", "videos", "album", "albums",
+        "single", "singles", "ep", "eps", "playlist", "playlists" -> true
+        else -> false
     }
 
     private fun extractStreamCount(flexCols: JsonArray): Long? {
@@ -864,6 +1025,76 @@ open class YouTubeMusicClient(
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Lyrics support: the exact playing video's Lyrics tab and caption transcript.
+    // ---------------------------------------------------------------------------------------------
+
+    suspend fun fetchNextJson(videoId: String): JsonObject? = withContext(Dispatchers.IO) {
+        if (!isValidVideoId(videoId)) return@withContext null
+        val payload = JsonObject().apply {
+            add("context", innerTubeContext())
+            addProperty("videoId", videoId)
+            addProperty("playlistId", "RDAMVM$videoId")
+            addProperty("isAudioOnly", true)
+        }
+        postInnerTube(NEXT_URL, payload)
+    }
+
+    suspend fun browseJson(browseId: String, params: String? = null): JsonObject? =
+        withContext(Dispatchers.IO) {
+            if (browseId.isBlank()) return@withContext null
+            val payload = JsonObject().apply {
+                add("context", innerTubeContext())
+                addProperty("browseId", browseId)
+                if (!params.isNullOrBlank()) addProperty("params", params)
+            }
+            postInnerTube(BROWSE_URL, payload)
+        }
+
+    suspend fun fetchTranscriptJson(videoId: String): JsonObject? =
+        withContext(Dispatchers.IO) {
+            if (!isValidVideoId(videoId)) return@withContext null
+            val bytes = byteArrayOf(0x0A, videoId.toByteArray().size.toByte()) +
+                videoId.toByteArray()
+            val params = java.util.Base64.getEncoder().encodeToString(bytes)
+            val payload = JsonObject().apply {
+                add("context", innerTubeContext())
+                addProperty("params", params)
+            }
+            postInnerTube(TRANSCRIPT_URL, payload)
+        }
+
+    private fun innerTubeContext(): JsonObject = JsonObject().apply {
+        add("client", JsonObject().apply {
+            addProperty("clientName", "WEB_REMIX")
+            addProperty("clientVersion", "1.20240722.01.00")
+            addProperty("hl", "en")
+            addProperty("gl", "US")
+        })
+    }
+
+    private fun postInnerTube(url: String, payload: JsonObject): JsonObject? {
+        val request = Request.Builder()
+            .url(url)
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .addHeader("Content-Type", "application/json")
+            .addHeader(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            .addHeader("Origin", BASE_URL)
+            .addHeader("Referer", "$BASE_URL/")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return null
+            val body = response.body?.string().orEmpty()
+            if (body.isBlank()) return null
+            val root = JsonParser.parseString(body)
+            return if (root.isJsonObject) root.asJsonObject else null
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // YouTube Music discovery (Milestone 1): artists, albums, playlists (metadata only).
     // ---------------------------------------------------------------------------------------------
 
@@ -871,17 +1102,78 @@ open class YouTubeMusicClient(
     private val albumDetailCache = YouTubeDiscoveryCache<YouTubeAlbumDetail>()
     private val playlistDetailCache = YouTubeDiscoveryCache<YouTubePlaylistDetail>()
     private val radioCache = YouTubeDiscoveryCache<List<Track>>(ttlMs = 15 * 60 * 1000L)
+    private val trackMetadataCache = YouTubeDiscoveryCache<TrackMetadata>(ttlMs = 24 * 60 * 60 * 1000L)
 
     suspend fun searchArtists(query: String, limit: Int = 20): Result<List<YouTubeArtist>> = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext Result.success(emptyList())
         try {
-            val root = fetchSearchRoot(trimmed, params = null) ?: return@withContext Result.success(emptyList())
-            Result.success(parseYouTubeArtistSearch(root, limit))
+            // Dedicated Artists filter first (more real artists, less song noise),
+            // then the general ranking as a safety net. Both follow continuations.
+            val filtered = queryArtistPages(trimmed, ARTISTS_FILTER_PARAMS, limit)
+            val general = if (filtered.size >= limit) {
+                emptyList()
+            } else {
+                queryArtistPages(trimmed, params = null, limit = limit)
+            }
+            Result.success(mergeArtists(filtered, general, limit))
         } catch (e: Throwable) {
             Log.w(TAG, "searchArtists failed for '$trimmed': ${e.message}")
             Result.failure(e)
         }
+    }
+
+    /**
+     * Follows artist-search continuations until [limit] unique artists are
+     * collected (bounded by [MAX_SEARCH_PAGES]). Keeps the upstream order.
+     */
+    private fun queryArtistPages(
+        query: String,
+        params: String?,
+        limit: Int
+    ): List<YouTubeArtist> {
+        if (limit <= 0) return emptyList()
+        val unique = LinkedHashMap<String, YouTubeArtist>()
+        var continuation: String? = null
+        var pages = 0
+        while (pages < MAX_SEARCH_PAGES && unique.size < limit) {
+            val root = fetchSearchRoot(
+                query = if (continuation == null) query else null,
+                params = params,
+                continuation = continuation
+            ) ?: break
+            val page = parseYouTubeArtistSearch(root, limit - unique.size)
+            if (page.isEmpty() && continuation == null) break
+            for (artist in page) {
+                val key = youTubeArtistKey(artist.browseId, artist.channelId, artist.name)
+                unique.putIfAbsent(key, artist)
+            }
+            continuation = findContinuationToken(root)
+            pages++
+            if (continuation == null) break
+        }
+        return unique.values.take(limit)
+    }
+
+    /** Merges artist lists (filtered first) with id, then normalized-name dedup. */
+    internal fun mergeArtists(
+        primary: List<YouTubeArtist>,
+        secondary: List<YouTubeArtist>,
+        limit: Int
+    ): List<YouTubeArtist> {
+        val out = ArrayList<YouTubeArtist>(minOf(limit, primary.size + secondary.size))
+        val seenIds = HashSet<String>()
+        val seenNames = HashSet<String>()
+        for (artist in primary + secondary) {
+            if (out.size >= limit) break
+            val id = artist.browseId?.takeIf { it.isNotBlank() }
+                ?: artist.channelId?.takeIf { it.isNotBlank() }
+            if (id != null && !seenIds.add(id)) continue
+            val nameKey = normalizedNameKey(artist.name)
+            if (nameKey.isNotBlank() && !seenNames.add(nameKey)) continue
+            out.add(artist)
+        }
+        return out
     }
 
     suspend fun searchAlbums(query: String, limit: Int = 20): Result<List<YouTubeAlbum>> = withContext(Dispatchers.IO) {
@@ -974,6 +1266,211 @@ open class YouTubeMusicClient(
             Log.w(TAG, "getYouTubeArtistDetail failed for '$id': ${e.message}")
             Result.failure(e)
         }
+    }
+
+    /**
+     * Resolves the facts the player cannot see from a bare [Track]: the release
+     * year YouTube publishes, the channel id, live duration/view count and the
+     * artwork title. The playback object is never replaced; callers merge this
+     * onto it with [Track.withMetadata].
+     *
+     * `/player` carries the only reliable publication date for a row that came
+     * from search. When the row already knows its album, that album's header is
+     * preferred for the year because it is the release year rather than the
+     * upload date.
+     */
+    open suspend fun getTrackMetadata(track: Track): Result<TrackMetadata> = withContext(Dispatchers.IO) {
+        val rawId = track.id.removePrefix("yt_").trim()
+        if (!isValidVideoId(rawId)) {
+            // Spotify/imported rows have no YouTube video to ask. Their album
+            // name is still enough to resolve a release year.
+            var fallback = fallbackTrackMetadata(track)
+            fallback = resolveAlbumMetadata(fallback, track, track.album, track.albumId)
+            if (fallback.releaseYear != null) trackMetadataCache.put(track.id, fallback)
+            return@withContext Result.success(fallback)
+        }
+        trackMetadataCache.get(rawId)?.let { return@withContext Result.success(it) }
+        try {
+            // Each client is independent: one refusing the request must not
+            // skip the other two. This was why some tracks had no year at all.
+            val root = runCatching { fetchPlayer(rawId, YtmClient.ANDROID_MUSIC) }.getOrNull()
+                ?: runCatching { fetchVisionOsPlayer(rawId) }.getOrNull()
+                ?: runCatching { fetchPlayer(rawId, YtmClient.IOS) }.getOrNull()
+
+            var resolved = fallbackTrackMetadata(track)
+            if (root != null) {
+                val parsed = parseTrackMetadata(root, track)
+                resolved = resolved.copy(
+                    title = parsed.title ?: resolved.title,
+                    artist = parsed.artist ?: resolved.artist,
+                    artistId = parsed.artistId ?: resolved.artistId,
+                    album = parsed.album ?: resolved.album,
+                    albumId = parsed.albumId ?: resolved.albumId,
+                    durationMs = parsed.durationMs ?: resolved.durationMs,
+                    releaseYear = parsed.releaseYear ?: resolved.releaseYear,
+                    releaseDate = parsed.releaseDate ?: resolved.releaseDate,
+                    streams = parsed.streams ?: resolved.streams,
+                    artworkUrl = parsed.artworkUrl ?: resolved.artworkUrl,
+                    artists = parsed.artists ?: resolved.artists,
+                )
+            }
+
+            // BitChord's source: the album header. It wins over the video's
+            // upload date when both exist.
+            resolved = resolveAlbumMetadata(
+                resolved = resolved,
+                track = track,
+                albumName = resolved.album ?: track.album,
+                albumId = resolved.albumId ?: track.albumId,
+            )
+
+            // Last chance when this instance never carried an album name/id:
+            // the same recording's search row often does.
+            if (resolved.releaseYear == null) {
+                val found = runCatching {
+                    searchTracks("${track.title} ${track.artist}", limit = 8).getOrNull()
+                }.getOrNull()?.firstOrNull { it.id == track.id }
+                if (found != null) {
+                    resolved = resolved.copy(
+                        album = resolved.album ?: found.album,
+                        albumId = resolved.albumId ?: found.albumId,
+                        releaseYear = resolved.releaseYear ?: found.releaseYear,
+                        artistId = resolved.artistId ?: found.artistId,
+                        artists = resolved.artists?.takeIf { it.isNotEmpty() } ?: found.artists,
+                    )
+                    resolved = resolveAlbumMetadata(
+                        resolved = resolved,
+                        track = track,
+                        albumName = resolved.album ?: found.album,
+                        albumId = resolved.albumId ?: found.albumId,
+                    )
+                }
+            }
+
+            if (resolved.releaseYear != null) trackMetadataCache.put(rawId, resolved)
+            Result.success(resolved)
+        } catch (e: Throwable) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "getTrackMetadata failed for '$rawId': ${e.message}")
+            Result.success(fallbackTrackMetadata(track))
+        }
+    }
+
+    /**
+     * Album header first, like BitChord: the page subtitle/strapline states the
+     * release year. Search-by-name is only used when no browse id is known.
+     */
+    private suspend fun resolveAlbumMetadata(
+        resolved: TrackMetadata,
+        track: Track,
+        albumName: String?,
+        albumId: String?,
+    ): TrackMetadata {
+        var result = resolved
+        var id = albumId?.takeIf { it.startsWith("MPRE") }
+            ?: result.albumId?.takeIf { it.startsWith("MPRE") }
+
+        if (id != null) {
+            val detail = runCatching { getYouTubeAlbumDetail(id).getOrNull() }.getOrNull()
+            if (detail != null) {
+                result = result.copy(
+                    album = result.album ?: detail.album.title,
+                    albumId = id,
+                    releaseYear = detail.album.releaseYear ?: result.releaseYear,
+                    releaseDate = detail.album.releaseDate ?: result.releaseDate,
+                )
+            }
+        }
+
+        if (result.releaseYear == null && !albumName.isNullOrBlank()) {
+            val query = "${albumName} ${track.artist}".trim()
+            val album = runCatching { searchAlbums(query, limit = 6).getOrNull() }.getOrNull()
+                ?.firstOrNull { sameAlbumName(it.title, albumName) }
+            if (album != null) {
+                id = album.browseId ?: id
+                val detail = album.browseId
+                    ?.let { runCatching { getYouTubeAlbumDetail(it).getOrNull() }.getOrNull() }
+                result = result.copy(
+                    album = result.album ?: album.title,
+                    albumId = result.albumId ?: album.browseId,
+                    releaseYear = detail?.album?.releaseYear ?: album.releaseYear,
+                    releaseDate = result.releaseDate ?: detail?.album?.releaseDate,
+                )
+            }
+        }
+        return result
+    }
+
+    /** Pure parse of the `/player` response; exposed for unit tests. */
+    internal fun parseTrackMetadata(root: JsonElement, fallback: Track): TrackMetadata {
+        if (!root.isJsonObject) return fallbackTrackMetadata(fallback)
+        val obj = root.asJsonObject
+        val video = obj.getAsJsonObject("videoDetails")
+        val micro = obj.getAsJsonObject("microformat")
+            ?.getAsJsonObject("microformatDataRenderer")
+        val releaseDate = micro?.stringOrNull("publishDate")
+            ?: micro?.stringOrNull("uploadDate")
+        val releaseYear = releaseDate
+            ?.take(4)
+            ?.toIntOrNull()
+            ?.takeIf { it in 1900..2100 }
+        val durationSeconds = video?.stringOrNull("lengthSeconds")?.toLongOrNull()
+        return TrackMetadata(
+            title = micro?.stringOrNull("title") ?: video?.stringOrNull("title"),
+            artist = video?.stringOrNull("author"),
+            artistId = video?.stringOrNull("channelId"),
+            album = fallback.album,
+            albumId = fallback.albumId,
+            durationMs = durationSeconds?.times(1000L)?.takeIf { it > 0L },
+            releaseYear = releaseYear,
+            releaseDate = releaseDate,
+            streams = jsonLong(micro?.get("viewCount")) ?: jsonLong(video?.get("viewCount")),
+            artworkUrl = extractMetadataThumbnail(micro ?: JsonObject())
+                ?: extractMetadataThumbnail(video ?: JsonObject()),
+            artists = fallback.artists?.takeIf { it.isNotEmpty() }
+                ?: ArtistCredits.fromText(fallback.artist),
+        )
+    }
+
+    private fun sameAlbumName(a: String?, b: String?): Boolean {
+        fun clean(value: String?): String = value.orEmpty()
+            .lowercase()
+            .replace(Regex("\\(.*?\\)|\\[.*?]"), " ")
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+        val left = clean(a)
+        val right = clean(b)
+        if (left.isBlank() || right.isBlank()) return false
+        if (left == right) return true
+        return left.length >= 4 && right.length >= 4 &&
+            (left.contains(right) || right.contains(left))
+    }
+
+    private fun fallbackTrackMetadata(track: Track) = TrackMetadata(
+        title = track.title,
+        artist = track.artist,
+        artistId = track.artistId,
+        album = track.album,
+        albumId = track.albumId,
+        durationMs = track.durationMs.takeIf { it > 0L },
+        releaseYear = track.releaseYear,
+        streams = track.streams,
+        artworkUrl = track.coverUrl,
+        artists = track.artists,
+    )
+
+    private fun extractMetadataThumbnail(node: JsonObject): String? {
+        val thumbnails = node.getAsJsonObject("thumbnail")
+            ?.getAsJsonArray("thumbnails")
+            ?: return null
+        val last = thumbnails.lastOrNull()?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        return last.stringOrNull("url")?.takeIf { it.isNotBlank() }
+    }
+
+    private fun jsonLong(element: JsonElement?): Long? {
+        if (element == null || !element.isJsonPrimitive) return null
+        val primitive = element.asJsonPrimitive
+        return if (primitive.isNumber) primitive.asLong else primitive.asString.toLongOrNull()
     }
 
     suspend fun getYouTubeAlbumDetail(browseId: String): Result<YouTubeAlbumDetail> = withContext(Dispatchers.IO) {
@@ -1213,10 +1710,24 @@ open class YouTubeMusicClient(
             if (!seen.add(videoId)) continue
             val title = extractRunsText(panel.optObject("title")).trim()
             if (title.isBlank()) continue
-            val byline = extractRunsText(panel.optObject("shortBylineText")).ifBlank {
-                extractRunsText(panel.optObject("longBylineText"))
+            val shortByline = panel.optObject("shortBylineText")
+            val longByline = panel.optObject("longBylineText")
+            val byline = extractRunsText(shortByline).ifBlank { extractRunsText(longByline) }
+            val bylineArtistText = byline.substringBefore('•').trim()
+            var artists = ArtistCredits.fromRuns(shortByline)
+                .ifEmpty { ArtistCredits.fromRuns(longByline) }
+                .filterNot { isGenericYouTubeArtist(it.name) }
+            if (artists.isEmpty()) {
+                artists = ArtistCredits.fromText(bylineArtistText)
+                    .filterNot { isGenericYouTubeArtist(it.name) }
             }
-            val artist = byline.substringBefore('•').trim().ifBlank { "YouTube Music" }
+            var artist = ArtistCredits.displayName(artists)
+            if (artist.isBlank()) {
+                artist = artistFromVideoTitle(title).orEmpty()
+                if (artist.isNotBlank()) artists = ArtistCredits.fromText(artist)
+            }
+            val albumInfo = albumInfoFromRuns(shortByline)
+                .let { if (it.first != null) it else albumInfoFromRuns(longByline) }
             val durationMs = parseDurationMs(extractRunsText(panel.optObject("lengthText")))
             val coverUrl = panel.optObject("thumbnail")
                 ?.get("thumbnails")
@@ -1231,11 +1742,14 @@ open class YouTubeMusicClient(
                     id = "yt_$videoId",
                     title = title,
                     artist = artist,
-                    album = null,
+                    album = albumInfo.first,
                     durationMs = durationMs,
                     coverUrl = coverUrl,
                     streamUrl = null,
-                    provider = "YouTube"
+                    provider = "YouTube",
+                    albumId = albumInfo.second,
+                    artistId = ArtistCredits.firstArtistId(artists),
+                    artists = artists.takeIf { it.isNotEmpty() }
                 )
             )
         }
@@ -1259,12 +1773,19 @@ open class YouTubeMusicClient(
                 if (name.isBlank()) continue
                 val subtitleObj = card.optObject("subtitle")
                 val subtitle = extractRunsText(subtitleObj).trim()
-                val browse = firstBrowseEndpoint(titleObj)
-                    ?: firstBrowseEndpoint(subtitleObj)
-                    ?: firstBrowseEndpointDeep(card)
-                val browseId = browse?.optString("browseId")
+                // The card title itself must resolve to an artist page. A song
+                // top result's title has no artist browse endpoint: falling back
+                // to the subtitle artist would classify the *song title* as an
+                // artist, which is the bug this guards against.
+                val titleBrowse = firstBrowseEndpoint(titleObj)
+                val itemBrowse = card.optObject("navigationEndpoint")
+                    ?.optObject("browseEndpoint")
+                val browse = titleBrowse ?: itemBrowse ?: continue
+                val browseId = browse.optString("browseId")
+                val titleIsArtist = pageType(titleBrowse) == "MUSIC_PAGE_TYPE_ARTIST" ||
+                    browseId?.startsWith("UC") == true
                 val kind = classifyEntity(pageType(browse), browseId, subtitle)
-                if (kind != YouTubeDiscoveryKind.ARTIST) continue
+                if (kind != YouTubeDiscoveryKind.ARTIST || !titleIsArtist) continue
                 val channelId = extractChannelId(titleObj) ?: browseId?.takeIf { it.startsWith("UC") }
                 if (!browseId.isNullOrBlank() && !seenIds.add(browseId)) continue
                 val nameKey = normalizedNameKey(name)
@@ -1470,9 +1991,16 @@ open class YouTubeMusicClient(
 
         val subtitle = extractRunsText(header.optObject("subtitle"))
         val strapline = extractRunsText(header.optObject("straplineTextOne"))
-        val segments = subtitle.ifBlank { strapline }.split('•').map { it.trim() }.filter { it.isNotBlank() }
+        // BitChord reads both header lines: current albums put the artist in
+        // the strapline and "Album • 2024" in the subtitle, older ones pack
+        // everything into one of them. Taking only one loses the year.
+        val headerLine = listOf(strapline, subtitle)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(" • ")
+        val segments = headerLine.split('•').map { it.trim() }.filter { it.isNotBlank() }
         val artist = strapline.takeIf { it.isNotBlank() } ?: firstMeaningfulSegment(segments)
-        val year = firstYear(subtitle.ifBlank { strapline })
+        val year = firstYear(headerLine)
         val type = segments.firstOrNull { seg -> seg.any { it.isLetter() } && !Regex("^\\d{4}$").matches(seg) }
         val trackCount = parseTrackCount(extractRunsText(header.optObject("secondSubtitle")))
 
@@ -1480,19 +2008,39 @@ open class YouTubeMusicClient(
             ?: collectStringField(root, "browseId").firstOrNull { it.startsWith("MPRE") }
             ?: firstBrowseEndpointDeep(header)?.optString("browseId")?.takeIf { it.startsWith("MPRE") }
         val playlistId = collectStringField(root, "playlistId").firstOrNull()
+        val coverUrl = extractThumbnail(header)
         val album = YouTubeAlbum(
             browseId = browseId,
             playlistId = playlistId,
             title = title,
             artist = artist,
             year = year,
-            thumbnailUrl = extractThumbnail(header),
+            thumbnailUrl = coverUrl,
             releaseYear = year?.toIntOrNull(),
             releaseDate = null,
             trackCount = trackCount,
             type = type
         )
-        return YouTubeAlbumDetail(album, parseFirstShelfTracks(root))
+        val fallbackArtist = artist?.takeUnless(::isGenericYouTubeArtist)
+            ?: artistFromVideoTitle(title).orEmpty()
+        val fallbackCredits = ArtistCredits.fromText(fallbackArtist)
+        val tracks = parseFirstShelfTracks(root).map { track ->
+            val inheritedArtist = track.artist.takeUnless(::isGenericYouTubeArtist)
+                ?: fallbackArtist
+            val inheritedCredits = track.artists?.takeIf { it.isNotEmpty() }
+                ?: ArtistCredits.fromText(inheritedArtist)
+            track.copy(
+                artist = inheritedArtist,
+                album = track.album ?: title,
+                coverUrl = track.coverUrl ?: coverUrl,
+                releaseYear = track.releaseYear ?: album.releaseYear,
+                albumId = track.albumId ?: browseId,
+                artistId = track.artistId ?: ArtistCredits.firstArtistId(inheritedCredits)
+                    ?: ArtistCredits.firstArtistId(fallbackCredits),
+                artists = inheritedCredits.takeIf { it.isNotEmpty() },
+            )
+        }
+        return YouTubeAlbumDetail(album, tracks)
     }
 
     internal fun parseYouTubePlaylistDetail(root: JsonElement): YouTubePlaylistDetail? {
@@ -1604,18 +2152,32 @@ open class YouTubeMusicClient(
                         ?: continue
                     val id = "yt_$videoId"
                     if (!seen.add(id)) continue
-                    val artist = extractRunsText(item.optObject("subtitle")).substringBefore('•').trim()
+                    val subtitleObj = item.optObject("subtitle")
+                    val artistText = extractRunsText(subtitleObj).substringBefore('•').trim()
+                    var artists = ArtistCredits.fromRuns(subtitleObj)
+                        .filterNot { isGenericYouTubeArtist(it.name) }
+                    if (artists.isEmpty()) {
+                        artists = ArtistCredits.fromText(artistText)
+                            .filterNot { isGenericYouTubeArtist(it.name) }
+                    }
+                    var artist = ArtistCredits.displayName(artists)
+                    if (artist.isBlank()) {
+                        artist = artistFromVideoTitle(title).orEmpty()
+                        if (artist.isNotBlank()) artists = ArtistCredits.fromText(artist)
+                    }
                     out.add(
                         Track(
                             id = id,
                             title = title,
-                            artist = artist.ifBlank { "YouTube Music" },
+                            artist = artist,
                             album = null,
                             durationMs = 0L,
                             coverUrl = extractThumbnail(item),
                             streamUrl = null,
                             provider = "YouTube",
-                            isVideo = true
+                            isVideo = true,
+                            artistId = ArtistCredits.firstArtistId(artists),
+                            artists = artists.takeIf { it.isNotEmpty() }
                         )
                     )
                 } catch (_: Exception) {
@@ -1677,8 +2239,8 @@ open class YouTubeMusicClient(
     internal fun parseYouTubeSongsPage(root: JsonElement): YouTubeSongsPage =
         YouTubeSongsPage(parsePlaylistTracks(root), findContinuationToken(root))
 
-    /** Deep-searches a browse response for the first real continuation token. */
-    private fun findContinuationToken(root: JsonElement): String? {
+    /** Deep-searches a search/browse response for the first real continuation token. */
+    internal fun findContinuationToken(root: JsonElement): String? {
         var result: String? = null
         fun walk(el: JsonElement) {
             if (result != null) return
@@ -1912,4 +2474,15 @@ open class YouTubeMusicClient(
         "song", "songs", "video", "videos", "album", "albums", "single", "singles",
         "ep", "eps", "playlist", "playlists", "artist", "artists"
     )
+}
+
+
+/** True for YouTube's generic channel labels, which are not usable as a track artist. */
+internal fun isGenericYouTubeArtist(value: String): Boolean {
+    val normalized = value.trim().lowercase()
+    return normalized.isBlank() ||
+        normalized == "youtube" ||
+        normalized == "youtube music" ||
+        normalized == "youtube music - topic" ||
+        normalized == "auto-generated by youtube"
 }

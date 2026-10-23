@@ -12,8 +12,8 @@ android {
         applicationId = "org.sonora.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -76,6 +76,7 @@ dependencies {
 
     // YAML parsing for LRCLIB "lyricsfile" word-level payloads
     implementation("org.yaml:snakeyaml:2.3")
+    implementation("org.jsoup:jsoup:1.18.1")
     implementation("com.google.code.gson:gson:2.11.0")
 
     // On-device translation (ML Kit)
@@ -84,6 +85,8 @@ dependencies {
 
     // Party: nearby device discovery / transport + QR join
     implementation("com.google.android.gms:play-services-nearby:19.3.0")
+    implementation("com.google.android.gms:play-services-cast-framework:22.2.0")
+    implementation("androidx.mediarouter:mediarouter:1.7.0")
     implementation("com.google.zxing:core:3.5.4")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 

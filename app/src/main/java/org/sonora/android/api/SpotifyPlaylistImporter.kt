@@ -346,7 +346,8 @@ open class SpotifyPlaylistImporter(
             durationMs = spotifyTrack.durationMs,
             coverUrl = spotifyTrack.coverUrl ?: fallbackCoverUrl,
             streamUrl = null,
-            provider = "Spotify"
+            provider = "Spotify",
+            artists = ArtistCredits.fromText(spotifyTrack.artist).takeIf { it.isNotEmpty() }
         )
     }
 

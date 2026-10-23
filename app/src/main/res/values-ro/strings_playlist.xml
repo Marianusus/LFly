@@ -38,4 +38,10 @@
     <string name="playlist_add_to_queue_action">Adaugă la coadă</string>
     <string name="playlist_add_to_playlist_action">Adaugă la playlist</string>
     <string name="playlist_drag_handle_content_description">Trage pentru a reordona</string>
+    <string name="playlist_auto_updated_chip">Actualizată automat · la fiecare 5 zile</string>
+    <string name="mix_updated_chip">Actualizat automat · la fiecare 5 zile</string>
+    <string name="mix_save_action">Salvează în bibliotecă</string>
+    <string name="mix_saved">Salvat</string>
+    <string name="mix_remove_action">Elimină din bibliotecă</string>
+    <string name="mix_saved_copy_on">Copie salvată pe %1$s</string>
 </resources>

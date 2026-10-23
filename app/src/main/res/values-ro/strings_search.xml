@@ -31,6 +31,20 @@
     <string name="search_suggestion_daft_punk">Daft Punk</string>
     <string name="search_suggestion_billie_eilish">Billie Eilish</string>
 
+    <string name="search_suggestions_exact">Caută &quot;%1$s&quot;</string>
+    <string name="search_suggestions_recent">Din recente</string>
+    <string name="search_suggestions_empty">Niciun sugestie. Apasă Caută pentru a căuta oricum.</string>
+    <string name="search_suggestion_fill">Folosește "%1$s"</string>
+    <string name="search_recent_title">Căutări recente</string>
+    <string name="search_recent_clear">Șterge</string>
+    <string name="search_recent_empty">Nicio căutare recentă</string>
+    <string name="search_recent_remove">Elimină %1$s</string>
+    <string name="search_history_type_query">Căutare</string>
+    <string name="search_history_type_track">Melodie</string>
+    <string name="search_history_type_artist">Artist</string>
+    <string name="search_history_type_album">Album</string>
+    <string name="search_history_type_playlist">Playlist</string>
+
     <string name="search_youtube_badge">YouTube</string>
     <string name="search_artist_badge">Artist</string>
 

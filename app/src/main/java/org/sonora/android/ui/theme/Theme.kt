@@ -202,10 +202,9 @@ fun SonoraTheme(
     content: @Composable () -> Unit
 ) {
     val scheme = backgroundScheme ?: remember(appearanceMode, accentColor) {
-        // Non-dynamic canvases use the user-selected accent; dynamic canvases derive it
-        // from cover artwork inside SonoraBackground.
-        val accent = if (appearanceMode.isDynamic) null else accentColor
-        BackgroundSchemeFactory.build(appearanceMode, accent, accent)
+        // The user-selected accent applies to every theme; dynamic canvases let the cover
+        // artwork override it inside SonoraBackground when a cover accent is available.
+        BackgroundSchemeFactory.build(appearanceMode, accentColor, accentColor)
     }
     val colors = remember(themeStyle, scheme) { getSonoraColors(themeStyle).withAppearance(scheme) }
     val motion = motionPreferences ?: MotionPreferences.Default

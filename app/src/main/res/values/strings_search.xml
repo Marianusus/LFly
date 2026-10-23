@@ -31,6 +31,20 @@
     <string name="search_suggestion_daft_punk">Daft Punk</string>
     <string name="search_suggestion_billie_eilish">Billie Eilish</string>
 
+    <string name="search_suggestions_exact">Cerca &quot;%1$s&quot;</string>
+    <string name="search_suggestions_recent">Dai recenti</string>
+    <string name="search_suggestions_empty">Nessun suggerimento. Premi Cerca per cercare comunque.</string>
+    <string name="search_suggestion_fill">Usa "%1$s"</string>
+    <string name="search_recent_title">Ricerche recenti</string>
+    <string name="search_recent_clear">Cancella</string>
+    <string name="search_recent_empty">Nessuna ricerca recente</string>
+    <string name="search_recent_remove">Rimuovi %1$s</string>
+    <string name="search_history_type_query">Ricerca</string>
+    <string name="search_history_type_track">Brano</string>
+    <string name="search_history_type_artist">Artista</string>
+    <string name="search_history_type_album">Album</string>
+    <string name="search_history_type_playlist">Playlist</string>
+
     <string name="search_youtube_badge">YouTube</string>
     <string name="search_artist_badge">Artista</string>
 

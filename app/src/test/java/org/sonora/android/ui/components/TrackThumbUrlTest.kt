@@ -8,17 +8,18 @@ class TrackThumbUrlTest {
 
     @Test
     fun acceptsOnlyHttpUrls() {
-        assertEquals("https://img.example/a.jpg", "https://img.example/a.jpg".asHttpImageUrlOrNull())
-        assertEquals("http://img.example/a.jpg", " http://img.example/a.jpg ".asHttpImageUrlOrNull())
+        assertEquals("https://img.example/a.jpg", "https://img.example/a.jpg".asImageUrlOrNull())
+        assertEquals("http://img.example/a.jpg", " http://img.example/a.jpg ".asImageUrlOrNull())
     }
 
     @Test
     fun rejectsNonImageOrBlankValues() {
-        assertNull(null.asHttpImageUrlOrNull())
-        assertNull("".asHttpImageUrlOrNull())
-        assertNull("   ".asHttpImageUrlOrNull())
-        assertNull("file:///tmp/a.jpg".asHttpImageUrlOrNull())
-        assertNull("content://media/1".asHttpImageUrlOrNull())
-        assertNull("ytsearch:foo".asHttpImageUrlOrNull())
+        assertNull(null.asImageUrlOrNull())
+        assertNull("".asImageUrlOrNull())
+        assertNull("   ".asImageUrlOrNull())
+        assertEquals("file:///tmp/a.jpg", "file:///tmp/a.jpg".asImageUrlOrNull())
+        assertEquals("content://media/1", "content://media/1".asImageUrlOrNull())
+        assertEquals("file:///storage/emulated/0/a.jpg", "/storage/emulated/0/a.jpg".asImageUrlOrNull())
+        assertNull("ytsearch:foo".asImageUrlOrNull())
     }
 }

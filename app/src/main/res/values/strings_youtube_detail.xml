@@ -2,6 +2,7 @@
 <resources>
     <string name="yt_detail_retry">Riprova</string>
     <string name="yt_detail_no_tracks">Nessun brano disponibile</string>
+    <string name="yt_detail_no_tracks_body">Non ci sono brani disponibili per questa raccolta.</string>
     <string name="yt_detail_popular_tracks">Brani popolari</string>
     <string name="yt_detail_albums">Album</string>
     <string name="yt_detail_singles_eps">Singoli e EP</string>

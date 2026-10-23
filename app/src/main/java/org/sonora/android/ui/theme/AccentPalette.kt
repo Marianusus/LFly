@@ -28,7 +28,19 @@ object AccentPalette {
         AccentOption("orange", R.string.accent_orange, Color(0xFFFF7A00)),
         AccentOption("amber", R.string.accent_amber, Color(0xFFFFB300)),
         AccentOption("teal", R.string.accent_teal, Color(0xFF00BFA5)),
-        AccentOption("cyan", R.string.accent_cyan, Color(0xFF00B8D9))
+        AccentOption("cyan", R.string.accent_cyan, Color(0xFF00B8D9)),
+
+        // ── Premium ──────────────────────────────────────────────────────────
+        AccentOption("champagne_gold", R.string.accent_champagne_gold, Color(0xFFD4AF37)),
+        AccentOption("rose_gold", R.string.accent_rose_gold, Color(0xFFB76E79)),
+        AccentOption("platinum", R.string.accent_platinum, Color(0xFFC9CCD1)),
+        AccentOption("titanium", R.string.accent_titanium, Color(0xFF5C6670)),
+        AccentOption("sapphire", R.string.accent_sapphire, Color(0xFF1F4FD8)),
+        AccentOption("midnight", R.string.accent_midnight, Color(0xFF20304A)),
+        AccentOption("burgundy", R.string.accent_burgundy, Color(0xFF8E1B3A)),
+        AccentOption("bronze", R.string.accent_bronze, Color(0xFFA9714B)),
+        AccentOption("obsidian", R.string.accent_obsidian, Color(0xFF3A3F44)),
+        AccentOption("sand", R.string.accent_sand, Color(0xFFC2A878))
     )
 
     /** Default accent (Sonora brand emerald). */

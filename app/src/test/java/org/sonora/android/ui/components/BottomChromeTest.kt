@@ -6,8 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.sonora.android.ui.theme.AppearanceMode
 import org.sonora.android.ui.theme.BackgroundSchemeFactory
+import org.sonora.android.ui.theme.Spacing
 
 class BottomChromeTest {
+
+    @Test
+    fun navBarAndMiniPlayerShareTheSameHeight() {
+        assertEquals(BottomChrome.NavBarHeight, BottomChrome.MiniPlayerHeight)
+        assertEquals(Spacing.barHeight, BottomChrome.NavBarHeight)
+    }
 
     @Test
     fun insetWithoutMiniPlayerIsNavPlusInset() {

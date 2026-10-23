@@ -4,7 +4,7 @@
     <string name="settings_tab_music">Music</string>
     <string name="settings_tab_api">API</string>
     <string name="settings_accent_section_title">Accent color</string>
-    <string name="settings_accent_section_subtitle">Applies to the Black AMOLED and White themes</string>
+    <string name="settings_accent_section_subtitle">Applies to all themes; on dynamic themes it follows the cover when available</string>
     <string name="accent_emerald">Emerald</string>
     <string name="accent_blue">Blue</string>
     <string name="accent_indigo">Indigo</string>
@@ -15,4 +15,15 @@
     <string name="accent_amber">Amber</string>
     <string name="accent_teal">Teal</string>
     <string name="accent_cyan">Cyan</string>
+
+    <string name="accent_champagne_gold">Champagne Gold</string>
+    <string name="accent_rose_gold">Rose Gold</string>
+    <string name="accent_platinum">Platinum</string>
+    <string name="accent_titanium">Titanium</string>
+    <string name="accent_sapphire">Sapphire</string>
+    <string name="accent_midnight">Midnight</string>
+    <string name="accent_burgundy">Burgundy</string>
+    <string name="accent_bronze">Bronze</string>
+    <string name="accent_obsidian">Obsidian</string>
+    <string name="accent_sand">Sand</string>
 </resources>

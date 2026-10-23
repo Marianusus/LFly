@@ -13,4 +13,22 @@
     <string name="track_play_via_youtube">Redă de pe YouTube Music</string>
     <string name="track_play_via_monochrome">Redă de pe Monochrome</string>
     <string name="track_source_auto">Auto (setare globală)</string>
+
+    <string name="track_info_actions">Acțiuni</string>
+    <string name="track_source_section">Sursă</string>
+    <string name="track_info_unknown_artist">Artist necunoscut</string>
+    <string name="track_info_album">Album</string>
+    <string name="track_info_year">An</string>
+    <string name="track_info_duration">Durată</string>
+    <string name="track_info_plays">Ascultări</string>
+    <string name="track_info_source">Sursă</string>
+    <string name="track_info_type">Tip</string>
+    <string name="track_info_type_video">Videoclip</string>
+    <string name="track_info_type_song">Melodie</string>
+    <string name="track_info_unknown">—</string>
+    <string name="track_info_menu">Informații</string>
+    <string name="track_actions_favorite_add">Adaugă la favorite</string>
+    <string name="track_actions_favorite_remove">Elimină din favorite</string>
+    <string name="track_actions_open_album">Deschide albumul</string>
+    <string name="track_actions_open_artist">Deschide artistul</string>
 </resources>

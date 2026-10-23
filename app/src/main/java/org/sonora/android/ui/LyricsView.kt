@@ -1,12 +1,16 @@
 package org.sonora.android.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -40,13 +44,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,6 +68,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -78,6 +78,9 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -85,16 +88,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import org.sonora.android.R
 import org.sonora.android.api.HighlightMode
 import org.sonora.android.api.LyricLine
 import org.sonora.android.api.Lyrics
 import org.sonora.android.api.LyricsTiming
 import org.sonora.android.api.Track
+import org.sonora.android.api.lyrics.sources.LyricsProviderState
+import org.sonora.android.api.lyrics.sources.LyricsSource
 import org.sonora.android.api.activeLineIndex
 import org.sonora.android.playback.PlaybackState
-import org.sonora.android.ui.theme.AmoledDivider
-import org.sonora.android.ui.theme.AppearanceMode
+import org.sonora.android.ui.components.LyricsProviderSheet
 import org.sonora.android.ui.theme.LocalBackgroundScheme
 import org.sonora.android.ui.theme.LocalMotionPreferences
 import org.sonora.android.ui.theme.SonoraEmerald
@@ -103,7 +108,7 @@ import org.sonora.android.ui.theme.SonoraTextSecondary
 import org.sonora.android.ui.theme.SonoraTextTertiary
 import org.sonora.android.ui.theme.SonoraOpaqueSurfaceCard
 import org.sonora.android.ui.theme.SonoraTheme
-import org.sonora.android.ui.theme.liquidGlass
+import android.os.Build
 import android.os.SystemClock
 import kotlin.math.abs
 
@@ -126,6 +131,9 @@ fun LyricsView(
     onToggleMusixmatch: (Boolean) -> Unit = {},
     lrclibEnabled: Boolean = true,
     onToggleLrclib: (Boolean) -> Unit = {},
+    activeSource: LyricsSource? = null,
+    providerStates: Map<LyricsSource, LyricsProviderState> = emptyMap(),
+    onSelectLyricsSource: (LyricsSource?) -> Unit = {},
     onSeekTo: (Long) -> Unit,
     onPlayPause: () -> Unit,
     onPlayPrevious: () -> Unit,
@@ -135,12 +143,23 @@ fun LyricsView(
     modifier: Modifier = Modifier
 ) {
     val scheme = LocalBackgroundScheme.current
-
     // Frame-rate live position: the player only reports every 250ms, which makes karaoke land
     // late/jittery. Advance smoothly from the last authoritative sample.
     val livePositionMs = rememberLivePositionMs(playbackState.positionMs, playbackState.isPlaying)
 
     var languageDialogOpen by remember { mutableStateOf(false) }
+    var sourceSheetOpen by remember { mutableStateOf(false) }
+    if (sourceSheetOpen) {
+        LyricsProviderSheet(
+            states = providerStates,
+            active = activeSource,
+            onSelect = { source ->
+                sourceSheetOpen = false
+                onSelectLyricsSource(source)
+            },
+            onDismiss = { sourceSheetOpen = false },
+        )
+    }
     if (languageDialogOpen) {
         TranslationLanguageDialog(
             current = targetLang,
@@ -152,38 +171,43 @@ fun LyricsView(
         )
     }
 
-    // Appearance-aware overlay: AMOLED -> pure black, PURE_WHITE -> light canvas, DYNAMIC_* -> cover tint.
-    val overlayModifier = Modifier
-        .background(Brush.verticalGradient(scheme.gradient))
-        .then(
-            if (scheme.mode.isDynamic) {
-                Modifier.background(
-                    scheme.scrim.copy(alpha = if (scheme.isLight) 0.18f else 0.32f)
-                )
-            } else Modifier
-        )
-        .border(
-            1.dp,
-            if (scheme.mode == AppearanceMode.AMOLED_BLACK) AmoledDivider.copy(alpha = 0.30f)
-            else scheme.glassBorder
-        )
-    val activeLineColor = if (scheme.isLight) Color(0xFF101012) else Color.White
-    val inactiveLineColor = SonoraTextSecondary
-    val futureLineColor = SonoraTextTertiary
-    val shimmerColor = if (scheme.isLight) Color.Black.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.18f)
-    val playBackground = if (scheme.isLight) Color(0xFF101012) else Color.White
-    val playIcon = if (scheme.isLight) Color.White else Color.Black
+    // Convx / Apple Music lyric surface: full-bleed blurred artwork with a dark scrim.
+    val activeLineColor = Color.White
+    val inactiveLineColor = Color.White.copy(alpha = 0.62f)
+    val futureLineColor = Color.White.copy(alpha = 0.44f)
+    val shimmerColor = Color.White.copy(alpha = 0.20f)
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .then(overlayModifier)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = {} // Intercept click gestures so they don't leak to player controls beneath
             )
     ) {
+        if (!track?.artworkUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = track.artworkUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(80.dp)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.58f),
+                        0.45f to Color.Black.copy(alpha = 0.72f),
+                        1f to Color.Black.copy(alpha = 0.88f)
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -199,19 +223,13 @@ fun LyricsView(
             ) {
                 IconButton(
                     onClick = onClose,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .liquidGlass(
-                            shape = CircleShape,
-                            backgroundColor = Color(0xFFFFFFFF).copy(alpha = 0.08f),
-                            borderColor = SonoraTheme.colors.cardBorder
-                        )
+                    modifier = Modifier.size(42.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = stringResource(R.string.lyrics_close_desc),
-                        tint = SonoraTextPrimary,
-                        modifier = Modifier.size(26.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
@@ -227,7 +245,7 @@ fun LyricsView(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.4.sp
                         ),
-                        color = SonoraTextSecondary,
+                        color = Color.White.copy(alpha = 0.60f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -239,7 +257,7 @@ fun LyricsView(
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold
                         ),
-                        color = SonoraTextPrimary,
+                        color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -323,9 +341,9 @@ fun LyricsView(
                             Text(
                                 text = lyrics.plainLyrics ?: "",
                                 style = MaterialTheme.typography.bodyLarge.copy(
-                                    color = SonoraTextPrimary,
-                                    lineHeight = 30.sp,
-                                    fontSize = 18.sp,
+                                    color = Color.White,
+                                    lineHeight = 34.sp,
+                                    fontSize = 22.sp,
                                     fontWeight = FontWeight.Medium
                                 )
                             )
@@ -337,10 +355,8 @@ fun LyricsView(
             // ── Footer: thin seek bar + time + controls ────────────────────────────────────────
             LyricsFooter(
                 playbackState = playbackState,
-                accentColor = scheme.accent,
+                accentColor = Color.White,
                 shimmerColor = shimmerColor,
-                playBackground = playBackground,
-                playIcon = playIcon,
                 translateLyrics = translateLyrics,
                 targetLang = targetLang,
                 highlightMode = highlightMode,
@@ -351,6 +367,8 @@ fun LyricsView(
                 onToggleMusixmatch = onToggleMusixmatch,
                 lrclibEnabled = lrclibEnabled,
                 onToggleLrclib = onToggleLrclib,
+                activeSource = activeSource,
+                onOpenSourcePicker = { sourceSheetOpen = true },
                 onSeekTo = onSeekTo,
                 onPlayPause = onPlayPause,
                 onPlayPrevious = onPlayPrevious,
@@ -457,7 +475,7 @@ private fun SyncedLyricsList(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 180.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(26.dp)
         ) {
             itemsIndexed(lines, key = { index, line -> "$index-${line.timeMs}" }) { index, line ->
                 val isActive = index == activeIndex
@@ -467,14 +485,14 @@ private fun SyncedLyricsList(
                 val alpha by animateFloatAsState(
                     targetValue = when {
                         isActive -> 1f
-                        isPast -> 0.55f
-                        else -> 0.38f
+                        isPast -> 0.60f
+                        else -> 0.46f
                     },
                     animationSpec = tween(durationMillis = 220),
                     label = "lyricsAlpha"
                 )
                 val scale by animateFloatAsState(
-                    targetValue = if (isActive) 1f else 0.96f,
+                    targetValue = 1f,
                     animationSpec = tween(durationMillis = 260),
                     label = "lyricsScale"
                 )
@@ -490,11 +508,17 @@ private fun SyncedLyricsList(
 
                 val glowShadow = if (isActive) {
                     Shadow(
-                        color = accentColor.copy(alpha = 0.55f),
+                        color = Color.White.copy(alpha = 0.50f),
                         offset = Offset.Zero,
-                        blurRadius = 26f
+                        blurRadius = 22f
                     )
                 } else null
+                val distance = abs(index - activeIndex)
+                val blurRadius = if (!isActive && Build.VERSION.SDK_INT >= 31) {
+                    (1.2f + distance * 0.65f).coerceAtMost(5f).dp
+                } else {
+                    0.dp
+                }
 
                 Column(
                     modifier = Modifier
@@ -518,14 +542,14 @@ private fun SyncedLyricsList(
                 ) {
                     val activeStyle = MaterialTheme.typography.headlineSmall.copy(
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 27.sp,
-                        lineHeight = 38.sp,
+                        fontSize = 30.sp,
+                        lineHeight = 40.sp,
                         shadow = glowShadow
                     )
                     val idleStyle = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 21.sp,
-                        lineHeight = 30.sp
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 30.sp,
+                        lineHeight = 40.sp
                     )
 
                     // Karaoke only when the source really has word timings (like Sonora);
@@ -543,16 +567,39 @@ private fun SyncedLyricsList(
                             nextLineStartMs = nextLineStartMs,
                             positionMs = positionMs,
                             baseColor = lineColor,
-                            accentColor = accentColor,
+                            accentColor = activeColor,
                             accentStyle = activeStyle,
-                            modifier = Modifier.alpha(alpha)
+                            modifier = Modifier
+                                .alpha(alpha)
+                                .blur(blurRadius)
                         )
                     } else {
                         Text(
                             text = line.text,
                             style = if (isActive) activeStyle else idleStyle,
                             color = lineColor,
-                            modifier = Modifier.alpha(alpha),
+                            modifier = Modifier
+                                .alpha(alpha)
+                                .blur(blurRadius),
+                            textAlign = TextAlign.Start
+                        )
+                    }
+
+                    val background = line.background?.takeIf { it.isNotBlank() }
+                    if (background != null) {
+                        Text(
+                            text = background,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 16.sp,
+                                lineHeight = 24.sp,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                            ),
+                            color = lineColor.copy(alpha = 0.58f),
+                            modifier = Modifier
+                                .alpha(alpha)
+                                .padding(top = 2.dp)
+                                .blur(blurRadius),
                             textAlign = TextAlign.Start
                         )
                     }
@@ -611,12 +658,22 @@ private fun WordHighlightedLine(
 
     val activeWord = remember(positionMs, words) { LyricsTiming.activeWordIndex(words, positionMs) }
     val motion = LocalMotionPreferences.current
+    val shineTransition = rememberInfiniteTransition(label = "karaokeShine")
+    val shine by shineTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "karaokeShineOffset"
+    )
 
     // Each word is its own composable so its colour/scale can animate smoothly instead of
     // snapping frame-to-frame. FlowRow keeps the natural word wrapping.
     FlowRow(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.Center
     ) {
         tokens.forEachIndexed { index, token ->
@@ -632,7 +689,8 @@ private fun WordHighlightedLine(
                 accentColor = accentColor,
                 style = accentStyle,
                 animationMs = motion.standardMs,
-                reduceMotion = motion.reduceMotion
+                reduceMotion = motion.reduceMotion,
+                shine = if (motion.reduceMotion) 0.5f else shine
             )
         }
     }
@@ -646,12 +704,13 @@ private fun KaraokeWord(
     accentColor: Color,
     style: TextStyle,
     animationMs: Int,
-    reduceMotion: Boolean
+    reduceMotion: Boolean,
+    shine: Float
 ) {
     val targetColor = when (state) {
         WordState.Sung -> baseColor
         WordState.Active -> accentColor
-        WordState.Future -> baseColor.copy(alpha = 0.32f)
+        WordState.Future -> baseColor.copy(alpha = 0.42f)
     }
     // Sung words crossfade to full brightness; the active word lights up in the accent colour.
     val color by animateColorAsState(
@@ -660,22 +719,36 @@ private fun KaraokeWord(
         label = "karaokeWordColor"
     )
 
-    // A springy "pop" (0 inactive -> 1 active) drives both the scale and the glow so the word
-    // grows and blooms as it becomes the one being sung, then settles back.
+    // Apple Music-like word bloom: the active word lifts and glows softly, then settles
+    // back as the next one takes over. Honours the reduce-motion preference.
     val pop by animateFloatAsState(
         targetValue = if (state == WordState.Active) 1f else 0f,
         animationSpec = if (reduceMotion) tween(0) else spring(
-            dampingRatio = 0.42f,
+            dampingRatio = 0.46f,
             stiffness = Spring.StiffnessMediumLow
         ),
         label = "karaokeWordPop"
     )
-    val scale = 1f + pop * 0.11f
+    val scale = 1f + pop * 0.13f
+    val lift = with(LocalDensity.current) { (-pop * 2f).dp.toPx() }
     val glow = if (pop > 0.01f) {
         Shadow(
-            color = accentColor.copy(alpha = 0.65f * pop),
+            color = Color.White.copy(alpha = 0.70f * pop),
             offset = Offset.Zero,
-            blurRadius = 24f * pop
+            blurRadius = 26f * pop
+        )
+    } else {
+        null
+    }
+    val sheen = if (state == WordState.Active) {
+        Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.86f),
+                Color.White,
+                Color.White.copy(alpha = 0.86f)
+            ),
+            start = Offset(shine * 260f - 130f, 0f),
+            end = Offset(shine * 260f + 130f, 0f)
         )
     } else {
         null
@@ -683,14 +756,15 @@ private fun KaraokeWord(
 
     Text(
         text = text,
-        style = style.copy(shadow = glow),
+        style = style.copy(brush = sheen, shadow = glow),
         color = color,
         maxLines = 1,
         softWrap = false,
         modifier = Modifier.graphicsLayer {
             scaleX = scale
             scaleY = scale
-            transformOrigin = TransformOrigin(0.5f, 0.9f)
+            translationY = lift
+            transformOrigin = TransformOrigin(0.5f, 0.5f)
         }
     )
 }
@@ -704,8 +778,6 @@ private fun LyricsFooter(
     playbackState: PlaybackState,
     accentColor: Color,
     shimmerColor: Color,
-    playBackground: Color,
-    playIcon: Color,
     translateLyrics: Boolean,
     targetLang: String,
     highlightMode: HighlightMode,
@@ -716,6 +788,8 @@ private fun LyricsFooter(
     onToggleMusixmatch: (Boolean) -> Unit,
     lrclibEnabled: Boolean,
     onToggleLrclib: (Boolean) -> Unit,
+    activeSource: LyricsSource?,
+    onOpenSourcePicker: () -> Unit,
     onSeekTo: (Long) -> Unit,
     onPlayPause: () -> Unit,
     onPlayPrevious: () -> Unit,
@@ -765,14 +839,11 @@ private fun LyricsFooter(
                     )
                 }
         ) {
-            val thumbSize = 14.dp
-            val thumbX = (maxWidth * shownFraction) - (thumbSize / 2)
-
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxWidth()
-                    .height(3.dp)
+                    .height(6.dp)
                     .clip(CircleShape)
                     .background(shimmerColor)
             )
@@ -780,17 +851,9 @@ private fun LyricsFooter(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxWidth(shownFraction)
-                    .height(3.dp)
+                    .height(6.dp)
                     .clip(CircleShape)
                     .background(accentColor)
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = thumbX.coerceAtLeast(0.dp))
-                    .size(thumbSize)
-                    .shadow(elevation = 6.dp, shape = CircleShape)
-                    .background(accentColor, CircleShape)
             )
         }
 
@@ -803,12 +866,12 @@ private fun LyricsFooter(
             Text(
                 text = formatLyricsTime(displayPositionMs),
                 style = MaterialTheme.typography.labelSmall,
-                color = SonoraTextSecondary
+                color = Color.White.copy(alpha = 0.65f)
             )
             Text(
                 text = "-" + formatLyricsTime((durationMs - displayPositionMs).coerceAtLeast(0L)),
                 style = MaterialTheme.typography.labelSmall,
-                color = SonoraTextSecondary
+                color = Color.White.copy(alpha = 0.65f)
             )
         }
 
@@ -823,57 +886,68 @@ private fun LyricsFooter(
                 Icon(
                     imageVector = Icons.Default.Shuffle,
                     contentDescription = stringResource(R.string.lyrics_shuffle_desc),
-                    tint = if (playbackState.isShuffle) accentColor else SonoraTextSecondary,
+                    tint = if (playbackState.isShuffle) Color.White else Color.White.copy(alpha = 0.55f),
                     modifier = Modifier.size(24.dp)
                 )
             }
 
             IconButton(onClick = onPlayPrevious, modifier = Modifier.size(48.dp)) {
                 Icon(
-                    imageVector = Icons.Default.SkipPrevious,
+                    painter = painterResource(R.drawable.flamingo_rewind),
                     contentDescription = stringResource(R.string.lyrics_previous_desc),
-                    tint = SonoraTextPrimary,
-                    modifier = Modifier.size(32.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp)
                 )
             }
 
             Box(
                 modifier = Modifier
                     .size(58.dp)
-                    .shadow(elevation = 10.dp, shape = CircleShape)
-                    .background(playBackground, CircleShape)
-                    .clickable(onClick = onPlayPause),
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onPlayPause
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    painter = painterResource(
+                        if (playbackState.isPlaying) R.drawable.flamingo_pause else R.drawable.flamingo_play
+                    ),
                     contentDescription = stringResource(
                         if (playbackState.isPlaying) R.string.lyrics_pause_desc else R.string.lyrics_play_desc
                     ),
-                    tint = playIcon,
-                    modifier = Modifier.size(30.dp)
+                    tint = SonoraTextPrimary,
+                    modifier = Modifier.size(44.dp)
                 )
             }
 
             IconButton(onClick = onPlayNext, modifier = Modifier.size(48.dp)) {
                 Icon(
-                    imageVector = Icons.Default.SkipNext,
+                    painter = painterResource(R.drawable.flamingo_fforward),
                     contentDescription = stringResource(R.string.lyrics_next_desc),
-                    tint = SonoraTextPrimary,
-                    modifier = Modifier.size(32.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp)
                 )
             }
 
             Box {
-                IconButton(
-                    onClick = { menuExpanded = true },
-                    modifier = Modifier.size(44.dp)
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { menuExpanded = true }
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
+                        painter = painterResource(R.drawable.convx_more),
                         contentDescription = stringResource(R.string.lyrics_options_desc),
-                        tint = SonoraTextPrimary,
-                        modifier = Modifier.size(24.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
@@ -937,6 +1011,29 @@ private fun LyricsFooter(
                         }
                     )
                     HorizontalDivider(color = SonoraTheme.colors.cardBorder)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(
+                                    R.string.lyrics_source_format,
+                                    activeSource?.label ?: stringResource(R.string.lyrics_source_automatic),
+                                ),
+                                color = SonoraTextPrimary
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                tint = SonoraTextSecondary
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenSourcePicker()
+                        }
+                    )
+                    HorizontalDivider(color = SonoraTheme.colors.cardBorder)
                     listOf(
                         HighlightMode.AUTO to stringResource(R.string.lyrics_highlight_auto),
                         HighlightMode.WORD to stringResource(R.string.lyrics_highlight_word),
@@ -966,61 +1063,6 @@ private fun LyricsFooter(
                             }
                         )
                     }
-                    HorizontalDivider(color = SonoraTheme.colors.cardBorder)
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(
-                                    if (musixmatchEnabled) R.string.lyrics_musixmatch_on
-                                    else R.string.lyrics_musixmatch_off
-                                ),
-                                color = SonoraTextPrimary
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = if (musixmatchEnabled) accentColor else SonoraTextSecondary
-                            )
-                        },
-                        trailingIcon = {
-                            if (musixmatchEnabled) {
-                                Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = accentColor)
-                            }
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onToggleMusixmatch(!musixmatchEnabled)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(
-                                    if (lrclibEnabled) R.string.lyrics_lrclib_on
-                                    else R.string.lyrics_lrclib_off
-                                ),
-                                color = SonoraTextPrimary
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = if (lrclibEnabled) accentColor else SonoraTextSecondary
-                            )
-                        },
-                        trailingIcon = {
-                            if (lrclibEnabled) {
-                                Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = accentColor)
-                            }
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onToggleLrclib(!lrclibEnabled)
-                        }
-                    )
                 }
             }
         }

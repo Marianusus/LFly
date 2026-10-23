@@ -37,4 +37,10 @@
     <string name="playlist_add_to_queue_action">Aggiungi alla coda</string>
     <string name="playlist_add_to_playlist_action">Aggiungi a playlist</string>
     <string name="playlist_drag_handle_content_description">Trascina per riordinare</string>
+    <string name="playlist_auto_updated_chip">Aggiornata automaticamente · ogni 5 giorni</string>
+    <string name="mix_updated_chip">Aggiornato automaticamente · ogni 5 giorni</string>
+    <string name="mix_save_action">Salva in libreria</string>
+    <string name="mix_saved">Salvato</string>
+    <string name="mix_remove_action">Rimuovi dalla libreria</string>
+    <string name="mix_saved_copy_on">Copia salvata il %1$s</string>
 </resources>

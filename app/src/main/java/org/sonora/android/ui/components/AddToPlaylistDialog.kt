@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import org.sonora.android.R
 import org.sonora.android.api.Track
+import org.sonora.android.data.MusicRepository
 import org.sonora.android.data.Playlist
 import org.sonora.android.ui.theme.SonoraDivider
 import org.sonora.android.ui.theme.SonoraEmerald
@@ -89,6 +90,10 @@ fun AddToPlaylistDialog(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showCreateDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
+    // "On Repeat" is read-only: it must never appear as an add target.
+    val selectablePlaylists = remember(playlists) {
+        playlists.filterNot { it.id == MusicRepository.PLAYLIST_ON_REPEAT_ID }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -231,7 +236,7 @@ fun AddToPlaylistDialog(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Playlists List
-            if (playlists.isEmpty()) {
+            if (selectablePlaylists.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -269,7 +274,7 @@ fun AddToPlaylistDialog(
                     contentPadding = PaddingValues(vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(playlists, key = { it.id }) { playlist ->
+                    items(selectablePlaylists, key = { it.id }) { playlist ->
                         val isAlreadyIn = playlist.tracks.any { it.id == track.id }
                         PlaylistItemRow(
                             playlist = playlist,

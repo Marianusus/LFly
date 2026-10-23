@@ -45,6 +45,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Sonora">
 
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="org.sonora.android.cast.CastOptionsProvider" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

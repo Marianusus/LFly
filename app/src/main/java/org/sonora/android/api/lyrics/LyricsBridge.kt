@@ -30,6 +30,7 @@ object LyricsBridge {
                     timeMs = line.startMs,
                     text = line.text,
                     wordTimings = alignWords(line.text, line.words),
+                    background = line.secondary.firstOrNull()?.text?.takeIf { it.isNotBlank() },
                 )
             },
         )

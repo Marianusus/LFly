@@ -52,6 +52,8 @@
     <string name="settings_translate_lyrics_title">Traduci testi</string>
     <string name="settings_translate_lyrics_subtitle">Traduci i testi sul dispositivo con ML Kit</string>
     <string name="settings_translation_target_language_label">Lingua di destinazione (tutte le lingue ML Kit)</string>
+    <string name="settings_translation_clear_models">Elimina modelli di traduzione</string>
+    <string name="settings_translation_clear_models_subtitle">Libera lo spazio occupato dalle lingue scaricate (~40 MB ciascuna)</string>
     <string name="settings_translation_highlight_label">Evidenziazione dei testi</string>
     <string name="settings_highlight_auto">Auto</string>
     <string name="settings_highlight_word">Parole</string>
@@ -89,4 +91,23 @@
     <string name="settings_appearance_section_subtitle">Canvas Liquid Glass e animazioni</string>
     <string name="settings_reduce_motion_title">Riduci animazioni</string>
     <string name="settings_reduce_motion_subtitle">Disattiva shimmer, scale e gradienti animati</string>
+    <string name="settings_country_section_title">Paese</string>
+    <string name="settings_country_section_subtitle">Scegli il paese per le classifiche e i brani in tendenza.</string>
+    <string name="settings_country_row_title">Paese delle classifiche</string>
+    <string name="settings_country_dialog_title">Scegli il paese</string>
+    <string name="settings_lyrics_sources_title">Sorgenti dei testi</string>
+    <string name="settings_lyrics_sources_subtitle">Priorità, sincronizzazione sillabica e chiavi API</string>
+    <string name="settings_lyrics_sources_priority">Priorità</string>
+    <string name="settings_lyrics_sources_priority_hint">Trascina per riordinare. Le fonti con sincronizzazione parola per parola hanno priorità; tra fonti dello stesso tipo vince quella più in alto.</string>
+    <string name="settings_lyrics_sources_syllable">Preferisci sincronizzazione sillabica</string>
+    <string name="settings_lyrics_sources_syllable_subtitle">Cerca una fonte parola per parola anche se una fonte a righe ha già risposto</string>
+    <string name="settings_lyrics_sources_key">Chiave API PaxSenix</string>
+    <string name="settings_lyrics_sources_key_hint">Necessaria per Spotify e Musixmatch tramite PaxSenix</string>
+    <string name="settings_lyrics_sources_reset">Ripristina default</string>
+    <string name="settings_lyrics_sources_done">Fatto</string>
+    <string name="settings_lyrics_sources_minimum">Tieni attiva almeno una sorgente</string>
+    <string name="settings_lyrics_sources_active">%1$d sorgenti attive</string>
+    <string name="settings_liquid_glass_title">Liquid Glass</string>
+    <string name="settings_liquid_glass_subtitle">Vetro con rifrazione reale su barra e miniplayer. Android 12+; usa più GPU.</string>
+    <string name="settings_liquid_glass_unavailable">Richiede Android 12 o successivo</string>
 </resources>

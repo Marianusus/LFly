@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_action">Scarica</string>
+    <string name="download_cancel">Annulla download</string>
+    <string name="download_remove">Rimuovi download</string>
+    <string name="download_retry">Riprova download</string>
+    <string name="download_failed_banner">Download non riuscito</string>
+
+    <string name="settings_downloads_title">Download</string>
+    <string name="settings_downloads_subtitle">Qualità, rete e spazio dei brani offline</string>
+    <string name="settings_download_quality_label">Qualità download</string>
+    <string name="settings_download_wifi_only">Scarica solo in Wi-Fi</string>
+    <string name="settings_download_wifi_only_desc">Evita il consumo di dati mobili</string>
+    <string name="settings_download_storage">Spazio occupato: %1$s</string>
+    <string name="settings_download_storage_empty">Nessun brano scaricato</string>
+    <string name="settings_download_lyrics">Scarica anche i testi</string>
+    <string name="settings_download_lyrics_desc">Salva i testi per l’ascolto offline, usando la fonte scelta per ogni brano</string>
+    <string name="settings_offline_lyrics_desc">Scegli la fonte e scarica i testi dei brani scaricati</string>
+    <string name="settings_download_clear">Elimina tutti i download</string>
+
+    <string name="library_downloads_title">Brani offline</string>
+    <string name="library_no_downloads_title">Nessun brano offline</string>
+    <string name="library_no_downloads_body">Scarica i brani che ami per ascoltarli anche senza connessione.</string>
+    <string name="library_offline_chip">Offline</string>
+
+    <string name="playlist_download_content_description">Scarica playlist</string>
+    <string name="playlist_download_remove_content_description">Rimuovi download playlist</string>
+    <string name="player_download_desc">Scarica brano</string>
+    <string name="download_delete_local_file">Elimina dai scaricati</string>
+
+    <string name="offline_lyrics_title">Testi offline</string>
+    <string name="offline_lyrics_summary">%1$d brani scaricati · %2$d con testi</string>
+    <string name="offline_lyrics_filter_all">Tutti</string>
+    <string name="offline_lyrics_filter_with">Con testi</string>
+    <string name="offline_lyrics_filter_without">Senza testi</string>
+    <string name="offline_lyrics_filter_empty">Nessun brano in questo filtro</string>
+    <string name="offline_lyrics_download_missing">Scarica mancanti (%1$d)</string>
+    <string name="offline_lyrics_status_none">Testi non scaricati</string>
+    <string name="offline_lyrics_status_fetching">Recupero testi…</string>
+    <string name="offline_lyrics_status_found">Testo · %1$s</string>
+    <string name="offline_lyrics_status_not_found">Testi non trovati</string>
+    <string name="offline_lyrics_status_error">Errore nel recupero dei testi</string>
+    <string name="offline_lyrics_choose_source">Scegli fonte testi</string>
+    <string name="offline_lyrics_action_download">Scarica testi</string>
+    <string name="offline_lyrics_action_redownload">Riscarica testi</string>
+    <string name="offline_lyrics_action_remove">Rimuovi testi</string>
+    <string name="offline_lyrics_remove_title">Rimuovi i testi?</string>
+    <string name="offline_lyrics_remove_body">Il file dei testi verrà eliminato da questo dispositivo.</string>
+    <string name="offline_lyrics_remove_confirm">Rimuovi</string>
+    <string name="offline_lyrics_remove_cancel">Annulla</string>
+    <string name="offline_lyrics_empty_title">Nessun brano scaricato</string>
+    <string name="offline_lyrics_empty_body">Scarica i brani dalla libreria per gestirne i testi offline.</string>
+</resources>

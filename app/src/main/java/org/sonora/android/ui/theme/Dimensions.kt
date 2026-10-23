@@ -26,7 +26,7 @@ object Spacing {
     /** Standard horizontal gutter for screen content. */
     val gutter = 16.dp
 
-    /** Floating bottom navigation / mini-player height. */
+    /** Floating bottom navigation height (matches the mini player). */
     val barHeight = 64.dp
 }
 

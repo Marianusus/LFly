@@ -3,6 +3,7 @@ package org.sonora.android.ui.theme
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import kotlin.math.pow
 
 /**
  * A resolved, context-aware background for the Sonora Liquid Glass shell.
@@ -64,9 +65,30 @@ internal fun clampLumaLight(color: Color, minLuma: Float): Color {
 internal fun accentForDisplay(accent: Color, light: Boolean): Color =
     if (light) clampLumaDark(accent, 0.55f) else clampLumaLight(accent, 0.55f)
 
-/** Picks a foreground color (dark/white) with adequate contrast for [background]. */
-fun onColorFor(background: Color): Color =
-    if (background.luma() > 0.55f) Color(0xFF15151A) else Color.White
+/** Picks the highest-contrast foreground (dark/white) for [background]. */
+fun onColorFor(background: Color): Color {
+    val dark = Color(0xFF15151A)
+    return if (contrastRatio(Color.White, background) >= contrastRatio(dark, background)) {
+        Color.White
+    } else {
+        dark
+    }
+}
+
+internal fun contrastRatio(a: Color, b: Color): Double {
+    fun relativeLuminance(color: Color): Double {
+        fun channel(value: Float): Double {
+            val v = value.toDouble()
+            return if (v <= 0.04045) v / 12.92 else ((v + 0.055) / 1.055).pow(2.4)
+        }
+        return 0.2126 * channel(color.red) +
+            0.7152 * channel(color.green) +
+            0.0722 * channel(color.blue)
+    }
+    val first = relativeLuminance(a)
+    val second = relativeLuminance(b)
+    return (maxOf(first, second) + 0.05) / (minOf(first, second) + 0.05)
+}
 
 // ==========================================
 // Factory
@@ -74,7 +96,9 @@ fun onColorFor(background: Color): Color =
 
 object BackgroundSchemeFactory {
 
-    val FallbackViolet = Color(0xFF7C4DFF)
+    // Brand emerald: used as the accent fallback when a dynamic canvas has no
+    // cover-derived colour yet, so the UI never falls back to a stray violet.
+    val FallbackEmerald = Color(0xFF1DB954)
     val FallbackBlue = Color(0xFF4D7CFF)
 
     private val DarkText = Color(0xFF15151A)
@@ -87,7 +111,7 @@ object BackgroundSchemeFactory {
     /** Builds a scheme; [accent]/[accentSecondary] are only used by dynamic modes. */
     fun build(mode: AppearanceMode, accent: Color? = null, accentSecondary: Color? = null): BackgroundScheme {
         val light = mode.isLight
-        val primary = accent ?: FallbackViolet
+        val primary = accent ?: FallbackEmerald
         val secondary = accentSecondary ?: FallbackBlue
         val displayAccent = accentForDisplay(primary, light)
         val displaySecondary = accentForDisplay(secondary, light)

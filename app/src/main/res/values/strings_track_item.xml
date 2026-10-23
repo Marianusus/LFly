@@ -13,4 +13,22 @@
     <string name="track_play_via_youtube">Riproduci da YouTube Music</string>
     <string name="track_play_via_monochrome">Riproduci da Monochrome</string>
     <string name="track_source_auto">Auto (impostazione globale)</string>
+
+    <string name="track_info_actions">Azioni</string>
+    <string name="track_source_section">Sorgente</string>
+    <string name="track_info_unknown_artist">Artista sconosciuto</string>
+    <string name="track_info_album">Album</string>
+    <string name="track_info_year">Anno</string>
+    <string name="track_info_duration">Durata</string>
+    <string name="track_info_plays">Ascolti</string>
+    <string name="track_info_source">Fonte</string>
+    <string name="track_info_type">Tipo</string>
+    <string name="track_info_type_video">Video</string>
+    <string name="track_info_type_song">Brano</string>
+    <string name="track_info_unknown">—</string>
+    <string name="track_info_menu">Informazioni</string>
+    <string name="track_actions_favorite_add">Aggiungi ai preferiti</string>
+    <string name="track_actions_favorite_remove">Rimuovi dai preferiti</string>
+    <string name="track_actions_open_album">Apri album</string>
+    <string name="track_actions_open_artist">Apri artista</string>
 </resources>

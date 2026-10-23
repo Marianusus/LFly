@@ -52,6 +52,8 @@
     <string name="settings_translate_lyrics_title">Tradu versurile</string>
     <string name="settings_translate_lyrics_subtitle">Tradu versurile pe dispozitiv cu ML Kit</string>
     <string name="settings_translation_target_language_label">Limba țintă (toate limbile ML Kit)</string>
+    <string name="settings_translation_clear_models">Șterge modelele de traducere</string>
+    <string name="settings_translation_clear_models_subtitle">Eliberează spațiul folosit de limbile descărcate (~40 MB fiecare)</string>
     <string name="settings_translation_highlight_label">Evidențierea versurilor</string>
     <string name="settings_highlight_auto">Automat</string>
     <string name="settings_highlight_word">Cuvinte</string>
@@ -89,4 +91,23 @@
     <string name="settings_appearance_section_subtitle">Canvas Liquid Glass și animații</string>
     <string name="settings_reduce_motion_title">Redu animațiile</string>
     <string name="settings_reduce_motion_subtitle">Dezactivează shimmer, scalarea și gradientele animate</string>
+    <string name="settings_country_section_title">Țară</string>
+    <string name="settings_country_section_subtitle">Alege țara pentru clasamente și melodiile în tendințe.</string>
+    <string name="settings_country_row_title">Țara clasamentelor</string>
+    <string name="settings_country_dialog_title">Alege țara</string>
+    <string name="settings_lyrics_sources_title">Surse de versuri</string>
+    <string name="settings_lyrics_sources_subtitle">Prioritate, sincronizare silabică și chei API</string>
+    <string name="settings_lyrics_sources_priority">Prioritate</string>
+    <string name="settings_lyrics_sources_priority_hint">Trage pentru a reordona. Sursele cu sincronizare cuvânt cu cuvânt au prioritate; între sursele de același tip câștigă cea de sus.</string>
+    <string name="settings_lyrics_sources_syllable">Preferă sincronizarea silabică</string>
+    <string name="settings_lyrics_sources_syllable_subtitle">Caută versuri cuvânt cu cuvânt chiar dacă o sursă pe rânduri a răspuns deja</string>
+    <string name="settings_lyrics_sources_key">Cheie API PaxSenix</string>
+    <string name="settings_lyrics_sources_key_hint">Necesară pentru Spotify și Musixmatch prin PaxSenix</string>
+    <string name="settings_lyrics_sources_reset">Resetează la implicit</string>
+    <string name="settings_lyrics_sources_done">Gata</string>
+    <string name="settings_lyrics_sources_minimum">Păstrează cel puțin o sursă activă</string>
+    <string name="settings_lyrics_sources_active">%1$d surse active</string>
+    <string name="settings_liquid_glass_title">Liquid Glass</string>
+    <string name="settings_liquid_glass_subtitle">Sticlă cu refracție reală pe bara inferioară și mini player. Android 12+; consumă mai mult GPU.</string>
+    <string name="settings_liquid_glass_unavailable">Necesită Android 12 sau mai nou</string>
 </resources>

@@ -20,4 +20,11 @@
     <string name="queue_drag_to_reorder_content_description">Drag to reorder</string>
     <string name="queue_empty_title">Queue is empty</string>
     <string name="queue_empty_subtitle">Tap \'Add to Queue\' on songs to queue them next.</string>
+    <string name="queue_title">Queue</string>
+    <string name="queue_up_next_tab">Up next</string>
+    <string name="queue_radio_tab">Radio</string>
+    <string name="queue_autoplay_compact">Autoplay</string>
+    <string name="queue_drag_hint">Drag to reorder</string>
+    <string name="queue_radio_empty_title">No suggestions</string>
+    <string name="queue_radio_empty_subtitle">Turn on autoplay to fill the radio.</string>
 </resources>

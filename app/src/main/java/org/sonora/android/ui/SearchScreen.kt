@@ -1,7 +1,10 @@
 package org.sonora.android.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,10 +29,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -38,15 +45,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,11 +78,16 @@ import org.sonora.android.api.Track
 import org.sonora.android.api.YouTubeAlbum
 import org.sonora.android.api.YouTubeArtist
 import org.sonora.android.api.YouTubePlaylist
+import org.sonora.android.data.SearchHistoryEntry
+import org.sonora.android.data.SearchHistoryType
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.ui.components.LocalBottomChromeInset
 import org.sonora.android.ui.components.SectionHeader
 import org.sonora.android.ui.components.SegmentedPills
 import org.sonora.android.ui.components.TrackItem
+import org.sonora.android.ui.components.TrackOptionsMenu
+import org.sonora.android.ui.components.LocalTrackContextMenu
+import org.sonora.android.ui.components.TrackAnchor
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.components.shimmer
 import org.sonora.android.ui.theme.GlassCard
@@ -99,10 +123,19 @@ fun SearchScreen(
     ytAlbumResults: List<YouTubeAlbum> = emptyList(),
     ytPlaylistResults: List<YouTubePlaylist> = emptyList(),
     isSearching: Boolean,
+    isTyping: Boolean = false,
+    suggestions: List<String> = emptyList(),
+    searchHistory: List<SearchHistoryEntry> = emptyList(),
     playbackState: PlaybackState,
     isFavorite: (String) -> Boolean,
     isDisliked: (String) -> Boolean = { false },
     onQueryChange: (String) -> Unit,
+    onSubmit: (String) -> Unit = {},
+    onCancelTyping: () -> Unit = {},
+    onSuggestionFill: (String) -> Unit = {},
+    onHistoryClick: (SearchHistoryEntry) -> Unit = {},
+    onHistoryRemove: (SearchHistoryType, String) -> Unit = { _, _ -> },
+    onHistoryClear: () -> Unit = {},
     onCategoryChange: (SearchCategory) -> Unit,
     onTrackClick: (Track) -> Unit,
     onFavoriteToggle: (Track) -> Unit,
@@ -115,10 +148,38 @@ fun SearchScreen(
     onDislikeTrack: (Track) -> Unit = {},
     onAddToPlaylist: (Track) -> Unit = {},
     sourceActions: TrackSourceActions? = null,
+    /**
+     * Incremented by the host when the Search tab is tapped again: focuses the field
+     * and opens the keyboard without the user having to aim at the field itself.
+     */
+    focusRequest: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val scheme = LocalBackgroundScheme.current
     val categoryLabels = SearchCategory.values().map { it to stringResource(it.labelRes) }.toMap()
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val submitAndDismiss: (String) -> Unit = { value ->
+        if (value.isNotBlank()) {
+            onSubmit(value)
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
+    }
+
+    BackHandler(enabled = isTyping) {
+        focusManager.clearFocus()
+        keyboardController?.hide()
+        onCancelTyping()
+    }
+
+    LaunchedEffect(focusRequest) {
+        if (focusRequest > 0) {
+            searchFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -154,17 +215,23 @@ fun SearchScreen(
                     onValueChange = onQueryChange,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusRequester(searchFocusRequester)
                         .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onBackground),
                     cursorBrush = SolidColor(scheme.accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { submitAndDismiss(query) }),
                     decorationBox = { innerTextField ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = stringResource(R.string.search_title),
-                                tint = scheme.onBackgroundSecondary,
-                                modifier = Modifier.size(20.dp)
+                                tint = if (query.isBlank()) scheme.onBackgroundSecondary else scheme.accent,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = query.isNotBlank()) { submitAndDismiss(query) }
                             )
                             Spacer(modifier = Modifier.width(Spacing.sm))
                             Box(modifier = Modifier.weight(1f)) {
@@ -186,7 +253,11 @@ fun SearchScreen(
                                     modifier = Modifier
                                         .size(20.dp)
                                         .clip(CircleShape)
-                                        .clickable { onQueryChange("") }
+                                        .clickable {
+                                            onQueryChange("")
+                                            searchFocusRequester.requestFocus()
+                                            keyboardController?.show()
+                                        }
                                 )
                             }
                         }
@@ -196,6 +267,35 @@ fun SearchScreen(
 
             Spacer(modifier = Modifier.height(Spacing.md))
 
+            if (isTyping || query.isBlank()) {
+                if (query.isBlank()) {
+                    SearchIdleContent(
+                        history = searchHistory,
+                        onRecentClick = { entry ->
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                            onHistoryClick(entry)
+                        },
+                        onRecentRemove = onHistoryRemove,
+                        onHistoryClear = onHistoryClear,
+                        onPopularClick = { submitAndDismiss(it) }
+                    )
+                } else {
+                    SearchSuggestionsContent(
+                        query = query,
+                        suggestions = suggestions,
+                        history = searchHistory,
+                        onExactClick = { submitAndDismiss(query) },
+                        onSuggestionClick = { submitAndDismiss(it) },
+                        onSuggestionFill = onSuggestionFill,
+                        onHistoryClick = { entry ->
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                            onHistoryClick(entry)
+                        }
+                    )
+                }
+            } else {
             // Category pills
             SegmentedPills(
                 items = SearchCategory.values().toList(),
@@ -216,10 +316,6 @@ fun SearchScreen(
                 when {
                     isSearching -> {
                         SearchLoadingSkeleton()
-                    }
-
-                    query.isBlank() -> {
-                        EmptySearchPrompt(onSuggestionClick = onQueryChange)
                     }
 
                     else -> {
@@ -415,9 +511,349 @@ fun SearchScreen(
                     }
                 }
             }
+            }
         }
     }
 }
+
+/** Suggestion panel shown while the search field is being edited. */
+@Composable
+private fun SearchSuggestionsContent(
+    query: String,
+    suggestions: List<String>,
+    history: List<SearchHistoryEntry>,
+    onExactClick: () -> Unit,
+    onSuggestionClick: (String) -> Unit,
+    onSuggestionFill: (String) -> Unit,
+    onHistoryClick: (SearchHistoryEntry) -> Unit
+) {
+    val scheme = LocalBackgroundScheme.current
+    val needle = query.trim().lowercase()
+    val matchingHistory = remember(history, needle) {
+        if (needle.isBlank()) emptyList()
+        else history.filter {
+            it.title.lowercase().contains(needle) || it.subtitle.lowercase().contains(needle)
+        }.take(2)
+    }
+    val visibleSuggestions = remember(suggestions, query) {
+        suggestions.filterNot { it.equals(query.trim(), ignoreCase = true) }.take(4)
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 8.dp,
+            end = 8.dp,
+            top = 4.dp,
+            bottom = LocalBottomChromeInset.current + 8.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        item(key = "suggest:exact") {
+            ExactQueryRow(query = query, onClick = onExactClick)
+        }
+        items(visibleSuggestions, key = { "suggest:$it" }) { term ->
+            SuggestionRow(
+                term = term,
+                onFill = { onSuggestionFill(term) },
+                onClick = { onSuggestionClick(term) }
+            )
+        }
+        if (matchingHistory.isNotEmpty()) {
+            item(key = "suggest:recent-header") {
+                Text(
+                    text = stringResource(R.string.search_suggestions_recent),
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = scheme.onBackgroundSecondary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp)
+                )
+            }
+            items(matchingHistory, key = { "suggest:history:${it.type}:${it.id}" }) { entry ->
+                RecentSearchRow(entry = entry, onClick = { onHistoryClick(entry) })
+            }
+        }
+        if (visibleSuggestions.isEmpty() && matchingHistory.isEmpty()) {
+            item(key = "suggest:empty") {
+                Text(
+                    text = stringResource(R.string.search_suggestions_empty),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onBackgroundTertiary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExactQueryRow(query: String, onClick: () -> Unit) {
+    val scheme = LocalBackgroundScheme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = scheme.accent,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(14.dp))
+        Text(
+            text = stringResource(R.string.search_suggestions_exact, query),
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = scheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = scheme.onBackgroundTertiary,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+private fun SuggestionRow(
+    term: String,
+    onFill: () -> Unit,
+    onClick: () -> Unit
+) {
+    val scheme = LocalBackgroundScheme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = scheme.onBackgroundSecondary,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(14.dp))
+        Text(
+            text = term,
+            style = MaterialTheme.typography.titleMedium,
+            color = scheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onFill),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.NorthWest,
+                contentDescription = stringResource(R.string.search_suggestion_fill, term),
+                tint = scheme.onBackgroundSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+/** Idle search page: cover-backed recents when there are any, otherwise the prompt. */
+@Composable
+private fun SearchIdleContent(
+    history: List<SearchHistoryEntry>,
+    onRecentClick: (SearchHistoryEntry) -> Unit,
+    onRecentRemove: (SearchHistoryType, String) -> Unit,
+    onHistoryClear: () -> Unit,
+    onPopularClick: (String) -> Unit
+) {
+    val scheme = LocalBackgroundScheme.current
+    if (history.isEmpty()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = LocalBottomChromeInset.current + 8.dp)
+        ) {
+            item(key = "idle:recent-title") {
+                Text(
+                    text = stringResource(R.string.search_recent_title),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = scheme.onBackground,
+                    modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.sm)
+                )
+            }
+            item(key = "idle:recent-empty") {
+                Text(
+                    text = stringResource(R.string.search_recent_empty),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onBackgroundTertiary,
+                    modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.xs)
+                )
+            }
+            item(key = "idle:popular") {
+                PopularSearchChips(
+                    onSuggestionClick = onPopularClick,
+                    modifier = Modifier.padding(top = Spacing.md)
+                )
+            }
+            item(key = "idle:hint") {
+                Text(
+                    text = stringResource(R.string.search_prompt_message),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onBackgroundTertiary,
+                    modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.lg)
+                )
+            }
+        }
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = LocalBottomChromeInset.current + 8.dp)
+    ) {
+        item(key = "recent:header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = Spacing.gutter, end = Spacing.sm, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.search_recent_title),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = scheme.onBackground,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = stringResource(R.string.search_recent_clear),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.accent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(percent = 50))
+                        .clickable(onClick = onHistoryClear)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+        items(history, key = { "recent:${it.type}:${it.id}" }) { entry ->
+            RecentSearchRow(
+                entry = entry,
+                onClick = { onRecentClick(entry) },
+                onRemove = { onRecentRemove(entry.type, entry.id) }
+            )
+        }
+        item(key = "recent:popular") {
+            PopularSearchChips(onSuggestionClick = onPopularClick)
+        }
+    }
+}
+
+@Composable
+private fun RecentSearchRow(
+    entry: SearchHistoryEntry,
+    onClick: () -> Unit,
+    onRemove: (() -> Unit)? = null
+) {
+    val scheme = LocalBackgroundScheme.current
+    val shape = if (entry.type == SearchHistoryType.ARTIST) CircleShape else RoundedCornerShape(8.dp)
+    val typeLabel = searchHistoryTypeLabel(entry.type)
+    val subtitle = when {
+        entry.type == SearchHistoryType.QUERY -> ""
+        entry.subtitle.isBlank() -> typeLabel
+        else -> "$typeLabel · ${entry.subtitle}"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = Spacing.gutter, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(shape)
+                .background(SonoraSurfaceHighlight),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!entry.artworkUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = entry.artworkUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = when (entry.type) {
+                        SearchHistoryType.QUERY -> Icons.Default.Search
+                        SearchHistoryType.TRACK -> Icons.Default.PlayArrow
+                        SearchHistoryType.ARTIST -> Icons.Default.Person
+                        else -> Icons.Default.Album
+                    },
+                    contentDescription = null,
+                    tint = scheme.onBackgroundSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = scheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onBackgroundSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (onRemove != null) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = stringResource(R.string.search_recent_remove, entry.title),
+                    tint = scheme.onBackgroundSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun searchHistoryTypeLabel(type: SearchHistoryType): String = stringResource(
+    when (type) {
+        SearchHistoryType.QUERY -> R.string.search_history_type_query
+        SearchHistoryType.TRACK -> R.string.search_history_type_track
+        SearchHistoryType.ARTIST -> R.string.search_history_type_artist
+        SearchHistoryType.ALBUM -> R.string.search_history_type_album
+        SearchHistoryType.PLAYLIST -> R.string.search_history_type_playlist
+    }
+)
 
 @Composable
 private fun TrackResultRow(
@@ -519,65 +955,38 @@ private fun SearchEmptyPlaceholder(
     }
 }
 
-/** Initial prompt shown when the query is blank. */
 @Composable
-private fun EmptySearchPrompt(onSuggestionClick: (String) -> Unit) {
+private fun PopularSearchChips(
+    onSuggestionClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val scheme = LocalBackgroundScheme.current
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = Spacing.gutter)
-            .padding(bottom = LocalBottomChromeInset.current + 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        GlassPlaceholder {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                tint = scheme.accent,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .size(40.dp)
-            )
-            Spacer(modifier = Modifier.height(Spacing.sm))
-            Text(
-                text = stringResource(R.string.search_prompt_title),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = scheme.onBackground,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Text(
-                text = stringResource(R.string.search_prompt_message),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onBackgroundSecondary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(Spacing.lg))
-            Text(
-                text = stringResource(R.string.search_popular_title),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = scheme.onBackgroundSecondary,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-            Spacer(modifier = Modifier.height(Spacing.sm))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) {
-                listOf(
-                    stringResource(R.string.search_suggestion_the_weeknd),
-                    stringResource(R.string.search_suggestion_daft_punk),
-                    stringResource(R.string.search_suggestion_billie_eilish)
-                ).forEach { suggestion ->
-                    GlassChip(
-                        label = suggestion,
-                        selected = false,
-                        onClick = { onSuggestionClick(suggestion) }
-                    )
-                }
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.search_popular_title),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = scheme.onBackgroundSecondary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.gutter)
+        )
+        Spacer(modifier = Modifier.height(Spacing.sm))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.gutter)
+        ) {
+            listOf(
+                stringResource(R.string.search_suggestion_the_weeknd),
+                stringResource(R.string.search_suggestion_daft_punk),
+                stringResource(R.string.search_suggestion_billie_eilish)
+            ).forEach { suggestion ->
+                GlassChip(
+                    label = suggestion,
+                    selected = false,
+                    onClick = { onSuggestionClick(suggestion) }
+                )
             }
         }
     }
@@ -638,7 +1047,14 @@ private fun SearchAllContent(
                     SectionHeader(title = stringResource(R.string.search_top_result_header))
                     TopResultCard(
                         track = topTrack,
+                        isDisliked = isDisliked(topTrack.id),
                         onPlayClick = { onTrackClick(topTrack) },
+                        onAddToQueue = { onAddToQueue(topTrack) },
+                        onPlayNextTrack = { onPlayNextTrack(topTrack) },
+                        onAddToPlaylist = { onAddToPlaylist(topTrack) },
+                        onShareTrack = { onShareTrack(topTrack) },
+                        onDislikeTrack = { onDislikeTrack(topTrack) },
+                        sourceActions = sourceActions,
                         modifier = Modifier.padding(horizontal = Spacing.gutter)
                     )
                 }
@@ -1017,19 +1433,39 @@ private fun YouTubePlaylistRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TopResultCard(
     track: Track,
+    isDisliked: Boolean,
     onPlayClick: () -> Unit,
+    onAddToQueue: (() -> Unit)? = null,
+    onPlayNextTrack: (() -> Unit)? = null,
+    onAddToPlaylist: (() -> Unit)? = null,
+    onShareTrack: (() -> Unit)? = null,
+    onDislikeTrack: (() -> Unit)? = null,
+    sourceActions: TrackSourceActions? = null,
     modifier: Modifier = Modifier
 ) {
     val scheme = LocalBackgroundScheme.current
+    var menuExpanded by remember { mutableStateOf(false) }
+    val anchor = remember { TrackAnchor() }
+    val contextMenu = LocalTrackContextMenu.current
     GlassCard(
         modifier = modifier
             .fillMaxWidth()
             .pressScale()
             .clip(RoundedCornerShape(Radius.Medium))
-            .clickable(onClick = onPlayClick),
+            .onGloballyPositioned { coordinates ->
+                if (coordinates.isAttached) anchor.rect = coordinates.boundsInWindow()
+            }
+            .combinedClickable(
+                onClick = onPlayClick,
+                onLongClick = {
+                    if (contextMenu != null && anchor.rect != Rect.Zero) contextMenu.open(track, anchor.rect)
+                    else menuExpanded = true
+                }
+            ),
         shape = RoundedCornerShape(Radius.Medium)
     ) {
         Row(
@@ -1102,7 +1538,7 @@ private fun TopResultCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(Spacing.sm))
+            Spacer(modifier = Modifier.width(Spacing.md))
 
             Box(
                 modifier = Modifier
@@ -1119,6 +1555,20 @@ private fun TopResultCard(
                     modifier = Modifier.size(28.dp)
                 )
             }
+
+            // Menu anchor: opened by long-pressing the card (no visible ⋯ button).
+            TrackOptionsMenu(
+                track = track,
+                expanded = menuExpanded,
+                isDisliked = isDisliked,
+                onDismiss = { menuExpanded = false },
+                onPlayNextTrack = onPlayNextTrack,
+                onAddToQueue = onAddToQueue,
+                onAddToPlaylist = onAddToPlaylist,
+                onShareClick = onShareTrack,
+                onDislikeClick = onDislikeTrack,
+                sourceActions = sourceActions
+            )
         }
     }
 }

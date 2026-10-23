@@ -1,14 +1,17 @@
 package org.sonora.android.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,19 +31,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,25 +58,31 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import org.sonora.android.R
 import org.sonora.android.api.Track
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.ui.theme.LocalBackgroundScheme
 import org.sonora.android.ui.theme.SonoraTheme
-import org.sonora.android.ui.theme.SonoraOpaqueSurfaceCard
 import org.sonora.android.ui.theme.SonoraEmerald
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -216,12 +222,21 @@ fun QueueBottomSheet(
 ) {
     if (!isOpen) return
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val scope = rememberCoroutineScope()
     val scheme = LocalBackgroundScheme.current
     val chrome = chromeSurface(scheme)
 
+    val requestDismiss: () -> Unit = {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismissRequest()
+        }
+    }
+
+    BackHandler(enabled = isOpen) { requestDismiss() }
+
     ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = requestDismiss,
         sheetState = sheetState,
         containerColor = chrome.tint,
         contentColor = scheme.onBackground,
@@ -290,12 +305,16 @@ fun QueueBottomSheetContent(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-    ) {
+    var selectedTab by remember {
+        mutableStateOf(
+            if (userUpcoming.isEmpty() && radioUpcoming.isNotEmpty()) QueueTab.RADIO else QueueTab.UP_NEXT
+        )
+    }
+    val activeTab = if (radioUpcoming.isEmpty()) QueueTab.UP_NEXT else selectedTab
+
+    Column(modifier = modifier.fillMaxWidth()) {
         QueueSheetHeader(
-            trackCount = userBoundary,
+            trackCount = userUpcoming.size,
             radioCount = radioUpcoming.size,
             showClear = fullQueue.isNotEmpty(),
             onClearQueue = onClearQueue,
@@ -307,115 +326,241 @@ fun QueueBottomSheetContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // CURRENT TRACK
             item(key = "queue_current") {
                 if (currentTrack != null) {
                     NowPlayingQueueCard(
                         track = currentTrack,
-                        isPlaying = playbackState.isPlaying
+                        isPlaying = playbackState.isPlaying,
+                        positionMs = playbackState.positionMs,
+                        durationMs = playbackState.durationMs
                     )
                 } else {
                     QueuePlaceholder(text = stringResource(R.string.queue_no_track_playing))
                 }
+                Spacer(modifier = Modifier.height(14.dp))
             }
 
-            // AUTOPLAY
             item(key = "queue_autoplay") {
                 AutoplayCard(
                     enabled = playbackState.isAutoplayEnabled,
                     onToggle = onToggleAutoplay
                 )
+                Spacer(modifier = Modifier.height(14.dp))
             }
 
-            // USER QUEUE HEADER
-            item(key = "queue_up_next_header") {
-                Column {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    HorizontalDivider(color = scheme.glassBorder, thickness = 1.dp)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = stringResource(R.string.queue_up_next_header, userUpcoming.size),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        ),
-                        color = scheme.onBackgroundSecondary
+            if (radioUpcoming.isNotEmpty()) {
+                item(key = "queue_tabs") {
+                    QueueTabs(
+                        selected = activeTab,
+                        userCount = userUpcoming.size,
+                        radioCount = radioUpcoming.size,
+                        onSelect = { selectedTab = it }
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+            }
+
+            if (activeTab == QueueTab.UP_NEXT) {
+                item(key = "queue_up_next_header") {
+                    QueueSectionHeader(
+                        title = stringResource(R.string.queue_up_next_header, userUpcoming.size),
+                        hint = if (canReorder) stringResource(R.string.queue_drag_hint) else null
                     )
                 }
-            }
 
-            if (userUpcoming.isEmpty()) {
-                item(key = "queue_empty") {
-                    QueueEmptyState()
+                if (userUpcoming.isEmpty()) {
+                    item(key = "queue_empty") {
+                        QueueEmptyState(
+                            title = stringResource(R.string.queue_empty_title),
+                            subtitle = stringResource(R.string.queue_empty_subtitle),
+                            icon = Icons.AutoMirrored.Filled.QueueMusic
+                        )
+                    }
+                } else {
+                    itemsIndexed(
+                        items = userUpcoming,
+                        key = { index, _ -> userKeys[index] }
+                    ) { localIndex, track ->
+                        val actualIndex = userBaseIndex + localIndex
+                        ReorderableItem(
+                            state = reorderState,
+                            key = userKeys[localIndex],
+                            modifier = Modifier.animateItem(),
+                            enabled = canReorder
+                        ) { isDragging ->
+                            UpcomingQueueItem(
+                                track = track,
+                                isCurrent = actualIndex == currentIndex,
+                                isDragging = isDragging,
+                                reorderEnabled = canReorder,
+                                dragHandleModifier = if (canReorder) {
+                                    Modifier.longPressDraggableHandle(enabled = true)
+                                } else {
+                                    Modifier
+                                },
+                                onTrackClick = { onTrackClick(actualIndex) },
+                                onPlayNow = { onTrackClick(actualIndex) },
+                                onRemove = { onRemoveTrack(actualIndex) },
+                                sourceActions = sourceActions
+                            )
+                        }
+                    }
                 }
             } else {
-                itemsIndexed(
-                    items = userUpcoming,
-                    key = { index, _ -> userKeys[index] }
-                ) { localIndex, track ->
-                    val actualIndex = userBaseIndex + localIndex
-                    ReorderableItem(
-                        state = reorderState,
-                        key = userKeys[localIndex],
-                        enabled = canReorder
-                    ) { isDragging ->
+                item(key = "queue_radio_header") {
+                    QueueSectionHeader(
+                        title = stringResource(R.string.queue_radio_header, radioUpcoming.size),
+                        hint = null
+                    )
+                }
+
+                if (radioUpcoming.isEmpty()) {
+                    item(key = "queue_radio_empty") {
+                        QueueEmptyState(
+                            title = stringResource(R.string.queue_radio_empty_title),
+                            subtitle = stringResource(R.string.queue_radio_empty_subtitle),
+                            icon = Icons.Default.AutoAwesome
+                        )
+                    }
+                } else {
+                    itemsIndexed(
+                        items = radioUpcoming,
+                        key = { index, _ -> radioKeys[index] }
+                    ) { localIndex, track ->
+                        val actualIndex = radioStart + localIndex
                         UpcomingQueueItem(
                             track = track,
-                            isCurrent = actualIndex == currentIndex,
-                            isDragging = isDragging,
-                            reorderEnabled = canReorder,
-                            dragHandleModifier = if (canReorder) {
-                                Modifier.longPressDraggableHandle(enabled = true)
-                            } else {
-                                Modifier
-                            },
+                            isCurrent = false,
+                            isDragging = false,
+                            reorderEnabled = false,
+                            dragHandleModifier = Modifier,
                             onTrackClick = { onTrackClick(actualIndex) },
                             onPlayNow = { onTrackClick(actualIndex) },
                             onRemove = { onRemoveTrack(actualIndex) },
-                            sourceActions = sourceActions
+                            sourceActions = sourceActions,
+                            modifier = Modifier.animateItem()
                         )
                     }
                 }
             }
+        }
+    }
+}
 
-            // RADIO / AUTOPLAY (autoplay additions, not part of the user's queue)
-            if (radioUpcoming.isNotEmpty()) {
-                item(key = "queue_radio_header") {
-                    Column {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        HorizontalDivider(color = scheme.glassBorder, thickness = 1.dp)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = stringResource(R.string.queue_radio_header, radioUpcoming.size),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            ),
-                            color = scheme.onBackgroundSecondary
-                        )
-                    }
-                }
-                itemsIndexed(
-                    items = radioUpcoming,
-                    key = { index, _ -> radioKeys[index] }
-                ) { localIndex, track ->
-                    val actualIndex = radioStart + localIndex
-                    UpcomingQueueItem(
-                        track = track,
-                        isCurrent = false,
-                        isDragging = false,
-                        reorderEnabled = false,
-                        dragHandleModifier = Modifier,
-                        onTrackClick = { onTrackClick(actualIndex) },
-                        onPlayNow = { onTrackClick(actualIndex) },
-                        onRemove = { onRemoveTrack(actualIndex) },
-                        sourceActions = sourceActions
-                    )
-                }
-            }
+private enum class QueueTab { UP_NEXT, RADIO }
+
+@Composable
+private fun QueueTabs(
+    selected: QueueTab,
+    userCount: Int,
+    radioCount: Int,
+    onSelect: (QueueTab) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(50))
+            .background(Color.White.copy(alpha = 0.055f))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        QueueTabButton(
+            label = stringResource(R.string.queue_up_next_tab),
+            count = userCount,
+            selected = selected == QueueTab.UP_NEXT,
+            onClick = { onSelect(QueueTab.UP_NEXT) },
+            modifier = Modifier.weight(1f)
+        )
+        QueueTabButton(
+            label = stringResource(R.string.queue_radio_tab),
+            count = radioCount,
+            selected = selected == QueueTab.RADIO,
+            onClick = { onSelect(QueueTab.RADIO) },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun QueueTabButton(
+    label: String,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scheme = LocalBackgroundScheme.current
+    val background by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) Color.White.copy(alpha = 0.13f) else Color.Transparent,
+        animationSpec = tween(180),
+        label = "queueTabBackground"
+    )
+    val content by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) scheme.onBackground else scheme.onBackgroundSecondary,
+        animationSpec = tween(180),
+        label = "queueTabContent"
+    )
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(background)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 13.sp
+            ),
+            color = content,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+            color = content.copy(alpha = 0.55f)
+        )
+    }
+}
+
+@Composable
+private fun QueueSectionHeader(
+    title: String,
+    hint: String?,
+    modifier: Modifier = Modifier
+) {
+    val scheme = LocalBackgroundScheme.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.1.sp,
+                fontSize = 10.sp
+            ),
+            color = scheme.onBackgroundSecondary
+        )
+        hint?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = scheme.onBackgroundTertiary
+            )
         }
     }
 }
@@ -434,71 +579,86 @@ private fun QueueSheetHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(start = 20.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.06f)),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                 contentDescription = null,
-                tint = scheme.accent,
-                modifier = Modifier.size(24.dp)
+                tint = scheme.onBackground.copy(alpha = 0.82f),
+                modifier = Modifier.size(21.dp)
             )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(
-                    text = stringResource(R.string.queue_now_playing),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    ),
-                    color = scheme.onBackground
-                )
-                Text(
-                    text = buildString {
-                        append(pluralStringResource(R.plurals.queue_track_count, trackCount, trackCount))
-                        if (radioCount > 0) append(stringResource(R.string.queue_radio_suffix, radioCount))
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onBackgroundSecondary
-                )
-            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.queue_title),
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 27.sp,
+                    letterSpacing = (-0.6).sp
+                ),
+                color = scheme.onBackground
+            )
+            Text(
+                text = buildString {
+                    append(pluralStringResource(R.plurals.queue_track_count, trackCount, trackCount))
+                    if (radioCount > 0) append(stringResource(R.string.queue_radio_suffix, radioCount))
+                },
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = scheme.onBackgroundSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (showClear) {
                 TextButton(
                     onClick = onClearQueue,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
+                        contentColor = scheme.onBackgroundSecondary
                     )
                 ) {
                     Icon(
                         imageVector = Icons.Default.ClearAll,
                         contentDescription = stringResource(R.string.queue_clear_content_description),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = stringResource(R.string.queue_clear),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 11.5.sp
                     )
                 }
             }
 
-            IconButton(
-                onClick = onDismissRequest,
+            Spacer(modifier = Modifier.width(2.dp))
+
+            Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .background(scheme.glassTint, CircleShape)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.07f))
+                    .clickable(onClick = onDismissRequest),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = stringResource(R.string.queue_close_content_description),
                     tint = scheme.onBackground,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
         }
@@ -512,70 +672,121 @@ private fun QueueSheetHeader(
 private fun NowPlayingQueueCard(
     track: Track,
     isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
     modifier: Modifier = Modifier
 ) {
     val scheme = LocalBackgroundScheme.current
     val accent = scheme.accent
-    val accentFillAlpha = if (scheme.isLight) 0.14f else 0.18f
+    val fraction = if (durationMs > 0L) {
+        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = accentFillAlpha)),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.45f)),
-        shape = RoundedCornerShape(18.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.105f),
+                        Color.White.copy(alpha = 0.038f)
+                    )
+                )
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(24.dp)
+            )
+            .padding(14.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             TrackArtwork(
                 track = track,
-                size = 56.dp,
-                cornerRadius = 12.dp,
+                size = 64.dp,
+                cornerRadius = 14.dp,
                 placeholderBackground = scheme.glassBorder
             )
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(13.dp))
 
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(accent)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.queue_now_playing).uppercase(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.1.sp,
+                            fontSize = 9.sp
+                        ),
+                        color = accent,
+                        maxLines = 1
+                    )
+                }
+                Spacer(modifier = Modifier.height(5.dp))
                 Text(
                     text = track.title,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 18.sp,
+                        letterSpacing = (-0.3).sp
                     ),
-                    color = accent,
+                    color = scheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = track.subtitle(),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
                     color = scheme.onBackgroundSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            AnimatedPlayingBars(
-                isPlaying = isPlaying,
-                barColor = accent
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                AnimatedPlayingBars(
+                    isPlaying = isPlaying,
+                    barColor = accent,
+                    modifier = Modifier.size(width = 20.dp, height = 16.dp)
+                )
+                Spacer(modifier = Modifier.height(7.dp))
+                Text(
+                    text = track.formattedDuration,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    color = scheme.onBackgroundSecondary
+                )
+            }
+        }
 
-            Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.height(13.dp))
 
-            Text(
-                text = track.formattedDuration,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                color = scheme.onBackgroundSecondary
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.5.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.14f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(50))
+                    .background(accent.copy(alpha = 0.92f))
             )
         }
     }
@@ -590,73 +801,69 @@ private fun AutoplayCard(
     val scheme = LocalBackgroundScheme.current
     val accent = scheme.accent
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = scheme.glassTint),
-        border = BorderStroke(1.dp, scheme.glassBorder),
-        shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(accent.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(accent.copy(alpha = 0.16f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
-                    Text(
-                        text = stringResource(R.string.queue_autoplay_title),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        ),
-                        color = scheme.onBackground
-                    )
-                    Text(
-                        text = stringResource(R.string.queue_autoplay_subtitle),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        color = scheme.onBackgroundSecondary
-                    )
-                }
-            }
-
-            Switch(
-                checked = enabled,
-                onCheckedChange = { onToggle() },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = accent,
-                    checkedTrackColor = accent.copy(alpha = 0.40f),
-                    uncheckedThumbColor = scheme.onBackgroundSecondary,
-                    uncheckedTrackColor = scheme.glassBorder
-                )
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(17.dp)
             )
         }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.queue_autoplay_compact),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                ),
+                color = scheme.onBackground
+            )
+            Text(
+                text = stringResource(R.string.queue_autoplay_subtitle),
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                color = scheme.onBackgroundSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Switch(
+            checked = enabled,
+            onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = accent.copy(alpha = 0.62f),
+                uncheckedThumbColor = scheme.onBackgroundSecondary,
+                uncheckedTrackColor = scheme.glassBorder
+            )
+        )
     }
 }
 
 /**
  * Upcoming track item with album art, title, artist, duration, overflow menu and drag handle.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UpcomingQueueItem(
     track: Track,
@@ -674,31 +881,55 @@ private fun UpcomingQueueItem(
     val accent = scheme.accent
 
     val container = when {
-        isDragging -> scheme.glassBorder
+        isDragging -> Color.White.copy(alpha = 0.10f)
         isCurrent -> accent.copy(alpha = if (scheme.isLight) 0.12f else 0.16f)
         else -> Color.Transparent
     }
     val titleColor = if (isCurrent) accent else scheme.onBackground
 
     var menuExpanded by remember { mutableStateOf(false) }
+    val anchor = remember { TrackAnchor() }
+    val contextMenu = LocalTrackContextMenu.current
+    val playNowLabel = stringResource(R.string.queue_play_now)
+    val removeLabel = stringResource(R.string.queue_remove_from_queue)
+    val removeTint = MaterialTheme.colorScheme.error
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(container)
-            .clickable(onClick = onTrackClick)
-            .padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+            .onGloballyPositioned { coordinates ->
+                if (coordinates.isAttached) anchor.rect = coordinates.boundsInWindow()
+            }
+            .combinedClickable(
+                onClick = onTrackClick,
+                onLongClick = {
+                    if (contextMenu != null && anchor.rect != Rect.Zero) {
+                        contextMenu.open(
+                            track = track,
+                            anchor = anchor.rect,
+                            extraGroups = listOf(HeldTrackMenuGroup(listOf(
+                                HeldTrackAction(Icons.Default.PlayArrow, playNowLabel) { onPlayNow() },
+                                HeldTrackAction(Icons.Default.DeleteOutline, removeLabel, removeTint) { onRemove() }
+                            )))
+                        )
+                    } else {
+                        menuExpanded = true
+                    }
+                }
+            )
+            .padding(start = 6.dp, end = 0.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TrackArtwork(
             track = track,
             size = 46.dp,
-            cornerRadius = 8.dp,
+            cornerRadius = 10.dp,
             placeholderBackground = scheme.glassBorder
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(11.dp))
 
         Column(
             modifier = Modifier.weight(1f),
@@ -707,8 +938,9 @@ private fun UpcomingQueueItem(
             Text(
                 text = track.title,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+                    fontSize = 14.5.sp,
+                    letterSpacing = (-0.2).sp
                 ),
                 color = titleColor,
                 maxLines = 1,
@@ -724,39 +956,51 @@ private fun UpcomingQueueItem(
             )
         }
 
+        Spacer(modifier = Modifier.width(6.dp))
+
         Text(
             text = track.formattedDuration,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
             color = scheme.onBackgroundTertiary
         )
 
         Box {
             IconButton(
                 onClick = { menuExpanded = true },
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(32.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
+                    painter = painterResource(R.drawable.convx_more),
                     contentDescription = stringResource(R.string.queue_track_options_content_description),
                     tint = scheme.onBackgroundSecondary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
 
             DropdownMenu(
                 expanded = menuExpanded,
                 onDismissRequest = { menuExpanded = false },
-                shape = RoundedCornerShape(16.dp),
-                containerColor = SonoraOpaqueSurfaceCard,
-                border = androidx.compose.foundation.BorderStroke(1.dp, SonoraTheme.colors.cardBorder)
+                modifier = Modifier.width(280.dp),
+                shape = RoundedCornerShape(20.dp),
+                containerColor = Color(0xF21A1A1D),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                shadowElevation = 16.dp
             ) {
+                DownloadMenuEntry(
+                    track = track,
+                    onDismiss = { menuExpanded = false },
+                    accent = scheme.accent,
+                    primary = Color.White,
+                    secondary = Color.White.copy(alpha = 0.62f)
+                )
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.queue_play_now)) },
+                    text = { Text(stringResource(R.string.queue_play_now), color = Color.White) },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.PlayArrow,
+                            painter = painterResource(R.drawable.flamingo_play),
                             contentDescription = null,
-                            tint = scheme.accent
+                            tint = Color.White.copy(alpha = 0.62f),
+                            modifier = Modifier.size(20.dp)
                         )
                     },
                     onClick = {
@@ -764,8 +1008,9 @@ private fun UpcomingQueueItem(
                         onPlayNow()
                     }
                 )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.07f))
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.queue_remove_from_queue)) },
+                    text = { Text(stringResource(R.string.queue_remove_from_queue), color = Color.White) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
@@ -800,14 +1045,14 @@ private fun UpcomingQueueItem(
         if (reorderEnabled) {
             Box(
                 modifier = dragHandleModifier
-                    .size(36.dp),
+                    .size(32.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.DragHandle,
                     contentDescription = stringResource(R.string.queue_drag_to_reorder_content_description),
                     tint = scheme.onBackgroundTertiary,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -816,38 +1061,49 @@ private fun UpcomingQueueItem(
 
 @Composable
 private fun QueueEmptyState(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     modifier: Modifier = Modifier
 ) {
     val scheme = LocalBackgroundScheme.current
 
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 36.dp),
-        contentAlignment = Alignment.Center
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.04f))
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.06f)),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                imageVector = icon,
                 contentDescription = null,
                 tint = scheme.onBackgroundTertiary,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(20.dp)
             )
-            Spacer(modifier = Modifier.height(10.dp))
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.queue_empty_title),
+                text = title,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
                 ),
                 color = scheme.onBackground
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = stringResource(R.string.queue_empty_subtitle),
-                style = MaterialTheme.typography.bodySmall,
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                 color = scheme.onBackgroundSecondary
             )
         }
@@ -861,24 +1117,19 @@ private fun QueuePlaceholder(
 ) {
     val scheme = LocalBackgroundScheme.current
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = scheme.glassTint),
-        border = BorderStroke(1.dp, scheme.glassBorder),
-        shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(scheme.glassTint)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = text,
-                color = scheme.onBackgroundTertiary,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
+        Text(
+            text = text,
+            color = scheme.onBackgroundTertiary,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 

@@ -31,6 +31,20 @@
     <string name="search_suggestion_daft_punk">Daft Punk</string>
     <string name="search_suggestion_billie_eilish">Billie Eilish</string>
 
+    <string name="search_suggestions_exact">Search &quot;%1$s&quot;</string>
+    <string name="search_suggestions_recent">From your recents</string>
+    <string name="search_suggestions_empty">No suggestions. Press Search to search anyway.</string>
+    <string name="search_suggestion_fill">Use "%1$s"</string>
+    <string name="search_recent_title">Recent searches</string>
+    <string name="search_recent_clear">Clear</string>
+    <string name="search_recent_empty">No recent searches</string>
+    <string name="search_recent_remove">Remove %1$s</string>
+    <string name="search_history_type_query">Search</string>
+    <string name="search_history_type_track">Song</string>
+    <string name="search_history_type_artist">Artist</string>
+    <string name="search_history_type_album">Album</string>
+    <string name="search_history_type_playlist">Playlist</string>
+
     <string name="search_youtube_badge">YouTube</string>
     <string name="search_artist_badge">Artist</string>
 

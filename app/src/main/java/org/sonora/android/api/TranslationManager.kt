@@ -1,8 +1,11 @@
 package org.sonora.android.api
 
 import com.google.android.gms.tasks.Task
+import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
@@ -71,6 +74,11 @@ class TranslationManager(cacheDir: File? = null) {
     private val languageIdentifier = LanguageIdentification.getClient()
     private val translators = ConcurrentHashMap<String, Translator>()
     private val readyModels = ConcurrentHashMap.newKeySet<String>()
+    private val modelManager = RemoteModelManager.getInstance()
+
+    // Only fetch translation models on Wi-Fi: never surprise the user with large
+    // downloads on mobile data.
+    private val downloadConditions = DownloadConditions.Builder().requireWifi().build()
 
     /** Best-effort on-device language identification (BCP-47 tag), or null when undetermined. */
     suspend fun detectLanguage(text: String): String? {
@@ -90,10 +98,26 @@ class TranslationManager(cacheDir: File? = null) {
         if (lines.isEmpty() || targetLang.isBlank()) return lines
         val key = "$lyricsId|${contentFingerprint(lines)}|$targetLang"
         cache.read(key)?.takeIf { it.size == lines.size }?.let { return it }
+
+        // Identify the song language ONCE over the whole lyrics. Detecting per line used to
+        // download a ~40 MB model for every mis-detected short line, which could pile up to
+        // gigabytes; one detection per song keeps it to a single source language.
+        val sample = lines.asSequence()
+            .map { it.text }
+            .filter { it.isNotBlank() }
+            .take(40)
+            .joinToString(" ")
+        if (sample.isBlank()) return lines
+        val detected = detectLanguage(sample) ?: return lines
+        if (!shouldTranslate(detected, targetLang)) return lines
+        val source = TranslateLanguage.fromLanguageTag(detected) ?: return lines
+        val target = TranslateLanguage.fromLanguageTag(targetLang) ?: return lines
+        if (source == target) return lines
+
         val translated = try {
             lines.map { line ->
                 if (line.text.isBlank()) line.copy(translation = null)
-                else translateLine(line, targetLang)
+                else translateLine(line, source, target)
             }
         } catch (_: Exception) {
             return lines
@@ -112,16 +136,9 @@ class TranslationManager(cacheDir: File? = null) {
         return hash.toString(16)
     }
 
-    private suspend fun translateLine(line: LyricLine, targetLang: String): LyricLine {
-        val detected = try {
-            languageIdentifier.identifyLanguage(line.text).awaitResult() ?: "und"
-        } catch (_: Exception) {
-            return line.copy(translation = null)
-        }
-        if (!shouldTranslate(detected, targetLang)) return line.copy(translation = null)
-        val source = TranslateLanguage.fromLanguageTag(detected) ?: return line.copy(translation = null)
+    private suspend fun translateLine(line: LyricLine, source: String, target: String): LyricLine {
         return try {
-            val translated = translateWithModel(source, targetLang, line.text)
+            val translated = translateWithModel(source, target, line.text)
             if (translated.isNullOrBlank()) line.copy(translation = null)
             else line.copy(translation = translated)
         } catch (_: Exception) {
@@ -140,9 +157,44 @@ class TranslationManager(cacheDir: File? = null) {
             )
         }
         if (readyModels.add(key)) {
-            translator.downloadModelIfNeeded().awaitResult()
+            translator.downloadModelIfNeeded(downloadConditions).awaitResult()
         }
         return translator.translate(text).awaitResult()
+    }
+
+    /** Languages whose translation model is currently downloaded on this device. */
+    suspend fun downloadedLanguages(): List<String> = try {
+        modelManager.getDownloadedModels(TranslateRemoteModel::class.java).awaitResult()
+            ?.map { it.language }
+            ?: emptyList()
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    /** Deletes every downloaded translation model, freeing the space they occupy (~40 MB each). */
+    suspend fun deleteAllModels(): Int {
+        val models = try {
+            modelManager.getDownloadedModels(TranslateRemoteModel::class.java).awaitResult()
+        } catch (_: Exception) {
+            return 0
+        } ?: return 0
+        var deleted = 0
+        models.forEach { model ->
+            try {
+                modelManager.deleteDownloadedModel(model).awaitResult()
+                deleted++
+            } catch (_: Exception) {
+            }
+        }
+        translators.values.forEach {
+            try {
+                it.close()
+            } catch (_: Exception) {
+            }
+        }
+        translators.clear()
+        readyModels.clear()
+        return deleted
     }
 
     fun close() {

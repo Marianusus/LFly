@@ -13,7 +13,10 @@ import org.sonora.android.api.DeezerClient
 import org.sonora.android.api.StreamResolver
 import org.sonora.android.api.TrackSourcePreferences
 import org.sonora.android.data.MusicRepository
+import org.sonora.android.data.NetworkMonitor
+import org.sonora.android.data.SearchHistoryStore
 import org.sonora.android.playback.AudioCacheManager
+import org.sonora.android.playback.DownloadManager
 import org.sonora.android.playback.EqualizerManager
 import org.sonora.android.playback.PlaybackManager
 import org.sonora.android.playback.RecommendationEngine
@@ -69,8 +72,13 @@ class SonoraApp : Application() {
         // 1. Initialize native audio disk cache (SimpleCache with 200MB LRU)
         AudioCacheManager.init(this)
 
+        // 1a. Offline downloads + connectivity monitoring
+        DownloadManager.init(this)
+        NetworkMonitor.init(this)
+
         // 1b. Initialize persisted audio-source preferences (global + per-track overrides)
         TrackSourcePreferences.init(this)
+        SearchHistoryStore.init(this)
 
         // 2. Eagerly load persistent data from internal storage & audio DSP settings
         musicRepository

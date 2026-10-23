@@ -32,12 +32,60 @@ data class Track(
     /** Popularity signal (YouTube/Music plays or video views) when the source exposes it. */
     val streams: Long? = null,
     /** True when this track originates from a YouTube *video* (not an official audio/song). */
-    val isVideo: Boolean = false
+    val isVideo: Boolean = false,
+    /** Release year when the provider or local tags expose it. */
+    val releaseYear: Int? = null,
+    /** Album browse id when the row exposed one (used to resolve release metadata). */
+    val albumId: String? = null,
+    /** Every credited artist with its provider ids; null when the source only had a string. */
+    val artists: List<ArtistCredit>? = null,
 ) {
     val durationSeconds: Long get() = durationMs / 1000
     val artworkUrl: String? get() = coverUrl
 
     val formattedDuration: String get() = formatDurationOrUnknown(durationMs)
+}
+
+/**
+ * Extra facts about a track, resolved on demand from the provider. Only the
+ * fields a source actually supplied are non-null; callers merge them over the
+ * track they already have instead of replacing it, so the stream URL and queue
+ * identity are never touched.
+ */
+data class TrackMetadata(
+    val title: String? = null,
+    val artist: String? = null,
+    val artistId: String? = null,
+    val album: String? = null,
+    val albumId: String? = null,
+    val durationMs: Long? = null,
+    val releaseYear: Int? = null,
+    val releaseDate: String? = null,
+    val streams: Long? = null,
+    val artworkUrl: String? = null,
+    val artists: List<ArtistCredit>? = null,
+)
+
+/** Overlays resolved metadata without discarding playback identity or stream state. */
+fun Track.withMetadata(metadata: TrackMetadata?): Track {
+    metadata ?: return this
+    return copy(
+        title = metadata.title?.takeIf { it.isNotBlank() } ?: title,
+        artist = metadata.artist?.takeIf { it.isNotBlank() } ?: artist,
+        artistId = metadata.artistId ?: artistId,
+        album = metadata.album?.takeIf { it.isNotBlank() } ?: album,
+        albumId = metadata.albumId ?: albumId,
+        durationMs = metadata.durationMs?.takeIf { it > 0L } ?: durationMs,
+        releaseYear = metadata.releaseYear ?: releaseYear,
+        streams = metadata.streams ?: streams,
+        coverUrl = metadata.artworkUrl?.takeIf { it.isNotBlank() } ?: coverUrl,
+        artists = ArtistCredits.merge(
+            existing = artists,
+            incoming = metadata.artists,
+            legacyName = metadata.artist?.takeIf { it.isNotBlank() } ?: artist,
+            legacyArtistId = metadata.artistId ?: artistId,
+        ),
+    )
 }
 
 /**
@@ -106,7 +154,9 @@ data class LyricLine(
     val text: String,
     val translation: String? = null,
     // Nullable on purpose: entries serialized before this field existed deserialize as null (Gson).
-    val wordTimings: List<WordTiming>? = null
+    val wordTimings: List<WordTiming>? = null,
+    /** Answering/background vocal timed separately from the lead line. */
+    val background: String? = null,
 )
 
 /**

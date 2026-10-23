@@ -83,6 +83,17 @@ class SpotifyDataExportImporterTest {
     }
 
     @Test
+    fun buildTrackPopulatesArtistCredits() {
+        val raw = SpotifyRawTrack(
+            id = "track123",
+            title = "Bohemian Rhapsody",
+            artist = "Queen"
+        )
+        val track = importer.buildTrack(raw)
+        assertEquals(listOf("Queen"), track.artists?.map { it.name })
+    }
+
+    @Test
     fun ignoresUnrelatedJsonDocuments() = runBlocking {
         val collections = importer.parseCollections("""{"foo":"bar"}""".byteInputStream())
         assertTrue(collections.isEmpty())

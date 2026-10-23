@@ -37,4 +37,10 @@
     <string name="playlist_add_to_queue_action">Add to queue</string>
     <string name="playlist_add_to_playlist_action">Add to playlist</string>
     <string name="playlist_drag_handle_content_description">Drag to reorder</string>
+    <string name="playlist_auto_updated_chip">Updated automatically · every 5 days</string>
+    <string name="mix_updated_chip">Updated automatically · every 5 days</string>
+    <string name="mix_save_action">Save to library</string>
+    <string name="mix_saved">Saved</string>
+    <string name="mix_remove_action">Remove from library</string>
+    <string name="mix_saved_copy_on">Saved copy on %1$s</string>
 </resources>

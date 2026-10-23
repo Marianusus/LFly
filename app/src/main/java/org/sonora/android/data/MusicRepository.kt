@@ -14,7 +14,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.sonora.android.api.ArtistCredit
+import org.sonora.android.api.ArtistCredits
 import org.sonora.android.api.HighlightMode
+import org.sonora.android.api.lyrics.sources.LyricsSource
 import org.sonora.android.api.HttpClientProvider
 import org.sonora.android.api.Track
 import org.sonora.android.ui.theme.AppearanceMode
@@ -42,20 +45,31 @@ class MusicRepository(
         private const val FILE_DISLIKED = "disliked_tracks.json"
         private const val FILE_FOLLOWED_ARTISTS = "followed_artists.json"
         private const val FILE_PLAY_STATS = "play_stats.json"
+        private const val FILE_PLAYLIST_STATS = "playlist_stats.json"
+        private const val FILE_MIXES = "mixes.json"
+        private const val PREF_KEY_MIXES_LAST_BUILD = "mixes_last_build"
         private const val PREF_SONORA = "sonora_prefs"
         private const val KEY_THEME_STYLE = "selected_theme_style"
         private const val KEY_APPEARANCE_MODE = "appearance_mode"
         private const val KEY_REDUCE_MOTION = "reduce_motion"
+        private const val KEY_LIQUID_GLASS = "liquid_glass"
         private const val KEY_ACCENT_COLOR = "accent_color"
         private const val KEY_TRANSLATE_LYRICS = "translate_lyrics"
         private const val KEY_TRANSLATION_TARGET_LANG = "translation_target_lang"
         private const val KEY_LYRICS_HIGHLIGHT_MODE = "lyrics_highlight_mode"
         private const val KEY_LYRICS_PROVIDER_MUSIXMATCH = "lyrics_provider_musixmatch"
         private const val KEY_LYRICS_PROVIDER_LRCLIB = "lyrics_provider_lrclib"
+        private const val KEY_LYRICS_SOURCES = "lyrics_sources"
+        private const val KEY_LYRICS_SOURCE_ORDER = "lyrics_source_order"
+        private const val KEY_LYRICS_PRIORITIZE_SYLLABLE = "lyrics_prioritize_syllable"
+        private const val KEY_PAXSENIX_API_KEY = "paxsenix_api_key"
+        private const val KEY_LYRICS_SOURCE_PREFIX = "lyrics_source_"
         private const val MAX_HISTORY_SIZE = 100
         private const val COMPLETION_THRESHOLD = 0.85
         const val PLAYLIST_DOWNLOADED_ID = "playlist_downloaded_ytdlp"
         const val PLAYLIST_DOWNLOADED_NAME = "Brani Scaricati (yt-dlp)"
+        /** Legacy id, kept only to migrate the old read-only On Repeat playlist. */
+        const val PLAYLIST_ON_REPEAT_ID = "system_on_repeat"
 
         @Volatile
         private var instance: MusicRepository? = null
@@ -81,6 +95,8 @@ class MusicRepository(
     private val playlistsMutex = Mutex()
     private val dislikedMutex = Mutex()
     private val playStatsMutex = Mutex()
+    private val playlistPlayStatsMutex = Mutex()
+    private val mixesMutex = Mutex()
     private val followedArtistsMutex = Mutex()
 
     private val _favorites = MutableStateFlow<List<Track>>(emptyList())
@@ -106,6 +122,12 @@ class MusicRepository(
 
     private val _playStats = MutableStateFlow<List<PlayStat>>(emptyList())
     val playStats: StateFlow<List<PlayStat>> = _playStats.asStateFlow()
+
+    private val _playlistPlayStats = MutableStateFlow<List<PlaylistPlayStat>>(emptyList())
+    val playlistPlayStats: StateFlow<List<PlaylistPlayStat>> = _playlistPlayStats.asStateFlow()
+
+    private val _mixes = MutableStateFlow<List<Mix>>(emptyList())
+    val mixes: StateFlow<List<Mix>> = _mixes.asStateFlow()
 
     private val _localTracks = MutableStateFlow<List<Track>>(emptyList())
     val localTracks: StateFlow<List<Track>> = _localTracks.asStateFlow()
@@ -153,6 +175,18 @@ class MusicRepository(
 
     private fun loadSavedReduceMotion(): Boolean =
         prefs?.getBoolean(KEY_REDUCE_MOTION, false) ?: false
+
+    private val _liquidGlass = MutableStateFlow(loadSavedLiquidGlass())
+    val liquidGlass: StateFlow<Boolean> = _liquidGlass.asStateFlow()
+
+    fun setLiquidGlass(enabled: Boolean) {
+        _liquidGlass.value = enabled
+        prefs?.edit()?.putBoolean(KEY_LIQUID_GLASS, enabled)?.apply()
+        Log.i(TAG, "Liquid Glass chrome persisted: $enabled")
+    }
+
+    private fun loadSavedLiquidGlass(): Boolean =
+        prefs?.getBoolean(KEY_LIQUID_GLASS, false) ?: false
 
     private val _accentColor = MutableStateFlow(loadSavedAccentColor())
     val accentColor: StateFlow<Int> = _accentColor.asStateFlow()
@@ -218,6 +252,98 @@ class MusicRepository(
         prefs?.edit()?.putBoolean(KEY_LYRICS_PROVIDER_LRCLIB, enabled)?.apply()
     }
 
+    // Multi-source lyrics preferences (BitChord source model).
+
+    private fun initialLyricsSources(): Set<LyricsSource> {
+        val saved = prefs?.getStringSet(KEY_LYRICS_SOURCES, null)
+        if (!saved.isNullOrEmpty()) {
+            val restored = saved.mapNotNull(LyricsSource::fromName).filterNot { it.hidden }.toMutableSet()
+            if (restored.isNotEmpty()) return restored
+        }
+        val defaults = LyricsSource.offered.toMutableSet()
+        if (prefs?.getBoolean(KEY_LYRICS_PROVIDER_MUSIXMATCH, true) == false) {
+            defaults.remove(LyricsSource.MUSIXMATCH)
+        }
+        if (prefs?.getBoolean(KEY_LYRICS_PROVIDER_LRCLIB, true) == false) {
+            defaults.remove(LyricsSource.LRCLIB)
+        }
+        return defaults
+    }
+
+    private fun initialLyricsOrder(): List<LyricsSource> {
+        val saved = prefs?.getString(KEY_LYRICS_SOURCE_ORDER, null)
+            ?.split(',')
+            ?.mapNotNull(LyricsSource::fromName)
+            .orEmpty()
+        return LyricsSource.ordered(saved)
+    }
+
+    private val _lyricsSources = MutableStateFlow(initialLyricsSources())
+    val lyricsSources: StateFlow<Set<LyricsSource>> = _lyricsSources.asStateFlow()
+
+    private val _lyricsSourceOrder = MutableStateFlow(initialLyricsOrder())
+    val lyricsSourceOrder: StateFlow<List<LyricsSource>> = _lyricsSourceOrder.asStateFlow()
+
+    fun setLyricsSources(sources: Set<LyricsSource>) {
+        val allowed = sources.filterNot { it.hidden }.toSet().ifEmpty { setOf(LyricsSource.LRCLIB) }
+        _lyricsSources.value = allowed
+        prefs?.edit()?.putStringSet(KEY_LYRICS_SOURCES, allowed.map { it.name }.toSet())?.apply()
+    }
+
+    fun setLyricsSourceEnabled(source: LyricsSource, enabled: Boolean) {
+        if (source.hidden) return
+        val current = _lyricsSources.value.toMutableSet()
+        if (enabled) current.add(source) else current.remove(source)
+        setLyricsSources(current)
+    }
+
+    fun setLyricsSourceOrder(order: List<LyricsSource>) {
+        val normalized = LyricsSource.ordered(order)
+        _lyricsSourceOrder.value = normalized
+        prefs?.edit()?.putString(KEY_LYRICS_SOURCE_ORDER, normalized.joinToString(",") { it.name })?.apply()
+    }
+
+    fun resetLyricsSources() {
+        _lyricsSources.value = LyricsSource.offered.toSet()
+        _lyricsSourceOrder.value = LyricsSource.ordered(emptyList())
+        prefs?.edit()
+            ?.putStringSet(KEY_LYRICS_SOURCES, LyricsSource.offered.map { it.name }.toSet())
+            ?.putString(KEY_LYRICS_SOURCE_ORDER, LyricsSource.entries.joinToString(",") { it.name })
+            ?.apply()
+    }
+
+    private val _prioritizeSyllableSync =
+        MutableStateFlow(prefs?.getBoolean(KEY_LYRICS_PRIORITIZE_SYLLABLE, false) ?: false)
+    val prioritizeSyllableSync: StateFlow<Boolean> = _prioritizeSyllableSync.asStateFlow()
+
+    fun setPrioritizeSyllableSync(enabled: Boolean) {
+        _prioritizeSyllableSync.value = enabled
+        prefs?.edit()?.putBoolean(KEY_LYRICS_PRIORITIZE_SYLLABLE, enabled)?.apply()
+    }
+
+    private val _paxsenixApiKey =
+        MutableStateFlow(prefs?.getString(KEY_PAXSENIX_API_KEY, "").orEmpty())
+    val paxsenixApiKey: StateFlow<String> = _paxsenixApiKey.asStateFlow()
+
+    fun setPaxsenixApiKey(value: String) {
+        val normalized = value.trim().removePrefix("Bearer ").trim()
+        _paxsenixApiKey.value = normalized
+        prefs?.edit()?.putString(KEY_PAXSENIX_API_KEY, normalized)?.apply()
+    }
+
+    /** Per-track source the listener picked manually, or null for the global source order. */
+    fun lyricsSourceFor(trackId: String): LyricsSource? =
+        prefs?.getString(KEY_LYRICS_SOURCE_PREFIX + trackId, null)?.let(LyricsSource::fromName)
+
+    fun setLyricsSourceFor(trackId: String, source: LyricsSource?) {
+        val editor = prefs?.edit() ?: return
+        if (source == null) {
+            editor.remove(KEY_LYRICS_SOURCE_PREFIX + trackId).apply()
+        } else {
+            editor.putString(KEY_LYRICS_SOURCE_PREFIX + trackId, source.name).apply()
+        }
+    }
+
     init {
         loadAllData()
     }
@@ -225,12 +351,18 @@ class MusicRepository(
     private fun loadAllData() {
         repositoryScope.launch {
             loadFavorites()
+            repairMissingLocalFavorites()
             loadHistory()
             loadPlaylists()
+            pruneMissingManagedLocalTracks()
             loadDislikedTracks()
             loadPlayStats()
+            loadPlaylistPlayStats()
+            loadMixes()
+            migrateOnRepeatPlaylist()
             loadFollowedArtists()
             syncLocalMusic()
+            refreshMixes()
         }
     }
 
@@ -298,6 +430,73 @@ class MusicRepository(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Re-points Local favorites at the catalog track that produced the download.
+     *
+     * [normalize] receives each Local favorite and returns the canonical track (stable
+     * provider/id) when a matching download exists, or null when it does not. Order is
+     * preserved and no favorite is ever removed: when no canonical track is available the
+     * original snapshot stays in place. The file is rewritten only when something changed.
+     */
+    fun repairFavorites(normalize: (Track) -> Track?) {
+        var repaired: List<Track>? = null
+        synchronized(this) {
+            val current = _favorites.value
+            val updated = current.map { track ->
+                if (!track.provider.equals("Local", ignoreCase = true)) {
+                    track
+                } else {
+                    runCatching { normalize(track) }.getOrNull() ?: track
+                }
+            }
+            if (updated != current) {
+                _favorites.value = updated
+                repaired = updated
+            }
+        }
+        val snapshot = repaired ?: return
+        repositoryScope.launch {
+            favoritesMutex.withLock {
+                saveToFile(FILE_FAVORITES, snapshot)
+                Log.i(TAG, "Repaired ${snapshot.size} favorite tracks to catalog identity")
+            }
+        }
+    }
+
+    /**
+     * Clears dead `file://` playback paths from Local favorites after a download is removed,
+     * keeping the favorite itself and restoring the catalog provider when the id can tell us.
+     */
+    fun repairMissingLocalFavorites() {
+        var repaired: List<Track>? = null
+        synchronized(this) {
+            val current = _favorites.value
+            val updated = current.map { track ->
+                if (!track.provider.equals("Local", ignoreCase = true)) return@map track
+                val rawPath = track.streamUrl?.removePrefix("file://")?.takeIf { it.isNotBlank() }
+                if (rawPath == null || File(rawPath).exists()) return@map track
+                val provider = when {
+                    track.id.startsWith("yt_") -> "YouTube"
+                    track.id.startsWith("spotify_") -> "Spotify"
+                    else -> track.provider
+                }
+                track.copy(
+                    streamUrl = null,
+                    coverUrl = track.coverUrl?.takeIf { it.startsWith("http", ignoreCase = true) },
+                    provider = provider,
+                )
+            }
+            if (updated != current) {
+                _favorites.value = updated
+                repaired = updated
+            }
+        }
+        val snapshot = repaired ?: return
+        repositoryScope.launch {
+            favoritesMutex.withLock { saveToFile(FILE_FAVORITES, snapshot) }
         }
     }
 
@@ -388,6 +587,87 @@ class MusicRepository(
         }
     }
 
+    /**
+     * Removes references to a deleted local file from history and playlists.
+     * Favorites are intentionally never pruned: deleting a download must not delete a liked
+     * track, and their catalog identity is re-pointed separately by [repairFavorites].
+     * Only Local-provider snapshots are touched: the same id may also exist as a streamable
+     * YouTube track, which must stay untouched.
+     */
+    fun pruneDeletedLocalTrack(filePath: String, manifestId: String? = null) {
+        val normalizedPath = filePath.removePrefix("file://")
+        pruneTrackReferences { track ->
+            if (!track.provider.equals("Local", ignoreCase = true)) {
+                false
+            } else {
+                val trackPath = track.streamUrl?.removePrefix("file://")
+                (trackPath != null && trackPath == normalizedPath) ||
+                    (manifestId != null && track.id == manifestId)
+            }
+        }
+    }
+
+    /**
+     * Startup safety net: drops Local entries from history and playlists whose app-managed file
+     * no longer exists. Favorites are never touched, so an interrupted download cannot silently
+     * remove a liked track.
+     */
+    fun pruneMissingManagedLocalTracks() {
+        val dirs = listOfNotNull(
+            context.getExternalFilesDir("music"),
+            File(context.filesDir, "music")
+        ).mapNotNull { runCatching { it.canonicalPath }.getOrNull() }
+        if (dirs.isEmpty()) return
+        pruneTrackReferences { track ->
+            if (!track.provider.equals("Local", ignoreCase = true)) return@pruneTrackReferences false
+            // Local snapshots saved from an offline download may keep only a file:// cover.
+            val candidate = track.streamUrl?.removePrefix("file://")?.takeIf { it.isNotBlank() }
+                ?: track.coverUrl?.removePrefix("file://")?.takeIf { it.isNotBlank() }
+                ?: return@pruneTrackReferences false
+            val canonical = runCatching { File(candidate).canonicalPath }.getOrNull()
+                ?: return@pruneTrackReferences false
+            dirs.any { canonical.startsWith(it + File.separator) } && !File(candidate).exists()
+        }
+    }
+
+    private fun pruneTrackReferences(shouldRemove: (Track) -> Boolean) {
+        val newHistory = synchronized(this) {
+            val current = _history.value
+            if (current.none(shouldRemove)) null
+            else current.filterNot(shouldRemove).also { _history.value = it }
+        }
+        if (newHistory != null) {
+            repositoryScope.launch {
+                historyMutex.withLock { saveToFile(FILE_HISTORY, newHistory) }
+                Log.i(TAG, "Pruned ${newHistory.size} history tracks")
+            }
+        }
+
+        // Favorites are deliberately excluded: unlike history/playlists, losing the local file
+        // must never drop a liked track. Stale Local snapshots are re-pointed by repairFavorites.
+
+        val newPlaylists = synchronized(this) {
+            val current = _playlists.value
+            var changed = false
+            val filtered = current.map { playlist ->
+                val tracks = playlist.tracks.filterNot(shouldRemove)
+                if (tracks.size != playlist.tracks.size) {
+                    changed = true
+                    playlist.copy(tracks = tracks)
+                } else {
+                    playlist
+                }
+            }
+            if (!changed) null else filtered.also { _playlists.value = it }
+        }
+        if (newPlaylists != null) {
+            repositoryScope.launch {
+                playlistsMutex.withLock { saveToFile(FILE_PLAYLISTS, newPlaylists) }
+                Log.i(TAG, "Pruned deleted local tracks from playlists")
+            }
+        }
+    }
+
     // ==========================================
     // Playlists Management
     // ==========================================
@@ -465,6 +745,7 @@ class MusicRepository(
     }
 
     fun addTrackToPlaylist(playlistId: String, track: Track) {
+        if (playlistId == PLAYLIST_ON_REPEAT_ID) return
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -496,6 +777,7 @@ class MusicRepository(
     }
 
     fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        if (playlistId == PLAYLIST_ON_REPEAT_ID) return
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -527,6 +809,7 @@ class MusicRepository(
     }
 
     fun reorderPlaylist(playlistId: String, from: Int, to: Int) {
+        if (playlistId == PLAYLIST_ON_REPEAT_ID) return
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -585,6 +868,7 @@ class MusicRepository(
     }
 
     fun renamePlaylist(playlistId: String, newName: String) {
+        if (playlistId == PLAYLIST_ON_REPEAT_ID) return
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -609,6 +893,7 @@ class MusicRepository(
     }
 
     fun updatePlaylist(playlistId: String, name: String, description: String? = null, coverUrl: String? = null) {
+        if (playlistId == PLAYLIST_ON_REPEAT_ID) return
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -688,6 +973,7 @@ class MusicRepository(
     }
 
     fun deletePlaylist(playlistId: String) {
+        if (playlistId == PLAYLIST_ON_REPEAT_ID) return
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -919,18 +1205,23 @@ class MusicRepository(
             .take(limit)
             .map { it.track }
 
-    /** Top played artists aggregated by play count, ordered desc then alphabetically. */
+    /** Top played artists aggregated by play count, counting every credited artist. */
     fun topPlayedArtists(limit: Int): List<Pair<String, Int>> {
         val aggregated = LinkedHashMap<String, Pair<String, Int>>()
         for (stat in _playStats.value) {
             if (stat.playCount <= 0) continue
-            val key = normalizeArtist(stat.track.artist)
-            if (key.isBlank()) continue
-            val existing = aggregated[key]
-            aggregated[key] = if (existing == null) {
-                stat.track.artist.trim() to stat.playCount
-            } else {
-                existing.first to (existing.second + stat.playCount)
+            val credits = stat.track.artists?.takeIf { it.isNotEmpty() }
+                ?: ArtistCredits.fromText(stat.track.artist)
+            val names = credits.map { it.displayName }.ifEmpty { listOf(stat.track.artist.trim()) }
+            for (name in names.distinctBy { ArtistCredits.normalize(it) }) {
+                val key = ArtistCredits.normalize(name)
+                if (key.isBlank()) continue
+                val existing = aggregated[key]
+                aggregated[key] = if (existing == null) {
+                    name to stat.playCount
+                } else {
+                    existing.first to (existing.second + stat.playCount)
+                }
             }
         }
         return aggregated.values
@@ -967,11 +1258,198 @@ class MusicRepository(
         }
     }
 
+    // ==========================================
+    // Listening stats: playlists + auto "On Repeat"
+    // ==========================================
+
+    /** Records an explicit playlist start (Play/Shuffle), used by the Home top-shelf. */
+    fun recordPlaylistPlay(playlistId: String) {
+        if (playlistId.isBlank() ||
+            playlistId == PLAYLIST_DOWNLOADED_ID ||
+            playlistId == PLAYLIST_ON_REPEAT_ID
+        ) return
+
+        synchronized(this) {
+            val current = _playlistPlayStats.value.toMutableList()
+            val index = current.indexOfFirst { it.playlistId == playlistId }
+            val now = System.currentTimeMillis()
+            if (index >= 0) {
+                val existing = current[index]
+                current[index] = existing.copy(
+                    playCount = existing.playCount + 1,
+                    lastPlayedAtEpochMs = now
+                )
+            } else {
+                current.add(PlaylistPlayStat(playlistId, playCount = 1, lastPlayedAtEpochMs = now))
+            }
+            _playlistPlayStats.value = current
+        }
+        val snapshot = _playlistPlayStats.value
+        repositoryScope.launch {
+            playlistPlayStatsMutex.withLock {
+                saveToFile(FILE_PLAYLIST_STATS, snapshot)
+            }
+        }
+    }
+
+    // ==========================================
+    // Generated mixes (Home only) + saved snapshots
+    // ==========================================
+
+    /**
+     * Rebuilds the Home mixes at most every five days. Saved snapshots are preserved:
+     * the live [Mix.tracks] can change, while [Mix.savedTracks] stays frozen.
+     */
+    fun refreshMixes(force: Boolean = false, nowMs: Long = System.currentTimeMillis()) {
+        val lastBuild = getPrefLong(PREF_KEY_MIXES_LAST_BUILD)
+        if (!force && !shouldRefreshOnRepeat(lastBuild, nowMs)) return
+
+        val ranked = rankTopTracks(
+            stats = _playStats.value,
+            dislikedTrackIds = _dislikedTrackIds.value,
+            limit = 300
+        )
+        if (ranked.isEmpty()) return
+
+        val built = buildMixes(ranked = ranked, existing = _mixes.value, now = nowMs)
+        if (built.isEmpty()) {
+            Log.i(TAG, "Mixes skipped: not enough listening data")
+            return
+        }
+
+        val stabilized = built.map { mix ->
+            mix.copy(
+                tracks = mix.tracks.map { stabilizeForPersistence(it) },
+                savedTracks = mix.savedTracks?.map { stabilizeForPersistence(it) }
+            )
+        }
+        _mixes.value = stabilized
+        persistMixes()
+        putPrefLong(PREF_KEY_MIXES_LAST_BUILD, nowMs)
+        Log.i(TAG, "Mixes refreshed: ${stabilized.joinToString { "${it.name}(${it.trackCount})" }}")
+    }
+
+    /** Freezes the current [mixId] contents into the Library (static snapshot). */
+    fun saveMixToLibrary(mixId: String) {
+        var changed = false
+        synchronized(this) {
+            val current = _mixes.value
+            val index = current.indexOfFirst { it.id == mixId }
+            if (index < 0) return
+            val mix = current[index]
+            if (mix.isSaved || mix.tracks.isEmpty()) return
+            val updated = current.toMutableList()
+            updated[index] = mix.copy(
+                savedTracks = mix.tracks.map { stabilizeForPersistence(it) },
+                savedAt = System.currentTimeMillis()
+            )
+            _mixes.value = updated
+            changed = true
+        }
+        if (changed) {
+            persistMixes()
+            Log.i(TAG, "Mix saved to library: $mixId")
+        }
+    }
+
+    /** Removes the saved snapshot. The live mix stays available in Home. */
+    fun removeMixFromLibrary(mixId: String) {
+        var changed = false
+        synchronized(this) {
+            val current = _mixes.value
+            val index = current.indexOfFirst { it.id == mixId }
+            if (index < 0) return
+            val mix = current[index]
+            if (!mix.isSaved) return
+            val updated = current.toMutableList()
+            updated[index] = mix.copy(savedTracks = null, savedAt = null)
+            _mixes.value = updated
+            changed = true
+        }
+        if (changed) {
+            persistMixes()
+            Log.i(TAG, "Mix removed from library: $mixId")
+        }
+    }
+
+    private fun persistMixes() {
+        val snapshot = _mixes.value
+        repositoryScope.launch {
+            mixesMutex.withLock {
+                saveToFile(FILE_MIXES, snapshot)
+            }
+        }
+    }
+
+    private suspend fun loadMixes() = withContext(Dispatchers.IO) {
+        val dir = baseFilesDir ?: return@withContext
+        mixesMutex.withLock {
+            try {
+                val file = File(dir, FILE_MIXES)
+                if (file.exists()) {
+                    val type = object : TypeToken<List<Mix>>() {}.type
+                    val list: List<Mix>? = gson.fromJson(file.readText(), type)
+                    if (list != null) {
+                        synchronized(this@MusicRepository) { _mixes.value = list }
+                    }
+                    Log.i(TAG, "Loaded ${_mixes.value.size} mixes")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading mixes", e)
+            }
+        }
+    }
+
+    /** Moves the legacy On Repeat playlist into the mix store and drops it from Playlists. */
+    private suspend fun migrateOnRepeatPlaylist() {
+        val (newPlaylists, newMixes) = migrateOnRepeatPlaylistToMix(_playlists.value, _mixes.value)
+        val playlistsChanged = newPlaylists != _playlists.value
+        val mixesChanged = newMixes != _mixes.value
+        if (!playlistsChanged && !mixesChanged) return
+
+        _playlists.value = newPlaylists
+        _mixes.value = newMixes
+        if (playlistsChanged) {
+            playlistsMutex.withLock { saveToFile(FILE_PLAYLISTS, newPlaylists) }
+        }
+        if (mixesChanged) {
+            mixesMutex.withLock { saveToFile(FILE_MIXES, newMixes) }
+        }
+        // Force a fresh mix build so the new genre mixes appear immediately.
+        putPrefLong(PREF_KEY_MIXES_LAST_BUILD, 0L)
+        Log.i(TAG, "Migrated legacy On Repeat playlist to the mix store")
+    }
+
+    private fun getPrefLong(key: String): Long =
+        runCatching { prefs.getLong(key, 0L) }.getOrDefault(0L)
+
+    private fun putPrefLong(key: String, value: Long) {
+        runCatching { prefs.edit().putLong(key, value).apply() }
+    }
+
+    private suspend fun loadPlaylistPlayStats() = withContext(Dispatchers.IO) {
+        val dir = baseFilesDir ?: return@withContext
+        playlistPlayStatsMutex.withLock {
+            try {
+                val file = File(dir, FILE_PLAYLIST_STATS)
+                if (file.exists()) {
+                    val type = object : TypeToken<List<PlaylistPlayStat>>() {}.type
+                    val list: List<PlaylistPlayStat>? = gson.fromJson(file.readText(), type)
+                    if (list != null) {
+                        synchronized(this@MusicRepository) { _playlistPlayStats.value = list }
+                    }
+                    Log.i(TAG, "Loaded ${_playlistPlayStats.value.size} playlist stats")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading playlist stats", e)
+            }
+        }
+    }
+
     private fun normalizeArtist(artist: String): String {
-        return artist.lowercase()
-            .split(",", "&", "feat.", "ft.", "featuring")[0]
-            .replace(Regex("[^a-z0-9]"), "")
-            .trim()
+        val credits = ArtistCredits.fromText(artist)
+        val primary = ArtistCredits.primaryName(credits).ifBlank { artist }
+        return ArtistCredits.normalize(primary)
     }
 
     // ==========================================
@@ -1071,15 +1549,19 @@ class MusicRepository(
         var metaTitle: String? = null
         var metaArtist: String? = null
         var metaAlbum: String? = null
+        var metaYear: String? = null
         var durationMs = 0L
+        var embeddedCover: ByteArray? = null
 
         try {
             retriever.setDataSource(file.absolutePath)
             metaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
             metaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
             metaAlbum = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+            metaYear = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)
             val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             durationMs = durStr?.toLongOrNull() ?: 0L
+            embeddedCover = retriever.embeddedPicture
         } catch (e: Exception) {
             Log.w(TAG, "Metadata extraction failed for ${file.name}: ${e.message}")
         } finally {
@@ -1088,6 +1570,8 @@ class MusicRepository(
 
         val cleanBaseName = file.nameWithoutExtension
             .replace(Regex("\\.(wav|mp3|m4a|opus|flac)$", RegexOption.IGNORE_CASE), "")
+            // DownloadManager appends " [hash]" to the audio file name.
+            .replace(Regex("\\s*\\[[0-9a-fA-F]{8}]$"), "")
             .trim()
 
         val parts = cleanBaseName.split(" - ")
@@ -1112,16 +1596,46 @@ class MusicRepository(
         val finalArtist = metaArtist?.takeIf { it.isNotBlank() } ?: parsedArtist
         val finalAlbum = metaAlbum?.takeIf { it.isNotBlank() } ?: "Download yt-dlp"
 
+        val localId = "local_${file.name.hashCode()}"
+        // yt-dlp often writes the thumbnail next to the audio with the same base name.
+        val coverExtensions = listOf("jpg", "jpeg", "png", "webp")
+        val sidecarCover = coverExtensions
+            .asSequence()
+            .map { File(file.parentFile, "${file.nameWithoutExtension}.$it") }
+            .firstOrNull { it.isFile && it.length() > 0L }
+            // In-app downloads store the cover as "<hash>.jpg" while the audio file ends with
+            // " [hash]", so look for that sibling too.
+            ?: Regex("\\[([0-9a-fA-F]{8})]").find(file.nameWithoutExtension)
+                ?.groupValues?.get(1)
+                ?.let { hash ->
+                    coverExtensions.asSequence()
+                        .map { File(file.parentFile, "$hash.$it") }
+                        .firstOrNull { it.isFile && it.length() > 0L }
+                }
         return Track(
-            id = "local_${file.name.hashCode()}",
+            id = localId,
             title = finalTitle,
             artist = finalArtist,
             album = finalAlbum,
             durationMs = durationMs,
-            coverUrl = null,
+            coverUrl = sidecarCover?.let { "file://${it.absolutePath}" }
+                ?: embeddedCover?.let { saveLocalCover(localId, it) },
             streamUrl = file.absolutePath,
-            provider = "Local"
+            provider = "Local",
+            releaseYear = metaYear?.toIntOrNull(),
+            artists = ArtistCredits.fromText(finalArtist).takeIf { it.isNotEmpty() }
         )
+    }
+
+    /** Persists embedded artwork next to the app data so local/yt-dlp tracks keep a cover offline. */
+    private fun saveLocalCover(trackId: String, bytes: ByteArray): String? = try {
+        val dir = File(context.filesDir, "local_covers").apply { if (!exists()) mkdirs() }
+        val file = File(dir, "${trackId.hashCode()}.jpg")
+        if (!file.exists() || file.length() == 0L) file.writeBytes(bytes)
+        "file://${file.absolutePath}"
+    } catch (e: Exception) {
+        Log.w(TAG, "Unable to save embedded cover for $trackId: ${e.message}")
+        null
     }
 
     fun findLocalTrack(queryTitle: String, queryArtist: String): Track? {

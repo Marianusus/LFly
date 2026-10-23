@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="collection_more_options">Altre opzioni</string>
+    <string name="collection_show_more">Mostra di più</string>
+    <string name="collection_show_less">Mostra meno</string>
+    <string name="collection_now_playing">In riproduzione</string>
+    <string name="collection_go_to_now_playing">Vai al brano in riproduzione</string>
+    <string name="collection_play_action">Riproduci</string>
+    <string name="collection_shuffle_action">Mescola</string>
+    <string name="collection_duration_hours">%1$d h %2$d min</string>
+    <string name="collection_duration_minutes">%1$d min</string>
+    <string name="collection_duration_seconds">%1$d sec</string>
+    <string name="collection_updated">Aggiornata %1$s</string>
+    <string name="collection_add_to_queue">Aggiungi alla coda</string>
+    <string name="collection_discover_tracks">Scopri brani</string>
+    <string name="playlist_not_found_body">La playlist non esiste più o è stata rimossa.</string>
+    <string name="collection_error_title">Impossibile caricare</string>
+    <string name="collection_album_empty_title">Album senza brani</string>
+    <string name="collection_album_empty_body">Non ci sono brani disponibili per questo album.</string>
+    <plurals name="collection_track_count">
+        <item quantity="one">%1$d brano</item>
+        <item quantity="few">%1$d brani</item>
+        <item quantity="other">%1$d di brani</item>
+    </plurals>
+</resources>

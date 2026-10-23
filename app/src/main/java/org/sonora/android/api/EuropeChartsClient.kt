@@ -106,12 +106,24 @@ object EuropeChartsClient {
      * Returns `null` when the storefront is unsupported or the feed is unavailable.
      */
     suspend fun fetchTopTrack(country: EuropeanCountry): Track? = withContext(Dispatchers.IO) {
-        val entry = fetchTopEntry(country) ?: return@withContext null
+        val entry = fetchEntries(country, limit = 1).firstOrNull() ?: return@withContext null
         buildTrack(country, entry)
     }
 
-    private suspend fun fetchTopEntry(country: EuropeanCountry): AppleChartEntry? {
-        val url = "$BASE_URL/${country.storefront}/music/most-played/1/songs.json"
+    /**
+     * Fetches the current trending songs for [country]. Keeps chart order, so the caller
+     * can render the list as a ranked rail.
+     */
+    suspend fun fetchTopTracks(
+        country: EuropeanCountry,
+        limit: Int = 20
+    ): List<Track> = withContext(Dispatchers.IO) {
+        val safeLimit = limit.coerceIn(1, 50)
+        fetchEntries(country, safeLimit).map { entry -> buildTrack(country, entry) }
+    }
+
+    private suspend fun fetchEntries(country: EuropeanCountry, limit: Int): List<AppleChartEntry> {
+        val url = "$BASE_URL/${country.storefront}/music/most-played/$limit/songs.json"
         repeat(2) { attempt ->
             val result = HttpClientProvider.getJson(
                 url = url,
@@ -119,35 +131,44 @@ object EuropeChartsClient {
             )
             val body = result.getOrNull()
             if (body != null) {
-                val parsed = parseAppleChartEntry(body)
-                if (parsed != null) return parsed
+                val parsed = parseAppleChartEntries(body)
+                if (parsed.isNotEmpty()) return parsed
             }
             if (attempt == 0) kotlinx.coroutines.delay(350)
         }
-        Log.w(TAG, "No chart entry for '${country.name}' (${country.storefront})")
-        return null
+        Log.w(TAG, "No chart entries for '${country.name}' (${country.storefront})")
+        return emptyList()
+    }
+
+    /**
+     * Pure parser for the Apple RSS "most-played songs" payload. Returns every valid entry.
+     */
+    internal fun parseAppleChartEntries(json: String): List<AppleChartEntry> {
+        return try {
+            val root = JsonParser.parseString(json).asJsonObject
+            val results = root.getAsJsonObject("feed")?.getAsJsonArray("results") ?: return emptyList()
+            buildList {
+                for (index in 0 until results.size()) {
+                    val item = results.get(index).asJsonObject
+                    val title = item.optStringOrNull("name")?.trim().orEmpty()
+                    val artist = item.optStringOrNull("artistName")?.trim().orEmpty()
+                    if (title.isBlank() || artist.isBlank()) continue
+                    val artwork = item.optStringOrNull("artworkUrl100")
+                        ?: item.optStringOrNull("artworkUrl60")
+                    add(AppleChartEntry(title = title, artist = artist, artworkUrl = artwork))
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse chart payload: ${e.message}")
+            emptyList()
+        }
     }
 
     /**
      * Pure parser for the Apple RSS "most-played songs" payload. Returns the first entry.
      */
-    internal fun parseAppleChartEntry(json: String): AppleChartEntry? {
-        return try {
-            val root = JsonParser.parseString(json).asJsonObject
-            val results = root.getAsJsonObject("feed")?.getAsJsonArray("results") ?: return null
-            if (results.size() == 0) return null
-            val first = results.get(0).asJsonObject
-            val title = first.optStringOrNull("name")?.trim().orEmpty()
-            val artist = first.optStringOrNull("artistName")?.trim().orEmpty()
-            if (title.isBlank() || artist.isBlank()) return null
-            val artwork = first.optStringOrNull("artworkUrl100")
-                ?: first.optStringOrNull("artworkUrl60")
-            AppleChartEntry(title = title, artist = artist, artworkUrl = artwork)
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse chart payload: ${e.message}")
-            null
-        }
-    }
+    internal fun parseAppleChartEntry(json: String): AppleChartEntry? =
+        parseAppleChartEntries(json).firstOrNull()
 
     private val ARTWORK_SIZE_REGEX = Regex("/\\d+x\\d+bb\\.")
 
@@ -171,7 +192,8 @@ object EuropeChartsClient {
             durationMs = 0L,
             coverUrl = highResArtwork(entry.artworkUrl),
             streamUrl = null,
-            provider = PROVIDER
+            provider = PROVIDER,
+            artists = ArtistCredits.fromText(entry.artist).takeIf { it.isNotEmpty() }
         )
     }
 

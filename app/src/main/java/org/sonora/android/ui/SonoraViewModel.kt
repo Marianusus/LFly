@@ -24,16 +24,19 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.sonora.android.AppLanguage
 import org.sonora.android.R
 import org.sonora.android.api.Album
 import org.sonora.android.api.ApiHealthManager
+import org.sonora.android.api.ArtistCredit
+import org.sonora.android.api.ArtistCredits
 import org.sonora.android.api.HighlightMode
 import org.sonora.android.api.lyrics.LyricsBridge
-import org.sonora.android.api.lyrics.LyricsEngine
-import org.sonora.android.api.lyrics.LyricsProvider
-import org.sonora.android.api.lyrics.trackLyricsQuery
+import org.sonora.android.api.lyrics.LyricsRepository
+import org.sonora.android.api.lyrics.sources.LyricsProviderState
+import org.sonora.android.api.lyrics.sources.LyricsSource
 import org.sonora.android.api.Artist
 import org.sonora.android.api.AudioQuality
 import org.sonora.android.api.DeezerClient
@@ -49,6 +52,7 @@ import org.sonora.android.api.EuropeChartsClient
 import org.sonora.android.api.EuropeanCountry
 import org.sonora.android.api.ProviderHealth
 import org.sonora.android.api.Track
+import org.sonora.android.api.TrackMetadata
 import org.sonora.android.api.TrackSourcePreferences
 import org.sonora.android.api.PlaybackSource
 import org.sonora.android.api.TranslationManager
@@ -60,12 +64,30 @@ import org.sonora.android.api.YouTubePlaylist
 import org.sonora.android.api.YouTubePlaylistDetail
 import org.sonora.android.api.YouTubeSongsPage
 import org.sonora.android.ui.theme.AppearanceMode
+import java.util.Locale
 import org.sonora.android.ui.theme.ThemeStyle
 import org.sonora.android.data.EuropeChartsCache
 import org.sonora.android.data.FollowedArtist
+import org.sonora.android.data.Mix
 import org.sonora.android.data.MusicRepository
+import org.sonora.android.data.NetworkMonitor
 import org.sonora.android.data.Playlist
+import org.sonora.android.data.RankedPlaylist
+import org.sonora.android.data.RankedTrack
+import org.sonora.android.data.SearchHistoryEntry
+import org.sonora.android.data.SearchHistoryStore
+import org.sonora.android.data.SearchHistoryType
+import org.sonora.android.data.normalizedMatchKey
+import org.sonora.android.data.rankPlaylists
+import org.sonora.android.data.rankTopTracks
 import org.sonora.android.playback.AudioCacheManager
+import org.sonora.android.playback.DownloadLyricsStore
+import org.sonora.android.playback.DownloadManager
+import org.sonora.android.playback.OfflineLyrics
+import org.sonora.android.playback.OfflineLyricsInfo
+import org.sonora.android.playback.OfflineLyricsStatus
+import org.sonora.android.playback.DownloadProgress
+import org.sonora.android.playback.DownloadStatus
 import org.sonora.android.playback.EqualizerManager
 import org.sonora.android.playback.EqualizerPreset
 import org.sonora.android.playback.EqualizerState
@@ -85,6 +107,7 @@ sealed class ScreenDestination {
     data class ArtistDetail(val artistId: String, val artistName: String? = null) : ScreenDestination()
     data class AlbumDetail(val albumId: String, val albumTitle: String? = null) : ScreenDestination()
     data class PlaylistDetail(val playlistId: String) : ScreenDestination()
+    data class MixDetail(val mixId: String, val fromLibrary: Boolean = false) : ScreenDestination()
     data class YouTubeArtistPage(val browseId: String, val name: String? = null) : ScreenDestination()
     data class YouTubeAlbumPage(val browseId: String, val title: String? = null) : ScreenDestination()
     data class YouTubePlaylistPage(val playlistId: String, val title: String? = null) : ScreenDestination()
@@ -94,6 +117,7 @@ sealed class ScreenDestination {
         val title: String? = null
     ) : ScreenDestination()
     object Diagnostics : ScreenDestination()
+    object OfflineLyrics : ScreenDestination()
 }
 
 enum class NavigationTab {
@@ -104,24 +128,6 @@ enum class NavigationTab {
 
     /** @deprecated retained for backward compatibility; Health is now a pushed screen under Settings. */
     DIAGNOSTICS
-}
-
-/**
- * Normalizes a title/artist pair for match deduplication: strips feat./featuring,
- * remix/remaster/deluxe/version/edit tags, bracketed content, punctuation and casing.
- */
-internal fun normalizedMatchKey(title: String, artist: String): String {
-    fun clean(value: String): String = value.lowercase()
-        .replace(Regex("\\(.*?\\)"), " ")
-        .replace(Regex("\\[.*?\\]"), " ")
-        .replace(Regex("\\b(feat\\.?|featuring|ft\\.?)"), " ")
-        .replace(Regex("\\b(remix|remaster(ed)?|deluxe|version|edit|live)\\b"), " ")
-        .replace(Regex("[^a-z0-9 ]"), " ")
-        .replace(Regex("\\s+"), " ")
-        .trim()
-
-    val primaryArtist = artist.split(",", "&", " feat", " ft").firstOrNull() ?: artist
-    return "${clean(title)}|${clean(primaryArtist)}"
 }
 
 /**
@@ -210,16 +216,55 @@ class SonoraViewModel @JvmOverloads constructor(
     val history: StateFlow<List<Track>> = musicRepository.history
     val playlists: StateFlow<List<Playlist>> = musicRepository.playlists
     val localTracks: StateFlow<List<Track>> = musicRepository.localTracks
+
+    /** Deduped top tracks for the Home shelf, all-time plays with recency tie-break. */
+    val homeTopTracks: StateFlow<List<RankedTrack>> = combine(
+        musicRepository.playStats,
+        musicRepository.dislikedTrackIds
+    ) { stats, disliked ->
+        rankTopTracks(stats = stats, dislikedTrackIds = disliked, limit = 24)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Playlists ranked by explicit starts plus track affinity (excludes system playlists). */
+    val homeTopPlaylists: StateFlow<List<RankedPlaylist>> = combine(
+        musicRepository.playlists,
+        musicRepository.playlistPlayStats,
+        musicRepository.playStats
+    ) { allPlaylists, playlistStats, trackStats ->
+        rankPlaylists(
+            playlists = allPlaylists,
+            playlistStats = playlistStats,
+            trackStats = trackStats,
+            excludedIds = setOf(
+                MusicRepository.PLAYLIST_DOWNLOADED_ID,
+                MusicRepository.PLAYLIST_ON_REPEAT_ID
+            ),
+            limit = 8
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Generated mixes shown in Home. */
+    val mixes: StateFlow<List<Mix>> = musicRepository.mixes
+
+    /** Only the static snapshots explicitly saved by the user (Library section). */
+    val savedMixes: StateFlow<List<Mix>> = musicRepository.mixes
+        .map { list -> list.filter { it.isSaved } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val healthState: StateFlow<List<ProviderHealth>> = apiHealthManager.healthState
     val themeStyle: StateFlow<ThemeStyle> = musicRepository.themeStyle
     val appearanceMode: StateFlow<AppearanceMode> = musicRepository.appearanceMode
     val accentColor: StateFlow<Int> = musicRepository.accentColor
     val reduceMotion: StateFlow<Boolean> = musicRepository.reduceMotion
+    val liquidGlass: StateFlow<Boolean> = musicRepository.liquidGlass
     val translateLyrics: StateFlow<Boolean> = musicRepository.translateLyrics
     val translationTargetLang: StateFlow<String> = musicRepository.translationTargetLang
     val lyricsHighlightMode: StateFlow<HighlightMode> = musicRepository.lyricsHighlightMode
     val lyricsProviderMusixmatch: StateFlow<Boolean> = musicRepository.lyricsProviderMusixmatch
     val lyricsProviderLrclib: StateFlow<Boolean> = musicRepository.lyricsProviderLrclib
+    val lyricsSources: StateFlow<Set<LyricsSource>> = musicRepository.lyricsSources
+    val lyricsSourceOrder: StateFlow<List<LyricsSource>> = musicRepository.lyricsSourceOrder
+    val prioritizeSyllableSync: StateFlow<Boolean> = musicRepository.prioritizeSyllableSync
+    val paxsenixApiKey: StateFlow<String> = musicRepository.paxsenixApiKey
 
     fun setLyricsHighlightMode(mode: HighlightMode) {
         musicRepository.setLyricsHighlightMode(mode)
@@ -247,6 +292,28 @@ class SonoraViewModel @JvmOverloads constructor(
     private val _isLoadingCountryTopTracks = MutableStateFlow(false)
     val isLoadingCountryTopTracks: StateFlow<Boolean> = _isLoadingCountryTopTracks.asStateFlow()
 
+    // Trending rail for the country chosen in Settings (defaults to the device country).
+    private val _homeCountry = MutableStateFlow(resolveHomeCountry())
+    val homeCountry: StateFlow<EuropeanCountry> = _homeCountry.asStateFlow()
+
+    private val _countryTrendingTracks = MutableStateFlow<List<Track>>(emptyList())
+    val countryTrendingTracks: StateFlow<List<Track>> = _countryTrendingTracks.asStateFlow()
+
+    private val _isLoadingCountryTrending = MutableStateFlow(false)
+    val isLoadingCountryTrending: StateFlow<Boolean> = _isLoadingCountryTrending.asStateFlow()
+
+    private var countryTrendingJob: Job? = null
+
+    private fun resolveHomeCountry(): EuropeanCountry {
+        val prefs = getApplication<Application>()
+            .getSharedPreferences("sonora_settings", Context.MODE_PRIVATE)
+        val saved = prefs.getString("home_country", null)
+        val device = Locale.getDefault().country.lowercase(Locale.ROOT)
+        val code = saved ?: device
+        return EuropeChartsClient.COUNTRIES.firstOrNull { it.code == code }
+            ?: EuropeChartsClient.COUNTRIES.first { it.code == "it" }
+    }
+
     private var europeTopJob: Job? = null
 
     // Disliked state
@@ -256,6 +323,9 @@ class SonoraViewModel @JvmOverloads constructor(
     // Search state
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    /** Last query actually committed; Back restores this while editing. */
+    private var committedSearchQuery = ""
 
     private val _searchCategory = MutableStateFlow(SearchCategory.ALL)
     val searchCategory: StateFlow<SearchCategory> = _searchCategory.asStateFlow()
@@ -279,6 +349,15 @@ class SonoraViewModel @JvmOverloads constructor(
     private val _searchYtPlaylists = MutableStateFlow<List<YouTubePlaylist>>(emptyList())
     val searchYtPlaylists: StateFlow<List<YouTubePlaylist>> = _searchYtPlaylists.asStateFlow()
 
+    private val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val searchSuggestions: StateFlow<List<String>> = _searchSuggestions.asStateFlow()
+
+    /** True while the field is being edited and suggestions should replace results. */
+    private val _isSearchTyping = MutableStateFlow(false)
+    val isSearchTyping: StateFlow<Boolean> = _isSearchTyping.asStateFlow()
+
+    val searchHistory: StateFlow<List<SearchHistoryEntry>> = SearchHistoryStore.recent
+
     // Locally followed YouTube artists
     val followedArtists: StateFlow<List<FollowedArtist>> = musicRepository.followedArtists
 
@@ -291,6 +370,8 @@ class SonoraViewModel @JvmOverloads constructor(
 
     private val _selectedYtPlaylist = MutableStateFlow<YouTubePlaylistDetail?>(null)
     val selectedYtPlaylist: StateFlow<YouTubePlaylistDetail?> = _selectedYtPlaylist.asStateFlow()
+
+    private var ytDetailRequest = 0
 
     // Full artist song list ("Cele mai populare melodii") with lazy continuation loading
     private val _selectedYtSongs = MutableStateFlow<YouTubeSongsPage?>(null)
@@ -327,6 +408,19 @@ class SonoraViewModel @JvmOverloads constructor(
     private val _isLoadingLyrics = MutableStateFlow(false)
     val isLoadingLyrics: StateFlow<Boolean> = _isLoadingLyrics.asStateFlow()
 
+    private val _activeLyricsSource = MutableStateFlow<LyricsSource?>(null)
+    val activeLyricsSource: StateFlow<LyricsSource?> = _activeLyricsSource.asStateFlow()
+
+    private val _lyricsProviderStates =
+        MutableStateFlow<Map<LyricsSource, LyricsProviderState>>(emptyMap())
+    val lyricsProviderStates: StateFlow<Map<LyricsSource, LyricsProviderState>> =
+        _lyricsProviderStates.asStateFlow()
+
+    // Extra provider metadata for the current track, loaded lazily and kept by id.
+    private val _trackMetadata = MutableStateFlow<Map<String, TrackMetadata>>(emptyMap())
+    val trackMetadata: StateFlow<Map<String, TrackMetadata>> = _trackMetadata.asStateFlow()
+    private val trackMetadataJobs = mutableMapOf<String, Job>()
+
     // Health diagnostics refresh state
     private val _isRefreshingHealth = MutableStateFlow(false)
     val isRefreshingHealth: StateFlow<Boolean> = _isRefreshingHealth.asStateFlow()
@@ -338,6 +432,10 @@ class SonoraViewModel @JvmOverloads constructor(
     // Party Sheet state
     private val _isPartySheetOpen = MutableStateFlow(false)
     val isPartySheetOpen: StateFlow<Boolean> = _isPartySheetOpen.asStateFlow()
+
+    // Search focus requests (tapping the Search tab again focuses the field + opens the keyboard)
+    private val _searchFocusRequests = MutableStateFlow(0)
+    val searchFocusRequests: StateFlow<Int> = _searchFocusRequests.asStateFlow()
 
     // Equalizer Modal State
     val equalizerState: StateFlow<EqualizerState> = equalizerManager.state
@@ -379,6 +477,8 @@ class SonoraViewModel @JvmOverloads constructor(
     private val _albumDetailError = MutableStateFlow<String?>(null)
     val albumDetailError: StateFlow<String?> = _albumDetailError.asStateFlow()
 
+    private var albumDetailRequest = 0
+
     // Settings State
     private val sharedPrefs by lazy {
         getApplication<Application>().getSharedPreferences("sonora_settings", Context.MODE_PRIVATE)
@@ -394,6 +494,52 @@ class SonoraViewModel @JvmOverloads constructor(
     )
     val audioQuality: StateFlow<AudioQuality> = _audioQuality.asStateFlow()
 
+    private val _downloadQuality = MutableStateFlow(
+        try {
+            val saved = sharedPrefs.getString("download_quality", AudioQuality.MEDIUM.name)
+            AudioQuality.valueOf(saved ?: AudioQuality.MEDIUM.name)
+        } catch (_: Exception) {
+            AudioQuality.MEDIUM
+        }
+    )
+    val downloadQuality: StateFlow<AudioQuality> = _downloadQuality.asStateFlow()
+
+    private val _downloadWifiOnly = MutableStateFlow(
+        sharedPrefs.getBoolean("download_wifi_only", true)
+    )
+    val downloadWifiOnly: StateFlow<Boolean> = _downloadWifiOnly.asStateFlow()
+
+    private val _downloadLyrics = MutableStateFlow(
+        sharedPrefs.getBoolean("download_lyrics", false)
+    )
+    val downloadLyrics: StateFlow<Boolean> = _downloadLyrics.asStateFlow()
+
+    val downloadStates: StateFlow<Map<String, DownloadProgress>> = DownloadManager.states
+    val downloadedTracks: StateFlow<List<Track>> = DownloadManager.downloadedTracks
+    val offlineLyricsStates: StateFlow<Map<String, OfflineLyricsInfo>> = DownloadManager.lyricsStates
+    val downloadsSizeBytes: StateFlow<Long> = DownloadManager.totalBytes
+    val isOnline: StateFlow<Boolean> = NetworkMonitor.isOnline
+
+    /**
+     * Everything playable offline: in-app downloads plus files already on device
+     * (e.g. added manually or with yt-dlp). Deduplicated by local file path.
+     */
+    val offlineTracks: StateFlow<List<Track>> = combine(
+        DownloadManager.downloadedTracks,
+        musicRepository.localTracks
+    ) { downloads, locals ->
+        val seen = HashSet<String>(downloads.size + locals.size)
+        val merged = ArrayList<Track>(downloads.size + locals.size)
+        (downloads + locals).forEach { track ->
+            val key = track.streamUrl
+                ?.removePrefix("file://")
+                ?.takeIf { it.isNotBlank() }
+                ?: track.id
+            if (seen.add(key)) merged.add(track)
+        }
+        merged
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val isAutoplayEnabled: StateFlow<Boolean> = playbackManager.playbackState
         .map { it.isAutoplayEnabled }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -405,7 +551,9 @@ class SonoraViewModel @JvmOverloads constructor(
     val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
 
     private var searchJob: Job? = null
+    private var suggestionsJob: Job? = null
     private var lyricsJob: Job? = null
+    private var lyricsRefreshJob: Job? = null
     private var translationJob: Job? = null
 
     // In-memory (per-process) set of imported track ids already attempted for cover refresh.
@@ -413,11 +561,18 @@ class SonoraViewModel @JvmOverloads constructor(
         java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     init {
+        // A favorite saved while an offline copy was playing keeps the Local snapshot;
+        // re-point it to the catalog identity whenever the download is still known.
+        musicRepository.repairFavorites { track -> DownloadManager.canonicalTrackFor(track) }
+
         // Load initial top charts
         loadCharts()
 
         // Per-country European "Top tracks" rail (cache-first, progressive refresh).
         loadEuropeTopTracks()
+
+        // Current trending songs for the country selected in Settings.
+        loadCountryTrending()
 
         // Reactively (re)build home recommendations from the user's taste signals:
         // play history, followed artists, dislikes and play statistics.
@@ -451,6 +606,16 @@ class SonoraViewModel @JvmOverloads constructor(
                     } else {
                         _lyrics.value = null
                     }
+                }
+        }
+
+        // Resolve release year / channel / live counts without touching playback.
+        viewModelScope.launch {
+            playbackState
+                .map { it.currentTrack }
+                .distinctUntilChanged { a, b -> a?.id == b?.id }
+                .collectLatest { track ->
+                    if (track != null) ensureTrackMetadata(track)
                 }
         }
 
@@ -569,6 +734,11 @@ class SonoraViewModel @JvmOverloads constructor(
         if (tab == NavigationTab.SETTINGS) refreshCacheSize()
     }
 
+    /** Asks the Search field to take focus and open the keyboard. */
+    fun requestSearchFocus() {
+        _searchFocusRequests.value++
+    }
+
     fun navigateToArtist(artistId: String, artistName: String? = null) {
         val cleanId = artistId.removePrefix("dz_").removePrefix("artist_").trim()
         val dest = ScreenDestination.ArtistDetail(cleanId, artistName)
@@ -591,6 +761,27 @@ class SonoraViewModel @JvmOverloads constructor(
         _currentDestination.value = dest
     }
 
+    fun navigateToMix(mixId: String, fromLibrary: Boolean = false) {
+        if (mixId.isBlank()) return
+        val dest = ScreenDestination.MixDetail(mixId, fromLibrary)
+        navStack.add(dest)
+        _currentDestination.value = dest
+    }
+
+    fun saveMixToLibrary(mixId: String) {
+        musicRepository.saveMixToLibrary(mixId)
+    }
+
+    fun removeMixFromLibrary(mixId: String) {
+        musicRepository.removeMixFromLibrary(mixId)
+    }
+
+    /** Home/Library "+" button: save the snapshot or remove it. */
+    fun toggleMixSaved(mixId: String) {
+        val mix = musicRepository.mixes.value.firstOrNull { it.id == mixId } ?: return
+        if (mix.isSaved) removeMixFromLibrary(mixId) else saveMixToLibrary(mixId)
+    }
+
     fun navigateToYouTubeArtist(browseId: String, name: String? = null) {
         if (browseId.isBlank()) return
         val dest = ScreenDestination.YouTubeArtistPage(browseId.trim(), name)
@@ -599,23 +790,36 @@ class SonoraViewModel @JvmOverloads constructor(
         loadYouTubeArtistDetail(dest.browseId)
     }
 
+    /** Opens a structured credit, using its id first and a confidence-scored name search second. */
+    fun openArtist(credit: ArtistCredit) {
+        val name = credit.displayName
+        if (name.isBlank()) return
+        val id = credit.artistId
+        if (!id.isNullOrBlank()) {
+            navigateToYouTubeArtist(id, name)
+            return
+        }
+        openArtistByName(name)
+    }
+
     /**
-     * Opens the artist page for a raw artist string coming from a track (it may contain several
-     * names). Resolves the primary artist on YouTube Music, falling back to a search.
+     * Opens the artist page for a raw artist string. Never splits commas (Tyler, The Creator),
+     * and only falls back to a name search when no id is available.
      */
     fun openArtistByName(rawArtist: String) {
-        val primary = rawArtist
-            .split(",", " & ", " feat", " ft", " with ", " x ")
-            .firstOrNull()?.trim().orEmpty()
-        val name = primary.ifBlank { rawArtist.trim() }
+        val credits = ArtistCredits.fromText(rawArtist)
+        val name = ArtistCredits.primaryName(credits).ifBlank { rawArtist.trim() }
         if (name.isBlank()) return
         viewModelScope.launch {
-            val artists = youTubeMusicClient.searchArtists(name, limit = 1).getOrNull().orEmpty()
-            val id = artists.firstOrNull()?.let { it.browseId ?: it.channelId }
+            val artists = youTubeMusicClient.searchArtists(name, limit = 8).getOrNull().orEmpty()
+            val wanted = ArtistCredits.normalize(name)
+            val match = artists.firstOrNull { ArtistCredits.normalize(it.name) == wanted }
+                ?: artists.firstOrNull()
+            val id = match?.let { it.browseId ?: it.channelId }
             if (!id.isNullOrBlank()) {
                 navigateToYouTubeArtist(id, name)
             } else {
-                onSearchQueryChange(name)
+                submitSearch(name)
                 selectTab(NavigationTab.SEARCH)
             }
         }
@@ -652,15 +856,26 @@ class SonoraViewModel @JvmOverloads constructor(
         refreshHealth()
     }
 
+    fun navigateToOfflineLyrics() {
+        val dest = ScreenDestination.OfflineLyrics
+        navStack.add(dest)
+        _currentDestination.value = dest
+        loadOfflineLyricsStates()
+    }
+
     // ==========================================
     // YouTube Discovery Detail (lazy, metadata only)
     // ==========================================
 
     fun loadYouTubeArtistDetail(browseId: String) {
+        val request = ++ytDetailRequest
+        _selectedYtArtist.value = null
         viewModelScope.launch {
             _isLoadingYtDetail.value = true
             _ytDetailError.value = null
-            youTubeMusicClient.getYouTubeArtistDetail(browseId).fold(
+            val result = youTubeMusicClient.getYouTubeArtistDetail(browseId)
+            if (request != ytDetailRequest) return@launch
+            result.fold(
                 onSuccess = { _selectedYtArtist.value = it },
                 onFailure = { _ytDetailError.value = it.message ?: getApplication<Application>().getString(R.string.vm_error_load_artist) }
             )
@@ -669,10 +884,14 @@ class SonoraViewModel @JvmOverloads constructor(
     }
 
     fun loadYouTubeAlbumDetail(browseId: String) {
+        val request = ++ytDetailRequest
+        _selectedYtAlbum.value = null
         viewModelScope.launch {
             _isLoadingYtDetail.value = true
             _ytDetailError.value = null
-            youTubeMusicClient.getYouTubeAlbumDetail(browseId).fold(
+            val result = youTubeMusicClient.getYouTubeAlbumDetail(browseId)
+            if (request != ytDetailRequest) return@launch
+            result.fold(
                 onSuccess = { _selectedYtAlbum.value = it },
                 onFailure = { _ytDetailError.value = it.message ?: getApplication<Application>().getString(R.string.vm_error_load_album) }
             )
@@ -681,10 +900,14 @@ class SonoraViewModel @JvmOverloads constructor(
     }
 
     fun loadYouTubePlaylistDetail(playlistId: String) {
+        val request = ++ytDetailRequest
+        _selectedYtPlaylist.value = null
         viewModelScope.launch {
             _isLoadingYtDetail.value = true
             _ytDetailError.value = null
-            youTubeMusicClient.getYouTubePlaylistDetail(playlistId).fold(
+            val result = youTubeMusicClient.getYouTubePlaylistDetail(playlistId)
+            if (request != ytDetailRequest) return@launch
+            result.fold(
                 onSuccess = { _selectedYtPlaylist.value = it },
                 onFailure = { _ytDetailError.value = it.message ?: getApplication<Application>().getString(R.string.vm_error_load_playlist) }
             )
@@ -799,11 +1022,15 @@ class SonoraViewModel @JvmOverloads constructor(
 
     fun loadAlbumDetail(albumId: String) {
         val cleanId = albumId.removePrefix("dz_").removePrefix("album_").trim()
+        val request = ++albumDetailRequest
+        _selectedAlbum.value = null
+        _albumTracks.value = emptyList()
         viewModelScope.launch {
             _isLoadingAlbumDetail.value = true
             _albumDetailError.value = null
 
             val result = deezerClient.getAlbumDetail(cleanId)
+            if (request != albumDetailRequest) return@launch
             result.fold(
                 onSuccess = { (album, tracks) ->
                     _selectedAlbum.value = album
@@ -873,6 +1100,10 @@ class SonoraViewModel @JvmOverloads constructor(
         musicRepository.setReduceMotion(enabled)
     }
 
+    fun setLiquidGlass(enabled: Boolean) {
+        musicRepository.setLiquidGlass(enabled)
+    }
+
     fun setTranslateLyrics(enabled: Boolean) {
         musicRepository.setTranslateLyrics(enabled)
     }
@@ -881,9 +1112,82 @@ class SonoraViewModel @JvmOverloads constructor(
         musicRepository.setTranslationTargetLang(lang)
     }
 
+    /** Deletes every downloaded ML Kit translation model, freeing the space they occupy. */
+    fun clearTranslationModels() {
+        viewModelScope.launch {
+            val deleted = translationManager.deleteAllModels()
+            Log.i("SonoraViewModel", "Deleted $deleted translation model(s)")
+        }
+    }
+
     fun setAudioQuality(quality: AudioQuality) {
         _audioQuality.value = quality
         sharedPrefs.edit().putString("audio_quality", quality.name).apply()
+    }
+
+    fun setDownloadQuality(quality: AudioQuality) {
+        _downloadQuality.value = quality
+        sharedPrefs.edit().putString("download_quality", quality.name).apply()
+    }
+
+    fun setDownloadWifiOnly(enabled: Boolean) {
+        _downloadWifiOnly.value = enabled
+        sharedPrefs.edit().putBoolean("download_wifi_only", enabled).apply()
+    }
+
+    fun setDownloadLyrics(enabled: Boolean) {
+        _downloadLyrics.value = enabled
+        sharedPrefs.edit().putBoolean("download_lyrics", enabled).apply()
+    }
+
+    /** Downloads, cancels or removes [track] depending on its current download state. */
+    fun toggleDownload(track: Track) {
+        when (DownloadManager.progressFor(track.id).status) {
+            DownloadStatus.DOWNLOADED -> DownloadManager.remove(track.id)
+            DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> DownloadManager.cancel(track.id)
+            else -> DownloadManager.download(
+                track = track,
+                quality = _downloadQuality.value,
+                wifiOnly = _downloadWifiOnly.value,
+                withLyrics = _downloadLyrics.value
+            )
+        }
+    }
+
+    /** Spotify-style toggle: downloads all missing tracks, or removes them when all are offline. */
+    private fun toggleDownloadAll(tracks: List<Track>) {
+        val downloadable = tracks.filterNot { it.provider.equals("Local", ignoreCase = true) }
+        if (downloadable.isEmpty()) return
+        if (downloadable.all { DownloadManager.isDownloaded(it.id) }) {
+            downloadable.forEach { DownloadManager.remove(it.id) }
+        } else {
+            DownloadManager.downloadAll(
+                tracks = downloadable,
+                quality = _downloadQuality.value,
+                wifiOnly = _downloadWifiOnly.value,
+                withLyrics = _downloadLyrics.value
+            )
+        }
+    }
+
+    fun togglePlaylistDownload(playlist: Playlist) = toggleDownloadAll(playlist.tracks)
+
+    /** Shared collection action for albums, playlists and mixes. */
+    fun toggleCollectionDownload(tracks: List<Track>) = toggleDownloadAll(tracks)
+
+    fun toggleFavoritesDownload() = toggleDownloadAll(favorites.value)
+
+    /** Deletes a downloaded track: manifest entry by id, or the app-managed local file. */
+    fun deleteLocalDownload(track: Track) {
+        if (DownloadManager.isDownloaded(track.id)) {
+            DownloadManager.remove(track.id)
+        } else {
+            track.streamUrl?.let { DownloadManager.deleteManagedLocalFile(it) }
+        }
+    }
+
+    fun clearDownloads() {
+        DownloadManager.removeAll()
     }
 
     fun setAppLanguage(tag: String) {
@@ -918,6 +1222,34 @@ class SonoraViewModel @JvmOverloads constructor(
                 // If Deezer charts fails, fallback to empty or cached
             }
             _isLoadingCharts.value = false
+        }
+    }
+
+    fun setHomeCountry(code: String) {
+        val country = EuropeChartsClient.COUNTRIES.firstOrNull { it.code == code } ?: return
+        if (_homeCountry.value.code == country.code) return
+        _homeCountry.value = country
+        sharedPrefs.edit().putString("home_country", country.code).apply()
+        _countryTrendingTracks.value = emptyList()
+        loadCountryTrending()
+    }
+
+    /**
+     * Loads the current top songs for the country chosen in Settings.
+     * Keeps the previous rail visible while refreshing unless the country changed.
+     */
+    fun loadCountryTrending() {
+        countryTrendingJob?.cancel()
+        val country = _homeCountry.value
+        countryTrendingJob = viewModelScope.launch {
+            _isLoadingCountryTrending.value = true
+            val tracks = runCatching {
+                EuropeChartsClient.fetchTopTracks(country, limit = 20)
+            }.getOrDefault(emptyList())
+            if (_homeCountry.value.code == country.code) {
+                _countryTrendingTracks.value = tracks
+            }
+            _isLoadingCountryTrending.value = false
         }
     }
 
@@ -989,7 +1321,9 @@ class SonoraViewModel @JvmOverloads constructor(
                 id = match.id,
                 durationMs = match.durationMs,
                 album = match.album ?: chartTrack.album,
-                provider = EuropeChartsClient.PROVIDER
+                provider = EuropeChartsClient.PROVIDER,
+                artistId = match.artistId ?: chartTrack.artistId,
+                artists = match.artists?.takeIf { it.isNotEmpty() } ?: chartTrack.artists,
             )
         } catch (e: Exception) {
             chartTrack
@@ -1020,6 +1354,11 @@ class SonoraViewModel @JvmOverloads constructor(
         }
         playbackManager.playTrack(track, resolvedContext)
         musicRepository.addToHistory(track)
+    }
+
+    /** Records an explicit playlist start for the Home "most listened playlists" ranking. */
+    fun recordPlaylistPlay(playlistId: String) {
+        musicRepository.recordPlaylistPlay(playlistId)
     }
 
     fun playQueue(tracks: List<Track>, startIndex: Int = 0, context: String? = null) {
@@ -1163,6 +1502,16 @@ class SonoraViewModel @JvmOverloads constructor(
         playbackManager.clearQueue()
     }
 
+    fun clearUserQueue() {
+        if (partyManager.state.value.role == PartyRole.GUEST) return
+        playbackManager.clearUserQueue()
+    }
+
+    fun clearUpcoming() {
+        if (partyManager.state.value.role == PartyRole.GUEST) return
+        playbackManager.clearUpcoming()
+    }
+
     fun moveQueueItem(from: Int, to: Int) {
         if (partyManager.state.value.role == PartyRole.GUEST) return
         playbackManager.moveQueueItem(from, to)
@@ -1184,68 +1533,226 @@ class SonoraViewModel @JvmOverloads constructor(
     // Lyrics Integration
     // ==========================================
 
-    private fun fetchLyrics(track: Track) {
+    /**
+     * Loads the provider metadata once per id for the current session. Local
+     * files already carry their tags, and every other failure is left for the
+     * next track rather than blocking playback or the menu.
+     */
+    fun ensureTrackMetadata(track: Track, force: Boolean = false) {
+        if (track.provider.equals("Local", ignoreCase = true)) return
+        if (!force) {
+            if (_trackMetadata.value.containsKey(track.id)) return
+            if (trackMetadataJobs[track.id]?.isActive == true) return
+        } else {
+            trackMetadataJobs.remove(track.id)?.cancel()
+        }
+        trackMetadataJobs[track.id] = viewModelScope.launch {
+            try {
+                youTubeMusicClient.getTrackMetadata(track).onSuccess { metadata ->
+                    _trackMetadata.update { current -> current + (track.id to metadata) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Log.w(LYRICS_TAG, "track metadata failed for '${track.title}': ${e.message}")
+            } finally {
+                trackMetadataJobs.remove(track.id)
+            }
+        }
+    }
+
+    /** Retry only when the year is still missing; a resolved track stays cached. */
+    fun requestTrackMetadata(track: Track) {
+        val existing = _trackMetadata.value[track.id]
+        if (existing?.releaseYear != null) return
+        ensureTrackMetadata(track, force = existing != null)
+    }
+
+    private fun fetchLyrics(
+        track: Track,
+        forced: LyricsSource? = null,
+        ignoreOffline: Boolean = false,
+    ) {
         lyricsJob?.cancel()
         lyricsJob = viewModelScope.launch {
             _isLoadingLyrics.value = true
+            _activeLyricsSource.value = forced
+            val canonical = DownloadManager.canonicalTrackFor(track) ?: track
+            if (!ignoreOffline && forced == null) {
+                val offline = DownloadManager.lyricsFor(canonical)
+                if (offline != null) {
+                    if (offline.lyrics != null) {
+                        _lyrics.value = offline.lyrics
+                        _activeLyricsSource.value = offline.source?.let(LyricsSource::fromName)
+                        _isLoadingLyrics.value = false
+                        translateActiveLyrics()
+                        return@launch
+                    }
+                    if (!NetworkMonitor.isOnline.value) {
+                        _lyrics.value = null
+                        _activeLyricsSource.value = null
+                        _isLoadingLyrics.value = false
+                        return@launch
+                    }
+                }
+            }
+            val sources = forced?.let { setOf(it) } ?: musicRepository.lyricsSources.value
+            val order = forced?.let { listOf(it) } ?: musicRepository.lyricsSourceOrder.value
+            val initialStates = sources.associateWith { LyricsProviderState.NOT_FETCHED }
+            _lyricsProviderStates.value = initialStates
 
-            // Ported engine first (Musixmatch word-level + LRCLIB), legacy client as fallback.
-            val fromEngine = runCatching { fetchFromEngine(track) }.getOrNull()
-            val engineLyrics = fromEngine?.takeIf { it.lines.isNotEmpty() }
-            val lyrics = engineLyrics ?: lrclibClient.getLyrics(track).getOrNull()
+            val videoId = canonical.id.takeIf { YouTubeMusicClient.isValidVideoId(it) }
+            val (title, artist) = org.sonora.android.api.lyrics.LyricsText.splitArtistTitle(
+                canonical.title,
+                canonical.artist,
+            )
 
-            if (engineLyrics == null) {
-                val wordLines = lyrics?.lines?.count { !it.wordTimings.isNullOrEmpty() } ?: 0
-                Log.i(
-                    LYRICS_TAG,
-                    "fallback LRCLIB legacy: lines=${lyrics?.lines?.size ?: 0} wordLines=$wordLines " +
-                        "'${track.title}' - '${track.artist}'"
+            val result = runCatching {
+                LyricsRepository.lookup(
+                    title = title,
+                    artist = artist,
+                    album = canonical.album,
+                    durationMs = canonical.durationMs,
+                    videoId = videoId,
+                    sources = sources,
+                    order = order,
+                    prioritizeSyllableSync = musicRepository.prioritizeSyllableSync.value,
+                    apiKey = musicRepository.paxsenixApiKey.value,
+                    onState = { source, state ->
+                        _lyricsProviderStates.update { current -> current + (source to state) }
+                    },
                 )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Log.w(LYRICS_TAG, "lookup failed '${canonical.title}': ${error.message}")
+            }.getOrNull()
+
+            if (result == null) {
+                Log.i(LYRICS_TAG, "no lyrics '${canonical.title}' - '${canonical.artist}'")
+                _lyrics.value = null
+                _activeLyricsSource.value = null
+                _isLoadingLyrics.value = false
+                return@launch
             }
 
-            _lyrics.value = lyrics
-            if (lyrics != null) translateActiveLyrics()
+            val domain = LyricsBridge.toDomain(result.hit.lyrics, canonical.id)
+            _lyrics.value = domain
+            _activeLyricsSource.value = result.source
+            if (DownloadManager.isDownloaded(canonical.id)) {
+                val offline = OfflineLyrics(
+                    lyrics = domain,
+                    source = result.source.name,
+                    notFound = false
+                )
+                DownloadLyricsStore.default(getApplication()).write(canonical.id, offline)
+                DownloadManager.recordLyrics(canonical.id, offline)
+            }
+            val wordLines = domain.lines.count { !it.wordTimings.isNullOrEmpty() }
+            Log.i(
+                LYRICS_TAG,
+                "source=${result.source.label} worded=${result.hit.lyrics.worded()} " +
+                    "lines=${domain.lines.size} wordLines=$wordLines " +
+                    "'${canonical.title}' - '${canonical.artist}'",
+            )
+            translateActiveLyrics()
             _isLoadingLyrics.value = false
         }
     }
 
-    private suspend fun fetchFromEngine(track: Track): Lyrics? {
-        val providers: List<LyricsProvider> = buildList {
-            if (musicRepository.lyricsProviderMusixmatch.value) add(LyricsEngine.musixmatch)
-            // Kugou carries the word-level (KRC) sheets; it is on whenever lyrics are looked up.
-            add(LyricsEngine.kugou)
-            if (musicRepository.lyricsProviderLrclib.value) add(LyricsEngine.lrclib)
+    fun selectLyricsSource(source: LyricsSource?) {
+        val track = playbackState.value.currentTrack ?: return
+        val canonical = DownloadManager.canonicalTrackFor(track) ?: track
+        musicRepository.setLyricsSourceFor(canonical.id, source)
+        fetchLyrics(track, forced = source, ignoreOffline = true)
+    }
+
+    // ---- Offline lyrics management (Settings → Testi offline) ----
+
+    /** Per-track source override, or null when the global source order applies. */
+    fun lyricsSourceForTrack(track: Track): LyricsSource? {
+        val canonical = DownloadManager.canonicalTrackFor(track) ?: track
+        return musicRepository.lyricsSourceFor(canonical.id)
+    }
+
+    /**
+     * Persists the per-track source (null = Automatic) and downloads the lyrics for it.
+     * The same preference is used by the player and by future automatic downloads.
+     */
+    fun downloadLyricsFor(track: Track, source: LyricsSource?) {
+        val canonical = DownloadManager.canonicalTrackFor(track) ?: track
+        musicRepository.setLyricsSourceFor(canonical.id, source)
+        viewModelScope.launch {
+            DownloadManager.fetchLyricsNow(canonical, sourceOverride = source, force = true)
         }
-        if (providers.isEmpty()) return null
-        val result = LyricsEngine.resolve(trackLyricsQuery(track), providers)
-        // Prefer the original, monolingual sheet when the top hit mixes languages (bilingual source).
-        val monolingual = runCatching {
-            withContext(Dispatchers.IO) {
-                org.sonora.android.api.lyrics.LyricsLanguagePreference.preferred(result.hits) {
-                    translationManager.detectLanguage(it)
+    }
+
+    fun removeOfflineLyrics(track: Track) {
+        DownloadManager.removeLyrics(track)
+    }
+
+    /** Queues lyrics for the downloaded tracks that still have none (or a retryable error). */
+    fun downloadMissingLyrics(tracks: List<Track>) {
+        tracks.forEach { track ->
+            val canonical = DownloadManager.canonicalTrackFor(track) ?: track
+            when (DownloadManager.lyricsStates.value[canonical.id]?.status) {
+                OfflineLyricsStatus.FOUND, OfflineLyricsStatus.FETCHING -> Unit
+                else -> viewModelScope.launch {
+                    DownloadManager.fetchLyricsNow(canonical)
                 }
             }
-        }.getOrNull()
-        val best = monolingual ?: result.best
-        if (best == null) {
-            Log.i(LYRICS_TAG, "engine: no hit '${track.title}' - '${track.artist}'")
-            return null
         }
-        val domain = LyricsBridge.toDomain(best.lyrics, track.id)
-        val wordLines = domain.lines.count { !it.wordTimings.isNullOrEmpty() }
-        if (best.lyrics.worded() && wordLines == 0) {
-            val first = (best.lyrics as? org.sonora.android.api.lyrics.Sheet.Synced)?.lines?.firstOrNull()
-            Log.i(
-                LYRICS_TAG,
-                "bridge lost words: text='${first?.text}' words=${first?.words?.map { it.text }}"
-            )
-        }
-        Log.i(
-            LYRICS_TAG,
-            "engine: source=${best.source} worded=${best.lyrics.worded()} lines=${domain.lines.size} " +
-                "wordLines=$wordLines '${track.title}' - '${track.artist}'"
+    }
+
+    /** Hydrates the in-memory lyrics status for the app's downloaded tracks. */
+    fun loadOfflineLyricsStates() {
+        DownloadManager.ensureLyricsLoaded(
+            DownloadManager.downloadedTracks.value.map { track ->
+                (DownloadManager.canonicalTrackFor(track) ?: track).id
+            }
         )
-        return domain
+    }
+
+    fun setLyricsSourceEnabled(source: LyricsSource, enabled: Boolean) {
+        musicRepository.setLyricsSourceEnabled(source, enabled)
+        refreshLyricsAfterConfigChange()
+    }
+
+    fun setLyricsSourceOrder(order: List<LyricsSource>) {
+        musicRepository.setLyricsSourceOrder(order)
+        refreshLyricsAfterConfigChange()
+    }
+
+    fun setPrioritizeSyllableSync(enabled: Boolean) {
+        musicRepository.setPrioritizeSyllableSync(enabled)
+        refreshLyricsAfterConfigChange()
+    }
+
+    fun setPaxsenixApiKey(value: String) {
+        musicRepository.setPaxsenixApiKey(value)
+        refreshLyricsAfterConfigChange()
+    }
+
+    fun resetLyricsSources() {
+        musicRepository.resetLyricsSources()
+        refreshLyricsAfterConfigChange()
+    }
+
+    /**
+     * Applies a source/order change to the already-playing track. Without this,
+     * the preference moved but the lyrics on screen stayed those fetched with
+     * the previous order. Debounced because the sources dialog applies several
+     * changes in one go.
+     */
+    private fun refreshLyricsAfterConfigChange() {
+        val track = playbackState.value.currentTrack ?: return
+        lyricsRefreshJob?.cancel()
+        lyricsRefreshJob = viewModelScope.launch {
+            delay(250)
+            if (playbackState.value.currentTrack?.id == track.id) {
+                Log.i(LYRICS_TAG, "Refreshing lyrics for '${track.title}' after source config change")
+                fetchLyrics(track, ignoreOffline = true)
+            }
+        }
     }
 
     fun setLyricsProviderMusixmatch(enabled: Boolean) =
@@ -1278,31 +1785,98 @@ class SonoraViewModel @JvmOverloads constructor(
     // Search
     // ==========================================
 
+    /**
+     * Edits the query without committing it. The committed result page stays
+     * intact underneath so Back can return to it; the UI swaps to the
+     * suggestion/history panel while [isSearchTyping] is true.
+     */
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
         searchJob?.cancel()
+        suggestionsJob?.cancel()
         if (query.isBlank()) {
+            _isSearchTyping.value = false
+            _searchSuggestions.value = emptyList()
             _searchResults.value = emptyList()
             clearDiscoveryResults()
             _isSearching.value = false
+            committedSearchQuery = ""
             return
         }
 
-        searchJob = viewModelScope.launch {
-            delay(350) // Debounce typing
-            executeSearch(query)
+        _isSearchTyping.value = true
+        _isSearching.value = false
+        _searchSuggestions.value = emptyList()
+        if (query.trim().length < 2) return
+        suggestionsJob = viewModelScope.launch {
+            delay(170)
+            val fetched = youTubeMusicClient.searchSuggestions(query.trim(), limit = 6)
+                .getOrElse { emptyList() }
+            if (_isSearchTyping.value && _searchQuery.value.trim() == query.trim()) {
+                _searchSuggestions.value = fetched
+            }
         }
+    }
+
+    /** Fills a completion without running it, so the user can keep editing. */
+    fun onSearchSuggestionFill(value: String) {
+        onSearchQueryChange(value)
+    }
+
+    /**
+     * Commits the current (or supplied) query and runs the full category search.
+     * This is the only path that records a search result page; typing itself
+     * never hits the full search endpoint.
+     */
+    fun submitSearch(query: String = _searchQuery.value, category: SearchCategory? = null) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        searchJob?.cancel()
+        suggestionsJob?.cancel()
+        _searchQuery.value = trimmed
+        committedSearchQuery = trimmed
+        SearchHistoryStore.recordQuery(trimmed)
+        if (category != null) _searchCategory.value = category
+        _isSearchTyping.value = false
+        _searchSuggestions.value = emptyList()
+        searchJob = viewModelScope.launch {
+            executeSearch(trimmed)
+        }
+    }
+
+    /** Dismisses the suggestion panel and restores the last committed results. */
+    fun cancelSearchTyping() {
+        if (!_isSearchTyping.value) return
+        suggestionsJob?.cancel()
+        _searchSuggestions.value = emptyList()
+        _isSearchTyping.value = false
+        _searchQuery.value = committedSearchQuery
     }
 
     fun onSearchCategoryChange(category: SearchCategory) {
         _searchCategory.value = category
         val current = _searchQuery.value
-        if (current.isNotBlank()) {
+        if (current.isBlank()) return
+        if (_isSearchTyping.value) {
+            submitSearch(current, category)
+        } else {
             searchJob?.cancel()
             searchJob = viewModelScope.launch {
                 executeSearch(current)
             }
         }
+    }
+
+    fun recordSearchHistory(entry: SearchHistoryEntry?) {
+        if (entry != null) SearchHistoryStore.record(entry)
+    }
+
+    fun removeSearchHistory(type: SearchHistoryType, id: String) {
+        SearchHistoryStore.remove(type, id)
+    }
+
+    fun clearSearchHistory() {
+        SearchHistoryStore.clear()
     }
 
     private fun clearDiscoveryResults() {
@@ -1435,7 +2009,8 @@ class SonoraViewModel @JvmOverloads constructor(
     }
 
     fun toggleFavorite(track: Track) {
-        musicRepository.toggleFavorite(track)
+        val canonical = DownloadManager.canonicalTrackFor(track) ?: track
+        musicRepository.toggleFavorite(canonical)
     }
 
     fun createPlaylist(name: String, description: String? = null, coverUrl: String? = null): Playlist {

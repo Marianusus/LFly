@@ -51,4 +51,13 @@
         <item quantity="one">%d guest</item>
         <item quantity="other">%d guests</item>
     </plurals>
+    <string name="party_ready">Ready to start</string>
+    <string name="party_waiting_guests">Waiting for guests</string>
+    <string name="party_tap_copy">Tap to copy</string>
+    <string name="party_live">LIVE</string>
+    <string name="party_create_hint">Start a session and invite anyone.</string>
+    <plurals name="party_listening_count">
+        <item quantity="one">%1$d guest listening</item>
+        <item quantity="other">%1$d guests listening</item>
+    </plurals>
 </resources>

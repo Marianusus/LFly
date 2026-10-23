@@ -2,6 +2,7 @@
 <resources>
     <string name="yt_detail_retry">Retry</string>
     <string name="yt_detail_no_tracks">No songs available</string>
+    <string name="yt_detail_no_tracks_body">There are no tracks available for this collection.</string>
     <string name="yt_detail_popular_tracks">Popular songs</string>
     <string name="yt_detail_albums">Albums</string>
     <string name="yt_detail_singles_eps">Singles &amp; EPs</string>

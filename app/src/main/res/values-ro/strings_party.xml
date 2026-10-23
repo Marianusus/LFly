@@ -51,4 +51,14 @@
         <item quantity="one">%d oaspete</item>
         <item quantity="other">%d oaspeți</item>
     </plurals>
+    <string name="party_ready">Gata de început</string>
+    <string name="party_waiting_guests">Se așteaptă oaspeți</string>
+    <string name="party_tap_copy">Atinge pentru a copia</string>
+    <string name="party_live">LIVE</string>
+    <string name="party_create_hint">Creează o sesiune și invită pe cine vrei.</string>
+    <plurals name="party_listening_count">
+        <item quantity="one">%1$d oaspete ascultă</item>
+        <item quantity="few">%1$d oaspeți ascultă</item>
+        <item quantity="other">%1$d de oaspeți ascultă</item>
+    </plurals>
 </resources>

@@ -308,7 +308,7 @@ class MusicRepositoryTest {
         assertTrue(isDisliked)
         assertTrue(repository.isDisliked("t1"))
         assertFalse("Disliking track must automatically remove it from favorites", repository.isFavorite("t1"))
-        assertTrue("Disliked artists should include Artist A", repository.dislikedArtists.value.contains("artista"))
+        assertTrue("Disliked artists should include Artist A", repository.dislikedArtists.value.contains("artist a"))
     }
 
     @Test

@@ -85,10 +85,14 @@ import coil.compose.AsyncImage
 import org.sonora.android.R
 import org.sonora.android.api.HighlightMode
 import org.sonora.android.api.Lyrics
+import org.sonora.android.api.lyrics.sources.LyricsProviderState
+import org.sonora.android.api.lyrics.sources.LyricsSource
 import org.sonora.android.api.Track
+import org.sonora.android.playback.DownloadProgress
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.playback.RepeatMode
 import org.sonora.android.ui.components.MarqueeText
+import org.sonora.android.ui.components.DownloadIconButton
 import org.sonora.android.ui.components.SourceSwitchMenuItems
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.theme.AmoledBlack
@@ -128,6 +132,8 @@ fun PlayerScreen(
     onToggleRepeat: () -> Unit,
     onToggleFavorite: (Track) -> Unit,
     onToggleDislike: (Track) -> Unit = {},
+    downloadProgress: DownloadProgress = DownloadProgress(),
+    onToggleDownload: (Track) -> Unit = {},
     onAddToPlaylist: (Track) -> Unit = {},
     onAddToQueue: (Track) -> Unit = {},
     onPlayNextTrack: (Track) -> Unit = {},
@@ -149,6 +155,9 @@ fun PlayerScreen(
     onToggleMusixmatch: (Boolean) -> Unit = {},
     lrclibEnabled: Boolean = true,
     onToggleLrclib: (Boolean) -> Unit = {},
+    activeLyricsSource: LyricsSource? = null,
+    lyricsProviderStates: Map<LyricsSource, LyricsProviderState> = emptyMap(),
+    onSelectLyricsSource: (LyricsSource?) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
@@ -599,6 +608,16 @@ fun PlayerScreen(
                                     }
                             )
                         }
+
+                        if (!currentTrack.provider.equals("Local", ignoreCase = true)) {
+                            DownloadIconButton(
+                                progress = downloadProgress,
+                                onClick = { onToggleDownload(currentTrack) },
+                                buttonSize = 48.dp,
+                                iconSize = 26.dp,
+                                accent = scheme.accent
+                            )
+                        }
                     }
                 }
 
@@ -872,6 +891,9 @@ fun PlayerScreen(
                     onToggleMusixmatch = onToggleMusixmatch,
                     lrclibEnabled = lrclibEnabled,
                     onToggleLrclib = onToggleLrclib,
+                    activeSource = activeLyricsSource,
+                    providerStates = lyricsProviderStates,
+                    onSelectLyricsSource = onSelectLyricsSource,
                     onSeekTo = onSeekTo,
                     onPlayPause = onPlayPause,
                     onPlayPrevious = onPlayPrevious,

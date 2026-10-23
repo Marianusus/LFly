@@ -125,7 +125,7 @@ object CoverPalette {
     }
 
     fun fallback(): CoverAccent = CoverAccent(
-        primary = BackgroundSchemeFactory.FallbackViolet,
+        primary = BackgroundSchemeFactory.FallbackEmerald,
         secondary = BackgroundSchemeFactory.FallbackBlue
     )
 }

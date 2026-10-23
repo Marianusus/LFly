@@ -27,6 +27,24 @@ class EuropeChartsClientTest {
     }
 
     @Test
+    fun parseAppleChartEntries_keepsOrderAndSkipsInvalidRows() {
+        val json = """
+            {"feed":{"results":[
+              {"name":"Uno","artistName":"A"},
+              {"name":"","artistName":"Skip"},
+              {"name":"Due","artistName":"B"},
+              {"artistName":"Skip"}
+            ]}}
+        """.trimIndent()
+
+        val entries = EuropeChartsClient.parseAppleChartEntries(json)
+
+        assertEquals(2, entries.size)
+        assertEquals("Uno", entries[0].title)
+        assertEquals("Due", entries[1].title)
+    }
+
+    @Test
     fun parseAppleChartEntry_fallsBackTo60pxArtwork() {
         val json = """{"feed":{"results":[{"name":"A","artistName":"B","artworkUrl60":"https://example.com/s.jpg"}]}}"""
 
@@ -56,6 +74,14 @@ class EuropeChartsClientTest {
         assertEquals("Sfera Ebbasta", a.artist)
         assertEquals(EuropeChartsClient.PROVIDER, a.provider)
         assertNull("no stream url; resolved lazily", a.streamUrl)
+        assertEquals(listOf("Sfera Ebbasta"), a.artists?.map { it.name })
+    }
+
+    @Test
+    fun buildTrack_keepsCommaBandNamesIntact() {
+        val entry = AppleChartEntry("September", "Earth, Wind & Fire", null)
+        val track = EuropeChartsClient.buildTrack(italy, entry)
+        assertEquals(listOf("Earth, Wind & Fire"), track.artists?.map { it.name })
     }
 
     @Test

@@ -20,9 +20,19 @@ import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import org.sonora.android.ui.theme.LocalBackgroundScheme
 
-/** Only HTTP(S) URLs are usable by the image loader; anything else is treated as absent. */
-fun String?.asHttpImageUrlOrNull(): String? =
-    this?.trim()?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+/**
+ * Normalizes cover values for Coil: HTTP(S), content:// and local files are valid,
+ * while empty/unknown schemes are treated as absent.
+ */
+fun String?.asImageUrlOrNull(): String? {
+    val raw = this?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return when {
+        raw.startsWith("http://") || raw.startsWith("https://") -> raw
+        raw.startsWith("file://") || raw.startsWith("content://") -> raw
+        raw.startsWith("/") -> "file://$raw"
+        else -> null
+    }
+}
 
 /**
  * Fixed-size track thumbnail with a deterministic fallback chain:
@@ -40,7 +50,7 @@ fun TrackThumb(
     contentDescription: String? = null
 ) {
     val scheme = LocalBackgroundScheme.current
-    val resolved = url.asHttpImageUrlOrNull() ?: fallbackUrl.asHttpImageUrlOrNull()
+    val resolved = url.asImageUrlOrNull() ?: fallbackUrl.asImageUrlOrNull()
 
     Box(
         modifier = modifier

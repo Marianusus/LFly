@@ -32,10 +32,16 @@ fun SonoraBackground(
     val mode = LocalAppearanceMode.current
     val motion = LocalMotionPreferences.current
     val userAccent = LocalUserAccent.current
-    val accent = if (mode.isDynamic) rememberCoverAccent(coverUrl) else null
-    val scheme = remember(mode, accent, userAccent) {
+    val coverAccent = if (mode.isDynamic) rememberCoverAccent(coverUrl) else null
+    val scheme = remember(mode, coverAccent, userAccent) {
         if (mode.isDynamic) {
-            BackgroundSchemeFactory.build(mode, accent?.primary, accent?.secondary)
+            // Cover-derived accent when available; otherwise the user's chosen accent,
+            // so a dynamic theme never falls back to a stray default colour.
+            BackgroundSchemeFactory.build(
+                mode,
+                coverAccent?.primary ?: userAccent,
+                coverAccent?.secondary ?: userAccent
+            )
         } else {
             BackgroundSchemeFactory.build(mode, userAccent, userAccent)
         }

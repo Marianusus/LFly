@@ -227,7 +227,7 @@ open class SpotifyDataExportImporter(
     private fun fallbackId(title: String, artist: String): String =
         Integer.toHexString("${title.lowercase().trim()}|${artist.lowercase().trim()}".hashCode())
 
-    private fun buildTrack(raw: SpotifyRawTrack): Track {
+    internal fun buildTrack(raw: SpotifyRawTrack): Track {
         val rawId = raw.id.substringAfterLast(':').trim()
         val stableId = if (rawId.isNotBlank()) "spotify_$rawId" else "spotify_${fallbackId(raw.title, raw.artist)}"
         return Track(
@@ -238,7 +238,8 @@ open class SpotifyDataExportImporter(
             durationMs = raw.durationMs,
             coverUrl = raw.coverUrl,
             streamUrl = null,
-            provider = "Spotify"
+            provider = "Spotify",
+            artists = ArtistCredits.fromText(raw.artist).takeIf { it.isNotEmpty() }
         )
     }
 }
