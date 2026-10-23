@@ -14,10 +14,10 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 > **Download:** grab the latest APK from the [**Releases**](https://github.com/Marianusus/LFly/releases/latest) page — or install directly:
 >
 > ```bash
-> adb install -r LFly-v1.1.apk
+> adb install -r "Sonora Version 1.3.apk"
 > ```
 >
-> Android 8.0+ (API 26). Debug-signed build (package `org.sonora.android`).
+> Android 8.0+ (API 26). Debug-signed build (package `org.sonora.android`). Full release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
