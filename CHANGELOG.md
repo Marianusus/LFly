@@ -1,12 +1,12 @@
 # Changelog
 
-All notable changes to **LFly / Sonora Android** (`org.sonora.android`).
+All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
 ## [1.3] — 2026-10-23
 
-**Sonora Version 1.3** · `versionCode 3` · `minSdk 26` / `targetSdk 35` · 502 unit tests green.
+**LFly v1.3** · `versionCode 3` · `minSdk 26` / `targetSdk 35` · 502 unit tests green.
 
 This release rolls up everything built since **v1.1**: the Now Playing V2 redesign, the new Home, editorial library collections, the offline-lyrics manager, multi-artist/search work, the BitChord-style queue and menus, real Liquid Glass chrome, and a large batch of playback and stability fixes.
 
@@ -96,7 +96,7 @@ This release rolls up everything built since **v1.1**: the Now Playing V2 redesi
 ### Install
 
 ```bash
-adb install -r "Sonora-Version-1.3.apk"
+adb install -r "LFly-v1.3.apk"
 ```
 
 ### Known limitations
