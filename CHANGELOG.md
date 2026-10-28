@@ -21,7 +21,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 ### Install
 
 ```bash
-adb uninstall org.sonora.android   # only when upgrading from v1.3 debug
+adb uninstall org.sonora.android   # only when upgrading from a debug build (v1.0–v1.3)
 adb install -r "LFly-v1.3.1.apk"          # universal
 adb install -r "LFly-v1.3.1-arm64.apk"    # smaller, arm64 phones
 ```
