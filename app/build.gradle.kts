@@ -1,8 +1,19 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
+}
+val abiFilter = providers.gradleProperty("abiFilter").orNull
 
 android {
     namespace = "org.sonora.android"
@@ -12,15 +23,42 @@ android {
         applicationId = "org.sonora.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.3"
+        versionCode = 4
+        versionName = "1.3.1"
+
+        if (!abiFilter.isNullOrBlank()) {
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(abiFilter.split(",").map { it.trim() })
+            }
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -39,6 +77,11 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 

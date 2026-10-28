@@ -4,7 +4,31 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.3.1] — 2026-10-28
+
+**Release-signing build** — recommended over v1.3.
+
+- **New release signing key**: RSA 4096, certificate SHA-256 `c3052d60d391f706351f16074900d5b3790ea67cf4250aa2548475438c7c1644`, separate from the Android debug key.
+- `assembleRelease` with `debuggable=false`; APK Signature Scheme **v1 + v2 + v3**.
+- **`useLegacyPackaging`** for native libraries: smaller, more compatible APKs.
+- **Two assets**:
+  - `LFly-v1.3.1.apk` — universal, **50,652,372 bytes**, SHA-256 `2b046deebeefe52480e5c544501b5cf6b3446118de5d4b4d671f9af8bfffa160`
+  - `LFly-v1.3.1-arm64.apk` — arm64-v8a only, **28,799,477 bytes**, SHA-256 `52b8d18b6b2b0d364fc7a007cd6709970abbac3f0c933c60b24c16a47d5fdee0`
+- **Breaking for v1.3 debug users**: uninstall `org.sonora.android` before installing v1.3.1; the signing key changed. Uninstalling removes app data (favorites, downloads, history). New installs are unaffected.
+- Same feature set as v1.3. `versionCode 4` / `versionName 1.3.1`.
+- **502 unit tests green**; release APK verified with `apksigner` (v1/v2/v3) and `zipalign`.
+
+### Install
+
+```bash
+adb uninstall org.sonora.android   # only when upgrading from v1.3 debug
+adb install -r "LFly-v1.3.1.apk"          # universal
+adb install -r "LFly-v1.3.1-arm64.apk"    # smaller, arm64 phones
+```
+
 ## [1.3] — 2026-10-23
+
+> **Superseded by 1.3.1.** v1.3 is debug-signed; uninstall it before installing v1.3.1.
 
 **LFly v1.3** · `versionCode 3` · `minSdk 26` / `targetSdk 35` · 502 unit tests green.
 
