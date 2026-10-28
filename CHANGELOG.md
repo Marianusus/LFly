@@ -14,7 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - **Two assets**:
   - `LFly-v1.3.1.apk` — universal, **50,652,372 bytes**, SHA-256 `2b046deebeefe52480e5c544501b5cf6b3446118de5d4b4d671f9af8bfffa160`
   - `LFly-v1.3.1-arm64.apk` — arm64-v8a only, **28,799,477 bytes**, SHA-256 `52b8d18b6b2b0d364fc7a007cd6709970abbac3f0c933c60b24c16a47d5fdee0`
-- **Breaking for v1.3 debug users**: uninstall `org.sonora.android` before installing v1.3.1; the signing key changed. Uninstalling removes app data (favorites, downloads, history). New installs are unaffected.
+- **Breaking for previous debug users (v1.0–v1.3)**: uninstall `org.sonora.android` before installing v1.3.1; the signing key changed. Uninstalling removes app data (favorites, downloads, history). New installs are unaffected.
 - Same feature set as v1.3. `versionCode 4` / `versionName 1.3.1`.
 - **502 unit tests green**; release APK verified with `apksigner` (v1/v2/v3) and `zipalign`.
 

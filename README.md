@@ -18,7 +18,7 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 > adb install -r "LFly-v1.3.1-arm64.apk"    # smaller, arm64 phones
 > ```
 >
-> **Upgrading from v1.3 (debug-signed)?** Uninstall the old app once (`adb uninstall org.sonora.android`) before installing v1.3.1; it uses a new release signing key. Uninstalling removes app data.
+> **Upgrading from a previous debug-signed build (v1.0–v1.3)?** Uninstall the old app once (`adb uninstall org.sonora.android`) before installing v1.3.1; it uses a new release signing key. Uninstalling removes app data.
 >
 > Android 8.0+ (API 26). Release-signed build (package `org.sonora.android`). Full release notes: [CHANGELOG.md](CHANGELOG.md).
 
