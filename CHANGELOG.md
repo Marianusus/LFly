@@ -4,6 +4,44 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.3.2] — 2026-11-01
+
+**Reliability and player fixes** — recommended over v1.3.1. Updates directly over v1.3.1 and keeps your data.
+
+### Added
+
+- **Audio source choice on downloaded tracks**: the YouTube Music / Monochrome picker now also appears on downloaded and locally matched tracks. While online, a pinned source plays instead of the local copy; offline, the local copy keeps playing; Auto restores the local copy.
+
+### Changed
+
+- **Full player**: removed the collapse arrow and the top handle. Close the player with the Android Back button or gesture.
+
+### Fixed
+
+- **Library data protection**: favorites, playlists, history, stats, mixes, followed artists and the download list are synced to disk with a backup. An unreadable file is recovered from its backup and kept aside instead of being overwritten by the next save.
+- **Save order**: an older snapshot can no longer overwrite a newer one.
+- **Wrong track playing**: a slow artwork load from a previous request can no longer replace the track you just selected.
+- **Tap-through on the full player**: taps on empty areas no longer reach the screen underneath.
+- **Endless loading**: a connection lost mid-response now returns an error to search, lyrics and import calls.
+- **Service binding leak**: one long-lived connection instead of a new one per track.
+- **Prefetch**: the data source is closed on errors too.
+- **Party**: guests must introduce themselves before commands are accepted, and artwork from peers is limited to web URLs.
+
+### Assets
+
+- `LFly-v1.3.2.apk` — universal, **50,656,468 bytes**, SHA-256 `4a49711013dbb63203aaeabe493d91d440ec7e39be925943ad46120c748adc1d`
+- `LFly-v1.3.2-arm64.apk` — arm64-v8a only, **28,803,573 bytes**, SHA-256 `e704dfc5cb58b8f2a7739033dfb1b55e6486d08a86004ef3002948758f0196fb`
+- `versionCode 5` / `versionName 1.3.2`. **516 unit tests green**; release APKs verified with `apksigner` (v1/v2/v3) and `zipalign`.
+
+### Install
+
+```bash
+adb install -r "LFly-v1.3.2.apk"          # universal
+adb install -r "LFly-v1.3.2-arm64.apk"    # smaller, arm64 phones
+```
+
+Debug builds (v1.0–v1.3) still need the one-time uninstall described under 1.3.1.
+
 ## [1.3.1] — 2026-10-28
 
 **Release-signing build** — recommended over v1.3.
