@@ -25,6 +25,7 @@ import org.sonora.android.api.HttpClientProvider
 import org.sonora.android.api.StreamResolver
 import org.sonora.android.api.Track
 import org.sonora.android.api.lyrics.sources.LyricsSource
+import org.sonora.android.data.DurableJsonFile
 import org.sonora.android.data.MusicRepository
 import org.sonora.android.data.NetworkMonitor
 import java.io.File
@@ -616,10 +617,10 @@ object DownloadManager {
     private fun loadManifest() {
         val context = appContext ?: return
         val file = manifestFile(context)
-        if (!file.exists()) return
         try {
             val type = object : TypeToken<List<DownloadEntry>>() {}.type
-            val stored: List<DownloadEntry>? = gson.fromJson(file.readText(), type)
+            val stored: List<DownloadEntry>? =
+                DurableJsonFile.read(file) { json -> gson.fromJson<List<DownloadEntry>>(json, type) }
             entries.clear()
             stored.orEmpty().forEach { entry ->
                 entries[entry.track.id] = entry
@@ -633,11 +634,7 @@ object DownloadManager {
         val context = appContext ?: return
         try {
             val snapshot = entries.values.toList()
-            val target = manifestFile(context)
-            val temp = File(target.parentFile, "${target.name}.tmp")
-            temp.writeText(gson.toJson(snapshot))
-            if (target.exists()) target.delete()
-            temp.renameTo(target)
+            DurableJsonFile.write(manifestFile(context), gson.toJson(snapshot))
         } catch (e: Exception) {
             Log.w(TAG, "Unable to save download manifest: ${e.message}")
         }

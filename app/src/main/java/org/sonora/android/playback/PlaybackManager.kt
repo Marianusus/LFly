@@ -37,10 +37,13 @@ import java.util.concurrent.TimeUnit
 import org.sonora.android.R
 import org.sonora.android.api.DeezerClient
 import org.sonora.android.api.AudioQuality
+import org.sonora.android.api.PlaybackSource
 import org.sonora.android.api.StreamResolver
 import org.sonora.android.api.StreamSource
 import org.sonora.android.api.Track
+import org.sonora.android.api.TrackSourcePreferences
 import org.sonora.android.data.MusicRepository
+import org.sonora.android.data.NetworkMonitor
 import org.sonora.android.party.SyncEngine
 import java.io.File
 import android.media.MediaMetadataRetriever
@@ -48,6 +51,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Transport actions a Party guest forwards to its host instead of playing locally. */
 enum class PartyTransportAction { PLAY_PAUSE, PLAY, PAUSE, NEXT, PREVIOUS, SEEK }
@@ -95,6 +100,17 @@ class PlaybackManager private constructor(private val context: Context) {
          * dislikes, history and the queue all key off [track]'s id, so swapping it for the
          * local track made the player heart look at an id that was never favorited.
          */
+        internal fun isLocalStreamUrl(url: String?): Boolean =
+            url != null && (url.startsWith("/") || url.startsWith("file://"))
+
+        /** Offline the local copy keeps playing: a pinned source must never silence a download. */
+        internal fun shouldStreamPinnedSource(
+            trackId: String,
+            pinnedSource: PlaybackSource?,
+            isOnline: Boolean
+        ): Boolean = pinnedSource != null && isOnline &&
+            (trackId.startsWith("yt_") || trackId.startsWith("spotify_"))
+
         internal fun playableTrackFor(
             track: Track,
             localMatch: Track?,
@@ -166,6 +182,9 @@ class PlaybackManager private constructor(private val context: Context) {
 
     // Guard to prevent concurrent autoplay recommendation queries
     private var isFetchingAutoplay = false
+
+    // Identifies the newest playback request
+    private val playRequestCounter = AtomicLong()
 
     // Position updater ticker
     private var positionTickerJob: Job? = null
@@ -398,14 +417,27 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     private fun ensureServiceStarted() {
+        if (!serviceBindRequested.compareAndSet(false, true)) return
         try {
             val intent = Intent(context, SonoraMediaSessionService::class.java)
-            context.bindService(intent, object : android.content.ServiceConnection {
-                override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {}
-                override fun onServiceDisconnected(name: android.content.ComponentName?) {}
-            }, Context.BIND_AUTO_CREATE)
+            if (!context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)) {
+                serviceBindRequested.set(false)
+                Log.w(TAG, "SonoraMediaSessionService refused the binding")
+            }
         } catch (e: Exception) {
+            serviceBindRequested.set(false)
             Log.e(TAG, "Failed binding SonoraMediaSessionService", e)
+        }
+    }
+
+    /** One long-lived connection: a new one per track would stay bound for the process lifetime. */
+    private val serviceBindRequested = AtomicBoolean(false)
+    private val serviceConnection = object : android.content.ServiceConnection {
+        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {}
+        override fun onServiceDisconnected(name: android.content.ComponentName?) {}
+        override fun onBindingDied(name: android.content.ComponentName?) {
+            runCatching { context.unbindService(this) }
+            serviceBindRequested.set(false)
         }
     }
 
@@ -1124,6 +1156,12 @@ class PlaybackManager private constructor(private val context: Context) {
         resumePositionMs: Long = 0L,
         forceSource: org.sonora.android.api.PlaybackSource? = null
     ) {
+        // Only the newest request may reach the player: resolution and artwork take seconds, and
+        // the listener can move to another track (or retry this one) in the meantime.
+        val requestId = playRequestCounter.incrementAndGet()
+        val isSuperseded = {
+            requestId != playRequestCounter.get() || _playbackState.value.currentTrack?.id != track.id
+        }
         managerScope.launch {
             try {
                 _playbackState.update { it.copy(isLoading = !hasResolvedStream(track), error = null) }
@@ -1148,8 +1186,15 @@ class PlaybackManager private constructor(private val context: Context) {
                     }
                 }
 
+                // A source the listener pinned on this track wins over a local copy while online.
+                val pinnedToStream = shouldStreamPinnedSource(
+                    trackId = track.id,
+                    pinnedSource = TrackSourcePreferences.overrideFor(track.id),
+                    isOnline = NetworkMonitor.isOnline.value
+                )
+
                 // 0. Check local fast-path (yt-dlp downloaded tracks on device storage)
-                val isDirectLocal = !track.streamUrl.isNullOrBlank() && (
+                val isDirectLocal = !pinnedToStream && !track.streamUrl.isNullOrBlank() && (
                     track.provider.equals("Local", ignoreCase = true) ||
                     track.streamUrl.startsWith("/") ||
                     track.streamUrl.startsWith("file://") ||
@@ -1159,10 +1204,11 @@ class PlaybackManager private constructor(private val context: Context) {
                 // Exact offline download mapping (independent of fuzzy title/artist matching).
                 // When an exact download exists we skip the fuzzy scan: the download already
                 // owns the audio file and the catalog identity must not be replaced.
-                val downloadedPath = if (isDirectLocal) null else DownloadManager.localPathFor(track.id)
-                val localTrackMatch = if (!isDirectLocal && downloadedPath == null) {
+                val downloadedPath = if (isDirectLocal || pinnedToStream) null else DownloadManager.localPathFor(track.id)
+                val localTrackMatch = if (!isDirectLocal && !pinnedToStream && downloadedPath == null) {
                     musicRepository.findLocalTrack(track.title, track.artist)
                 } else null
+                val rememberedStreamUrl = track.streamUrl.takeUnless { pinnedToStream && isLocalStreamUrl(it) }
 
                 val localAudioPath = when {
                     isDirectLocal -> track.streamUrl
@@ -1180,8 +1226,8 @@ class PlaybackManager private constructor(private val context: Context) {
                 val streamUrl = if (localAudioPath != null) {
                     Log.i(TAG, "Using local fast-path for '${track.title}': $localAudioPath")
                     localAudioPath
-                } else if (!forceRefresh && !track.streamUrl.isNullOrBlank() && !isDeezerPreview) {
-                    track.streamUrl
+                } else if (!forceRefresh && !rememberedStreamUrl.isNullOrBlank() && !isDeezerPreview) {
+                    rememberedStreamUrl
                 } else {
                     // Check if an in-flight prefetch job is already resolving this track
                     val inFlightJob = activePrefetchJobs[track.id]
@@ -1193,6 +1239,7 @@ class PlaybackManager private constructor(private val context: Context) {
                     // Check if queue track was updated by prefetch job
                     val currentInQueue = _playbackState.value.queue.find { it.id == track.id }
                     val currentUrl = currentInQueue?.streamUrl
+                        ?.takeUnless { pinnedToStream && isLocalStreamUrl(it) }
                     val isCurrPreview = isPreviewUrl(currentUrl) ||
                             currentInQueue?.provider.equals("Deezer", ignoreCase = true)
 
@@ -1214,7 +1261,7 @@ class PlaybackManager private constructor(private val context: Context) {
                 }
 
                 // Discard a resolution that finished after the user switched track.
-                if (_playbackState.value.currentTrack?.id != track.id) {
+                if (isSuperseded()) {
                     Log.d(TAG, "Discarding stale resolution for '${track.title}' (${track.id})")
                     return@launch
                 }
@@ -1269,7 +1316,15 @@ class PlaybackManager private constructor(private val context: Context) {
                     resolvedCoverUrl = resolvedCoverUrl,
                     localCoverUrl = localCoverUrl,
                     isResolvedLocal = isResolvedLocal
-                )
+                ).let { playable ->
+                    // Leaving a local copy: the track must stop presenting itself as Local.
+                    val streamedProvider = resolvedProvider
+                    if (pinnedToStream && streamedProvider != null) {
+                        playable.copy(provider = streamedProvider)
+                    } else {
+                        playable
+                    }
+                }
                 _playbackState.update { state ->
                     val updatedQueue = state.queue.toMutableList()
                     val idx = updatedQueue.indexOfFirst { it.id == playableTrack.id }
@@ -1295,6 +1350,12 @@ class PlaybackManager private constructor(private val context: Context) {
                             retriever.release()
                         }
                     }.getOrNull()
+                }
+
+                // The artwork wait above can outlast a track switch.
+                if (isSuperseded()) {
+                    Log.d(TAG, "Discarding stale playback for '${track.title}' (${track.id})")
+                    return@launch
                 }
 
                 // 2. Prepare Media3 ExoPlayer with MediaItem metadata and front cover artwork

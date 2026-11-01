@@ -177,7 +177,6 @@ fun PlayerScreenV2(
     lyrics: Lyrics?,
     isLoadingLyrics: Boolean,
     isLyricsOpen: Boolean,
-    onCollapse: () -> Unit,
     onPlayPause: () -> Unit,
     onPlayNext: () -> Unit,
     onPlayPrevious: () -> Unit,
@@ -289,6 +288,8 @@ fun PlayerScreenV2(
             .fillMaxSize()
             .then(sharedSurfaceModifier)
             .clipToBounds()
+            // The player is an overlay: a tap on an empty spot must not reach the screen below.
+            .pointerInput(Unit) {}
             .background(
                 Brush.verticalGradient(
                     0f to gradient.top,
@@ -393,17 +394,6 @@ fun PlayerScreenV2(
                         )
                     )
             )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { alpha = (1f - queueSlide) * playerChromeAlpha }
-            ) {
-                PlayerTopBar(
-                    ink = ink,
-                    onCollapse = onCollapse
-                )
-            }
 
             Column(
                 modifier = Modifier
@@ -747,43 +737,6 @@ private fun QueueHeaderControls(
                 painter = painterResource(R.drawable.convx_more),
                 contentDescription = stringResource(R.string.queue_track_options_content_description),
                 tint = Color.White.copy(alpha = 0.75f)
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlayerTopBar(
-    ink: Color,
-    onCollapse: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(top = 8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .width(44.dp)
-                .height(5.dp)
-                .clip(RoundedCornerShape(50))
-                .background(ink.copy(alpha = 0.38f))
-                .clickable(onClick = onCollapse)
-        )
-        IconButton(
-            onClick = onCollapse,
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 8.dp)
-                .size(42.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = stringResource(R.string.player_collapse_desc),
-                tint = ink,
-                modifier = Modifier.size(28.dp)
             )
         }
     }

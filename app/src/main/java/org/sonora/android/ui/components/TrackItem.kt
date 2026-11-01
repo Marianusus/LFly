@@ -109,8 +109,7 @@ fun TrackItem(
 ) {
     // The source switch only makes sense for tracks resolved through Monochrome / YouTube Music.
     val sourceSwitchable = sourceActions != null &&
-        (track.id.startsWith("yt_") || track.id.startsWith("spotify_")) &&
-        !track.provider.equals("Local", ignoreCase = true)
+        (track.id.startsWith("yt_") || track.id.startsWith("spotify_"))
 
     // App-managed local files can be deleted from disk via the options menu.
     val downloadUi = LocalDownloadUi.current

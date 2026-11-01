@@ -21,6 +21,15 @@ class PartyProtocolTest {
     )
 
     @Test
+    fun peerTrackKeepsWebCoverButDropsLocalPaths() {
+        val peer = PartyTrack.from(track)
+
+        assertEquals("https://example.com/cover.jpg", peer.toTrack().coverUrl)
+        assertNull(peer.copy(coverUrl = "/dev/zero").toTrack().coverUrl)
+        assertNull(peer.copy(coverUrl = "file:///data/data/x/favorites.json").toTrack().coverUrl)
+    }
+
+    @Test
     fun helloRoundTrips() {
         val decoded = PartyProtocol.decode(PartyProtocol.encode(PartyMessage.Hello("Marian")))
         assertEquals(PartyMessage.Hello("Marian"), decoded)

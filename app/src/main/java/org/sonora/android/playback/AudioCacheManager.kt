@@ -158,16 +158,19 @@ object AudioCacheManager {
                 .setLength(bytesToPrefetch)
                 .build()
 
-            dataSource.open(dataSpec)
-            val buffer = ByteArray(32 * 1024)
             var totalRead = 0L
-            while (totalRead < bytesToPrefetch) {
-                val toRead = minOf(buffer.size.toLong(), bytesToPrefetch - totalRead).toInt()
-                val read = dataSource.read(buffer, 0, toRead)
-                if (read == C.RESULT_END_OF_INPUT || read <= 0) break
-                totalRead += read
+            try {
+                dataSource.open(dataSpec)
+                val buffer = ByteArray(32 * 1024)
+                while (totalRead < bytesToPrefetch) {
+                    val toRead = minOf(buffer.size.toLong(), bytesToPrefetch - totalRead).toInt()
+                    val read = dataSource.read(buffer, 0, toRead)
+                    if (read == C.RESULT_END_OF_INPUT || read <= 0) break
+                    totalRead += read
+                }
+            } finally {
+                dataSource.close()
             }
-            dataSource.close()
             Log.i(TAG, "✓ Prefetched $totalRead bytes into SimpleCache for $url")
         } catch (e: Exception) {
             Log.w(TAG, "Prefetch error for $url: ${e.message}")

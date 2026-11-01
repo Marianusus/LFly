@@ -26,7 +26,10 @@ data class PartyTrack(
         artist = artist,
         album = album,
         durationMs = durationMs,
-        coverUrl = coverUrl,
+        // Peer input: playback reads local paths as artwork, so accept web URLs only.
+        coverUrl = coverUrl?.takeIf {
+            it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
+        },
         streamUrl = null,
         provider = provider
     )

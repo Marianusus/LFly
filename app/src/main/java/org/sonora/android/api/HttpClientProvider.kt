@@ -134,7 +134,16 @@ object HttpClientProvider {
                                     )
                                 }
                             } else {
-                                val body = resp.body?.string()
+                                // OkHttp ignores an IOException thrown from onResponse, so a
+                                // connection lost mid-body must resume the caller here.
+                                val body = try {
+                                    resp.body?.string()
+                                } catch (e: IOException) {
+                                    if (continuation.isActive) {
+                                        continuation.resumeWith(Result.success(Result.failure(e)))
+                                    }
+                                    return
+                                }
                                 if (body == null) {
                                     if (continuation.isActive) {
                                         continuation.resumeWith(

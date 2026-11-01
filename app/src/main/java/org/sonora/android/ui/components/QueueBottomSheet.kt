@@ -1024,8 +1024,7 @@ private fun UpcomingQueueItem(
                     }
                 )
                 if (sourceActions != null &&
-                    (track.id.startsWith("yt_") || track.id.startsWith("spotify_")) &&
-                    !track.provider.equals("Local", ignoreCase = true)
+                    (track.id.startsWith("yt_") || track.id.startsWith("spotify_"))
                 ) {
                     SourceSwitchMenuItems(
                         sourceOverride = sourceActions.overrideFor(track.id),

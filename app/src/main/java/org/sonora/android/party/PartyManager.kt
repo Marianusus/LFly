@@ -312,6 +312,8 @@ class PartyManager private constructor(private val context: Context) {
     // ── Message handling ─────────────────────────────────────────────────────
 
     private fun handleHostMessage(endpointId: String, message: PartyMessage) {
+        // A peer must introduce itself before anything else is honoured.
+        if (message !is PartyMessage.Hello && guests.none { it.endpointId == endpointId }) return
         when (message) {
             is PartyMessage.Hello -> {
                 val existing = guests.firstOrNull { it.endpointId == endpointId }

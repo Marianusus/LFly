@@ -581,7 +581,7 @@ fun MainScreen(
                 add(action(Icons.Default.Equalizer, menuContext.getString(R.string.player_equalizer_dsp)) { viewModel.openEqualizerDialog() })
             }))
             if (trackSourceActions != null &&
-                (track.id.startsWith("yt_") || track.id.startsWith("spotify_")) && !isLocal
+                (track.id.startsWith("yt_") || track.id.startsWith("spotify_"))
             ) {
                 val override = trackSourceActions.overrideFor(track.id)
                 add(HeldTrackMenuGroup(buildList {
@@ -1496,7 +1496,6 @@ fun MainScreen(
                     lyrics = lyrics,
                     isLoadingLyrics = isLoadingLyrics,
                     isLyricsOpen = isLyricsOpen,
-                    onCollapse = { viewModel.setPlayerExpanded(false) },
                     onPlayPause = { viewModel.togglePlayPause() },
                     onPlayNext = { viewModel.playNext() },
                     onPlayPrevious = { viewModel.playPrevious() },

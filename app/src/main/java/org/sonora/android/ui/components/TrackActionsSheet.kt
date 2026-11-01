@@ -413,8 +413,7 @@ private fun TrackActionsContent(
     }
 
     if (sourceActions != null &&
-        (track.id.startsWith("yt_") || track.id.startsWith("spotify_")) &&
-        !isLocal
+        (track.id.startsWith("yt_") || track.id.startsWith("spotify_"))
     ) {
         GroupDivider(scheme)
         Text(

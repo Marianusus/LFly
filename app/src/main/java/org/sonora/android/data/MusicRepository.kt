@@ -26,6 +26,7 @@ import org.sonora.android.ui.theme.ThemeStyle
 import androidx.compose.ui.graphics.toArgb
 import android.media.MediaMetadataRetriever
 import java.io.File
+import java.lang.reflect.Type
 
 /**
  * Repository managing persistent local data: favorites, play history, and user playlists.
@@ -84,7 +85,9 @@ class MusicRepository(
     private val baseFilesDir: File?
         get() = storageDir ?: try { context.filesDir } catch (_: Exception) { null }
 
-    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // Serial dispatch: saves start in the order they were requested, so an older snapshot can
+    // never overwrite a newer one. Disk work still runs on Dispatchers.IO.
+    private val repositoryScope = CoroutineScope(Dispatchers.IO.limitedParallelism(1) + SupervisorJob())
     private val gson: Gson = HttpClientProvider.gson
     private val prefs by lazy {
         context.getSharedPreferences(PREF_SONORA, Context.MODE_PRIVATE)
@@ -505,10 +508,9 @@ class MusicRepository(
         favoritesMutex.withLock {
             try {
                 val file = File(dir, FILE_FAVORITES)
-                if (file.exists()) {
-                    val json = file.readText()
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<Track>>() {}.type
-                    val list: List<Track>? = gson.fromJson(json, type)
+                    val list: List<Track>? = readDurable(file, type)
                     if (list != null) {
                         synchronized(this@MusicRepository) {
                             val inMemoryIds = _favorites.value.map { it.id }.toSet()
@@ -574,10 +576,9 @@ class MusicRepository(
         historyMutex.withLock {
             try {
                 val file = File(dir, FILE_HISTORY)
-                if (file.exists()) {
-                    val json = file.readText()
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<Track>>() {}.type
-                    val list: List<Track>? = gson.fromJson(json, type)
+                    val list: List<Track>? = readDurable(file, type)
                     _history.value = list ?: emptyList()
                     Log.i(TAG, "Loaded ${_history.value.size} history tracks")
                 }
@@ -1000,10 +1001,9 @@ class MusicRepository(
         playlistsMutex.withLock {
             try {
                 val file = File(dir, FILE_PLAYLISTS)
-                if (file.exists()) {
-                    val json = file.readText()
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<Playlist>>() {}.type
-                    val rawList: List<Playlist>? = gson.fromJson(json, type)
+                    val rawList: List<Playlist>? = readDurable(file, type)
                     if (rawList != null) {
                         // Idempotent migration: strip runtime stream URLs and stabilize ids.
                         val migrated = rawList.map { migratePlaylist(it) }
@@ -1102,10 +1102,9 @@ class MusicRepository(
         dislikedMutex.withLock {
             try {
                 val file = File(dir, FILE_DISLIKED)
-                if (file.exists()) {
-                    val json = file.readText()
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<Track>>() {}.type
-                    val list: List<Track>? = gson.fromJson(json, type)
+                    val list: List<Track>? = readDurable(file, type)
                     if (list != null) {
                         synchronized(this@MusicRepository) {
                             _dislikedTracks.value = list
@@ -1243,10 +1242,9 @@ class MusicRepository(
         playStatsMutex.withLock {
             try {
                 val file = File(dir, FILE_PLAY_STATS)
-                if (file.exists()) {
-                    val json = file.readText()
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<PlayStat>>() {}.type
-                    val list: List<PlayStat>? = gson.fromJson(json, type)
+                    val list: List<PlayStat>? = readDurable(file, type)
                     if (list != null) {
                         synchronized(this@MusicRepository) { _playStats.value = list }
                     }
@@ -1386,9 +1384,9 @@ class MusicRepository(
         mixesMutex.withLock {
             try {
                 val file = File(dir, FILE_MIXES)
-                if (file.exists()) {
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<Mix>>() {}.type
-                    val list: List<Mix>? = gson.fromJson(file.readText(), type)
+                    val list: List<Mix>? = readDurable(file, type)
                     if (list != null) {
                         synchronized(this@MusicRepository) { _mixes.value = list }
                     }
@@ -1432,9 +1430,9 @@ class MusicRepository(
         playlistPlayStatsMutex.withLock {
             try {
                 val file = File(dir, FILE_PLAYLIST_STATS)
-                if (file.exists()) {
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<PlaylistPlayStat>>() {}.type
-                    val list: List<PlaylistPlayStat>? = gson.fromJson(file.readText(), type)
+                    val list: List<PlaylistPlayStat>? = readDurable(file, type)
                     if (list != null) {
                         synchronized(this@MusicRepository) { _playlistPlayStats.value = list }
                     }
@@ -1739,10 +1737,9 @@ class MusicRepository(
         followedArtistsMutex.withLock {
             try {
                 val file = File(dir, FILE_FOLLOWED_ARTISTS)
-                if (file.exists()) {
-                    val json = file.readText()
+                if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
                     val type = object : TypeToken<List<FollowedArtist>>() {}.type
-                    val list: List<FollowedArtist>? = gson.fromJson(json, type)
+                    val list: List<FollowedArtist>? = readDurable(file, type)
                     if (list != null) {
                         synchronized(this@MusicRepository) { _followedArtists.value = list }
                     }
@@ -1757,14 +1754,7 @@ class MusicRepository(
     private fun persistFollowedArtists(list: List<FollowedArtist>): Boolean = try {
         val dir = baseFilesDir ?: return false
         if (!dir.exists()) dir.mkdirs()
-        val json = gson.toJson(list)
-        val tempFile = File(dir, "$FILE_FOLLOWED_ARTISTS.tmp")
-        val targetFile = File(dir, FILE_FOLLOWED_ARTISTS)
-        tempFile.writeText(json)
-        if (!tempFile.renameTo(targetFile)) {
-            targetFile.writeText(json)
-            tempFile.delete()
-        }
+        DurableJsonFile.write(File(dir, FILE_FOLLOWED_ARTISTS), gson.toJson(list))
         true
     } catch (e: Exception) {
         Log.e(TAG, "Failed writing $FILE_FOLLOWED_ARTISTS", e)
@@ -1786,19 +1776,12 @@ class MusicRepository(
         val dir = baseFilesDir ?: return@withContext
         try {
             if (!dir.exists()) dir.mkdirs()
-            val json = gson.toJson(data)
-            val tempFile = File(dir, "$fileName.tmp")
-            val targetFile = File(dir, fileName)
-
-            tempFile.writeText(json)
-            if (tempFile.renameTo(targetFile)) {
-                // Success atomic rename
-            } else {
-                targetFile.writeText(json)
-                tempFile.delete()
-            }
+            DurableJsonFile.write(File(dir, fileName), gson.toJson(data))
         } catch (e: Exception) {
             Log.e(TAG, "Failed writing $fileName to internal storage", e)
         }
     }
+
+    private fun <T> readDurable(file: File, type: Type): T? =
+        DurableJsonFile.read(file) { json -> gson.fromJson<T>(json, type) }
 }

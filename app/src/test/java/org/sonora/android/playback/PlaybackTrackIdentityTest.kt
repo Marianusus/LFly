@@ -1,7 +1,10 @@
 package org.sonora.android.playback
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.sonora.android.api.PlaybackSource
 import org.sonora.android.api.Track
 
 /**
@@ -10,6 +13,23 @@ import org.sonora.android.api.Track
  * `local_...` id made the player heart watch a different id than the one being toggled.
  */
 class PlaybackTrackIdentityTest {
+
+    @Test
+    fun `pinned source beats the local copy while online`() {
+        assertTrue(PlaybackManager.shouldStreamPinnedSource("yt_abc", PlaybackSource.MONOCHROME, isOnline = true))
+        assertTrue(PlaybackManager.shouldStreamPinnedSource("spotify_abc", PlaybackSource.YOUTUBE_MUSIC, isOnline = true))
+    }
+
+    @Test
+    fun `local copy keeps playing offline or without a pinned source`() {
+        assertFalse(PlaybackManager.shouldStreamPinnedSource("yt_abc", PlaybackSource.MONOCHROME, isOnline = false))
+        assertFalse(PlaybackManager.shouldStreamPinnedSource("yt_abc", null, isOnline = true))
+    }
+
+    @Test
+    fun `purely local tracks have no source to pin`() {
+        assertFalse(PlaybackManager.shouldStreamPinnedSource("local_abc", PlaybackSource.MONOCHROME, isOnline = true))
+    }
 
     private val catalogTrack = Track(
         id = "yt_abc",
