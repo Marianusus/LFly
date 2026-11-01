@@ -14,8 +14,8 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 > **Download:** grab the latest APK from the [**Releases**](https://github.com/Marianusus/LFly/releases/latest) page — or install directly:
 >
 > ```bash
-> adb install -r "LFly-v1.3.2.apk"          # universal
-> adb install -r "LFly-v1.3.2-arm64.apk"    # smaller, arm64 phones
+> adb install -r "LFly-v1.4.apk"          # universal
+> adb install -r "LFly-v1.4-arm64.apk"    # smaller, arm64 phones
 > ```
 >
 > **Upgrading from a previous debug-signed build (v1.0–v1.3)?** Uninstall the old app once (`adb uninstall org.sonora.android`) before installing; release builds use a separate signing key. Uninstalling removes app data.
@@ -46,6 +46,8 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 - **Track info sheet** — the ⋯ menu opens an Audio-Output-style panel with artwork, album, release year, duration, plays, source, type and all track actions; the player's menu exposes the same panel as **Information**.
 - **Word‑level synced lyrics** — karaoke highlighting powered by Kugou (KRC) and LRCLIB, with **on‑device translation** via ML Kit.
 - **Background & lock‑screen playback** — a Media3 `MediaSessionService` with notification controls, Quick Settings tiles, Bluetooth/headset buttons and album art.
+- **Android Auto** — browse your library and search from the car, with the same queue and source choice as the phone. Installs outside Google Play need **Unknown sources** in Android Auto's developer settings.
+- **Ambient mode** — a StandBy-style landscape screen with the cover, a large clock and animated synced lyrics. Rotate the phone with the full player open, or use the ⋯ menu.
 - **Party — synchronized group listening** — start a session and nearby friends (Android + LFly) join by tapping the nearby list, a **QR code** or a **6‑character code**. Everyone hears the same track on their own headphones, with clock-synced playback, host-controlled guest permissions and a per-device headphone-delay nudge.
 - **Discover** — European Top Charts, full YouTube Music search (songs / videos / artists / albums / playlists) with typeahead completions, cover-backed recent entities/queries and explicit search confirmation, plus rich artist pages.
 - **Import** — Spotify playlist and data‑export importers.

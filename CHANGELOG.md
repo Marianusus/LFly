@@ -4,6 +4,41 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.4] — 2026-11-01
+
+**Android Auto, ambient mode and new settings.** Updates directly over v1.3.1 and v1.3.2 and keeps your data.
+
+### Added
+
+- **Android Auto**: browse Home, Favorites, Playlists and Downloads, with History, Charts and Mixes inside Home, plus search. Playback uses the same queue and source choice as the phone. Tested on the Desktop Head Unit, not in a real car. An APK installed outside Google Play needs **Unknown sources** in Android Auto's developer settings.
+- **Ambient mode**: a StandBy-style landscape screen with the cover, a large clock and animated synced lyrics. Open it by rotating the phone with the full player open, or from the ⋯ menu. The screen stays on while it is open.
+- **Rotation setting**: Settings → Appearance → *Open Ambient by rotating your phone*.
+- **Developer info** under Settings → General, with the app version read from the build.
+
+### Changed
+
+- **Settings**: rebuilt as an Apple-style grouped list. Options are unchanged. Tapping anywhere on a toggle row now switches it.
+- **Controllers**: stop from an external controller now pauses, and repeat and shuffle can no longer be changed from outside the app.
+
+### Fixed
+
+- **Search keyboard**: it closes when you pick a track and no longer appears over the full player or reopens when the screen is recreated.
+
+### Assets
+
+- `LFly-v1.4.apk` — universal, **50,714,149 bytes**, SHA-256 `612d36180319be245b0f3fbd9318ad148bb261143eff049dbd9b59bcbc6fad9a`
+- `LFly-v1.4-arm64.apk` — arm64-v8a only, **28,857,158 bytes**, SHA-256 `cdedb779258ccbb76b99db1cb5bc14e0cff85ae5f3958134eab8eafccdc580c8`
+- `versionCode 6` / `versionName 1.4`. **541 unit tests green**; release APKs verified with `apksigner` (v1/v2/v3) and `zipalign`.
+
+### Install
+
+```bash
+adb install -r "LFly-v1.4.apk"          # universal
+adb install -r "LFly-v1.4-arm64.apk"    # smaller, arm64 phones
+```
+
+Debug builds (v1.0–v1.3) still need the one-time uninstall described under 1.3.1.
+
 ## [1.3.2] — 2026-11-01
 
 **Reliability and player fixes** — recommended over v1.3.1. Updates directly over v1.3.1 and keeps your data.
