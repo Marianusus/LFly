@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ambient_mode_title">Ambient mode</string>
+    <string name="ambient_rotation_title">Open Ambient by rotating your phone</string>
+    <string name="ambient_rotation_subtitle">With the full player open. When off, open it from the player menu</string>
+</resources>

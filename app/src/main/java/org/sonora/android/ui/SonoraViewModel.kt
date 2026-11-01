@@ -255,6 +255,11 @@ class SonoraViewModel @JvmOverloads constructor(
     val appearanceMode: StateFlow<AppearanceMode> = musicRepository.appearanceMode
     val accentColor: StateFlow<Int> = musicRepository.accentColor
     val reduceMotion: StateFlow<Boolean> = musicRepository.reduceMotion
+    val ambientRotationEnabled: StateFlow<Boolean> = musicRepository.ambientRotationEnabled
+    private val _ambientOpenedFromMenu = MutableStateFlow(false)
+    val ambientOpenedFromMenu: StateFlow<Boolean> = _ambientOpenedFromMenu.asStateFlow()
+    private val _ambientDismissed = MutableStateFlow(false)
+    val ambientDismissed: StateFlow<Boolean> = _ambientDismissed.asStateFlow()
     val liquidGlass: StateFlow<Boolean> = musicRepository.liquidGlass
     val translateLyrics: StateFlow<Boolean> = musicRepository.translateLyrics
     val translationTargetLang: StateFlow<String> = musicRepository.translationTargetLang
@@ -1098,6 +1103,24 @@ class SonoraViewModel @JvmOverloads constructor(
 
     fun setReduceMotion(enabled: Boolean) {
         musicRepository.setReduceMotion(enabled)
+    }
+
+    fun setAmbientRotationEnabled(enabled: Boolean) {
+        musicRepository.setAmbientRotationEnabled(enabled)
+    }
+
+    fun openAmbient() {
+        _ambientOpenedFromMenu.value = true
+        _ambientDismissed.value = false
+    }
+
+    fun closeAmbient() {
+        _ambientOpenedFromMenu.value = false
+        _ambientDismissed.value = true
+    }
+
+    fun resetAmbientDismissal() {
+        _ambientDismissed.value = false
     }
 
     fun setLiquidGlass(enabled: Boolean) {

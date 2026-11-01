@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ambient_mode_title">Modul Ambient</string>
+    <string name="ambient_rotation_title">Deschide Ambient rotind telefonul</string>
+    <string name="ambient_rotation_subtitle">Cu playerul mare deschis. Dacă o dezactivezi, o deschizi din meniul playerului</string>
+</resources>

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -113,6 +114,7 @@ fun TrackActionsSheet(
     onAddToPlaylist: () -> Unit,
     onShare: (() -> Unit)?,
     onOpenEqualizer: (() -> Unit)? = null,
+    onOpenAmbient: (() -> Unit)? = null,
     onOpenAlbum: ((String) -> Unit)? = null,
     onOpenArtist: ((ArtistCredit) -> Unit)? = null,
 ) {
@@ -157,6 +159,7 @@ fun TrackActionsSheet(
                     onAddToPlaylist = onAddToPlaylist,
                     onShare = onShare,
                     onOpenEqualizer = onOpenEqualizer,
+                    onOpenAmbient = onOpenAmbient,
                     onOpenAlbum = onOpenAlbum,
                     onOpenArtist = onOpenArtist,
                 )
@@ -267,6 +270,7 @@ private fun TrackActionsContent(
     onAddToPlaylist: () -> Unit,
     onShare: (() -> Unit)?,
     onOpenEqualizer: (() -> Unit)?,
+    onOpenAmbient: (() -> Unit)?,
     onOpenAlbum: ((String) -> Unit)?,
     onOpenArtist: ((ArtistCredit) -> Unit)?,
 ) {
@@ -403,6 +407,12 @@ private fun TrackActionsContent(
         ActionRow(Icons.Default.Equalizer, stringResource(R.string.player_equalizer_dsp), scheme = scheme) {
             onDismissRequest()
             onOpenEqualizer()
+        }
+    }
+    if (onOpenAmbient != null) {
+        ActionRow(Icons.Default.Bedtime, stringResource(R.string.ambient_mode_title), scheme = scheme) {
+            onDismissRequest()
+            onOpenAmbient()
         }
     }
     if (onShare != null) {

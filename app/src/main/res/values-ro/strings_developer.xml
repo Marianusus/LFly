@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_developer_title">Dezvoltator</string>
+    <string name="settings_developer_profile_subtitle">%1$s pe GitHub</string>
+    <string name="settings_developer_source_title">Cod sursă</string>
+    <string name="settings_developer_source_subtitle">LFly pe GitHub, licență GPL-3.0</string>
+    <string name="settings_developer_version_title">Versiune</string>
+</resources>

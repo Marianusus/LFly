@@ -83,7 +83,7 @@
     <string name="settings_api_details_button">Details</string>
 
     <string name="settings_about_title">Listen &amp; Fly</string>
-    <string name="settings_about_version">Listen &amp; Fly v1.1 - 100%% Native Kotlin</string>
+    <string name="settings_about_version">Listen &amp; Fly - 100%% Native Kotlin</string>
     <string name="settings_about_description">Fast, resilient, zero-bloat audio client engineered with Jetpack Compose &amp; Media3 ExoPlayer. Seamless stream failover, LRCLIB synced lyrics, and LRU disk caching.</string>
     <string name="settings_about_license">Miau will always achieve something</string>
 

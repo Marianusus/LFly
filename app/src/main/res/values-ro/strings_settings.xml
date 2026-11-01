@@ -83,7 +83,7 @@
     <string name="settings_api_details_button">Detalii</string>
 
     <string name="settings_about_title">Listen &amp; Fly</string>
-    <string name="settings_about_version">Listen &amp; Fly v1.1 - 100%% Kotlin nativ</string>
+    <string name="settings_about_version">Listen &amp; Fly - 100%% Kotlin nativ</string>
     <string name="settings_about_description">Client audio rapid, rezistent și fără cod inutil, construit cu Jetpack Compose și Media3 ExoPlayer. Comutare fluidă a streamurilor, versuri sincronizate LRCLIB și cache pe disc LRU.</string>
     <string name="settings_about_license">Miau will always achieve something</string>
 

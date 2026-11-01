@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
+import android.content.res.Configuration
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -91,6 +92,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
@@ -115,6 +118,9 @@ import org.sonora.android.playback.DownloadProgress
 import org.sonora.android.playback.DownloadStatus
 import org.sonora.android.api.ArtistCredit
 import org.sonora.android.api.ArtistCredits
+import org.sonora.android.ui.ambient.AmbientScreen
+import org.sonora.android.ui.ambient.AmbientWindowEffect
+import org.sonora.android.ui.ambient.shouldShowAmbient
 import org.sonora.android.ui.components.AddToPlaylistDialog
 import org.sonora.android.ui.components.DownloadUiState
 import org.sonora.android.ui.components.BottomChrome
@@ -304,6 +310,38 @@ fun MainScreen(
     val currentThemeStyle by viewModel.themeStyle.collectAsState()
     val appearanceMode by viewModel.appearanceMode.collectAsState()
     val reduceMotion by viewModel.reduceMotion.collectAsState()
+    val ambientRotationEnabled by viewModel.ambientRotationEnabled.collectAsState()
+    val ambientOpenedFromMenu by viewModel.ambientOpenedFromMenu.collectAsState()
+    val ambientDismissed by viewModel.ambientDismissed.collectAsState()
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val dismissKeyboard = {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
+    // The full player never shares the screen with the keyboard, whatever opened it.
+    LaunchedEffect(isPlayerExpanded) {
+        if (isPlayerExpanded) dismissKeyboard()
+    }
+    val hasTrack = playbackState.currentTrack != null
+    // A finger pull expands the player before it settles: ambient waits for the release, so it
+    // does not cover the sheet being dragged.
+    val ambientVisible = !playerDragSession && shouldShowAmbient(
+        hasTrack = hasTrack,
+        isPlayerExpanded = isPlayerExpanded,
+        isLandscape = isLandscape,
+        rotationEnabled = ambientRotationEnabled,
+        openedFromMenu = ambientOpenedFromMenu,
+        dismissed = ambientDismissed
+    )
+    AmbientWindowEffect(active = ambientVisible, forceLandscape = ambientOpenedFromMenu)
+    LaunchedEffect(isLandscape, ambientOpenedFromMenu) {
+        if (!isLandscape && !ambientOpenedFromMenu) viewModel.resetAmbientDismissal()
+    }
+    LaunchedEffect(ambientOpenedFromMenu, isPlayerExpanded, hasTrack) {
+        if (ambientOpenedFromMenu && (!isPlayerExpanded || !hasTrack)) viewModel.closeAmbient()
+    }
     val isLiquidGlassEnabled by viewModel.liquidGlass.collectAsState()
     val glassScrollState = rememberGlassChromeScrollState()
 
@@ -467,7 +505,9 @@ fun MainScreen(
     }
 
     // Back handlers for equalizer dialog, queue sheet, full player & lyrics modal, and destination stack
-    if (isEqualizerDialogOpen) {
+    if (ambientVisible) {
+        // AmbientScreen owns Back. A handler added here while it is up would be newer, and win.
+    } else if (isEqualizerDialogOpen) {
         BackHandler {
             viewModel.closeEqualizerDialog()
         }
@@ -754,6 +794,7 @@ fun MainScreen(
                                     onHistoryClear = { viewModel.clearSearchHistory() },
                                     onCategoryChange = { c -> viewModel.onSearchCategoryChange(c) },
                                     onTrackClick = { track ->
+                                        dismissKeyboard()
                                         viewModel.recordSearchHistory(SearchHistoryStore.fromTrack(track))
                                         val ctx = if (track.provider.equals("YouTube", ignoreCase = true)) mainContextYoutubeMusic else mainContextSearch
                                         viewModel.playTrack(track, ctx)
@@ -868,6 +909,8 @@ fun MainScreen(
                                     onAppearanceModeChange = { mode -> viewModel.setAppearanceMode(mode) },
                                     reduceMotion = reduceMotion,
                                     onReduceMotionChange = { enabled -> viewModel.setReduceMotion(enabled) },
+                                    ambientRotationEnabled = ambientRotationEnabled,
+                                    onAmbientRotationChange = { enabled -> viewModel.setAmbientRotationEnabled(enabled) },
                                     liquidGlass = isLiquidGlassEnabled,
                                     onLiquidGlassChange = { enabled -> viewModel.setLiquidGlass(enabled) },
                                     currentAudioQuality = audioQuality,
@@ -1510,6 +1553,7 @@ fun MainScreen(
                     onShareTrack = { t -> trackToShare = t },
                     onToggleLyrics = { viewModel.toggleLyricsOpen() },
                     onOpenEqualizer = { viewModel.openEqualizerDialog() },
+                    onOpenAmbient = { viewModel.openAmbient() },
                     onOpenParty = { viewModel.openPartySheet() },
                     onOpenAlbum = { albumId ->
                         viewModel.setPlayerExpanded(false)
@@ -1649,6 +1693,19 @@ fun MainScreen(
                 }
             )
         }
+        }
+
+        // Last child, outside the providers and the morph host: covers the player and the chrome.
+        if (ambientVisible) {
+            AmbientScreen(
+                playbackState = playbackState,
+                lyrics = lyrics,
+                highlightMode = lyricsHighlightMode,
+                onPlayPause = { viewModel.togglePlayPause() },
+                onPlayNext = { viewModel.playNext() },
+                onPlayPrevious = { viewModel.playPrevious() },
+                onClose = { viewModel.closeAmbient() }
+            )
         }
     }
 }

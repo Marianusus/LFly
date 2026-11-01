@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ambient_mode_title">Modalità Ambient</string>
+    <string name="ambient_rotation_title">Apri Ambient ruotando il telefono</string>
+    <string name="ambient_rotation_subtitle">Con il player grande aperto. Se la disattivi, la apri dal menu del player</string>
+</resources>

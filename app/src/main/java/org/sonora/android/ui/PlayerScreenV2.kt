@@ -194,6 +194,7 @@ fun PlayerScreenV2(
     sourceActions: TrackSourceActions? = null,
     onToggleLyrics: () -> Unit,
     onOpenEqualizer: () -> Unit = {},
+    onOpenAmbient: () -> Unit = {},
     onOpenParty: () -> Unit = {},
     onOpenAlbum: (String) -> Unit = {},
     onRequestTrackMetadata: (Track) -> Unit = {},
@@ -507,6 +508,7 @@ fun PlayerScreenV2(
                 onAddToPlaylist = { onAddToPlaylist(currentTrack) },
                 onShare = { onShareTrack(currentTrack) },
                 onOpenEqualizer = onOpenEqualizer,
+                onOpenAmbient = onOpenAmbient,
                 onOpenAlbum = onOpenAlbum,
                 onOpenArtist = onArtistClick,
             )
