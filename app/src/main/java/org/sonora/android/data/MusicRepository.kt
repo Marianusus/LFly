@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,6 +54,7 @@ class MusicRepository(
         private const val KEY_THEME_STYLE = "selected_theme_style"
         private const val KEY_APPEARANCE_MODE = "appearance_mode"
         private const val KEY_REDUCE_MOTION = "reduce_motion"
+        private const val KEY_AMBIENT_ROTATION = "ambient_rotation"
         private const val KEY_LIQUID_GLASS = "liquid_glass"
         private const val KEY_ACCENT_COLOR = "accent_color"
         private const val KEY_TRANSLATE_LYRICS = "translate_lyrics"
@@ -88,6 +90,7 @@ class MusicRepository(
     // Serial dispatch: saves start in the order they were requested, so an older snapshot can
     // never overwrite a newer one. Disk work still runs on Dispatchers.IO.
     private val repositoryScope = CoroutineScope(Dispatchers.IO.limitedParallelism(1) + SupervisorJob())
+    private val libraryLoaded = CompletableDeferred<Unit>()
     private val gson: Gson = HttpClientProvider.gson
     private val prefs by lazy {
         context.getSharedPreferences(PREF_SONORA, Context.MODE_PRIVATE)
@@ -178,6 +181,17 @@ class MusicRepository(
 
     private fun loadSavedReduceMotion(): Boolean =
         prefs?.getBoolean(KEY_REDUCE_MOTION, false) ?: false
+
+    private val _ambientRotationEnabled = MutableStateFlow(loadSavedAmbientRotationEnabled())
+    val ambientRotationEnabled: StateFlow<Boolean> = _ambientRotationEnabled.asStateFlow()
+
+    fun setAmbientRotationEnabled(enabled: Boolean) {
+        _ambientRotationEnabled.value = enabled
+        prefs?.edit()?.putBoolean(KEY_AMBIENT_ROTATION, enabled)?.apply()
+    }
+
+    private fun loadSavedAmbientRotationEnabled(): Boolean =
+        prefs?.getBoolean(KEY_AMBIENT_ROTATION, true) ?: true
 
     private val _liquidGlass = MutableStateFlow(loadSavedLiquidGlass())
     val liquidGlass: StateFlow<Boolean> = _liquidGlass.asStateFlow()
@@ -364,9 +378,15 @@ class MusicRepository(
             loadMixes()
             migrateOnRepeatPlaylist()
             loadFollowedArtists()
+            libraryLoaded.complete(Unit)
             syncLocalMusic()
             refreshMixes()
         }
+    }
+
+    /** Suspends until the saved library is in memory, for callers that can run on a cold start. */
+    suspend fun awaitLibraryLoaded() {
+        libraryLoaded.await()
     }
 
     // ==========================================

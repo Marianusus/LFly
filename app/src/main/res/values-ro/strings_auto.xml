@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auto_home">Acasă</string>
+    <string name="auto_favorites">Favorite</string>
+    <string name="auto_playlists">Playlisturi</string>
+    <string name="auto_downloads">Descărcări</string>
+    <string name="auto_history">Istoric</string>
+    <string name="auto_charts">Topuri</string>
+</resources>

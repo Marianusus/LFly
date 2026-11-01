@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auto_home">Home</string>
+    <string name="auto_favorites">Favorites</string>
+    <string name="auto_playlists">Playlists</string>
+    <string name="auto_downloads">Downloads</string>
+    <string name="auto_history">History</string>
+    <string name="auto_charts">Charts</string>
+</resources>

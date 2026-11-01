@@ -1364,6 +1364,8 @@ class PlaybackManager private constructor(private val context: Context) {
                     .setArtist(playableTrack.artist)
                     .setAlbumTitle(playableTrack.album)
                     .setDisplayTitle(playableTrack.title)
+                    // Android Auto's player reads the second line from the subtitle.
+                    .setSubtitle(playableTrack.artist)
                     .setIsPlayable(true)
 
                 playableTrack.coverUrl?.let {

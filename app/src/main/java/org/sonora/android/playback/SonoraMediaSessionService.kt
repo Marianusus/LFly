@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -21,31 +22,42 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.core.app.NotificationManagerCompat
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.sonora.android.R
 import org.sonora.android.api.Track
+import org.sonora.android.api.YouTubeMusicClient
 import org.sonora.android.data.MusicRepository
+import org.sonora.android.party.PartyManager
+import org.sonora.android.playback.auto.AutoIds
+import org.sonora.android.playback.auto.AutoLibrary
+import org.sonora.android.playback.auto.AutoStart
 
 /**
- * Native Android foreground [MediaSessionService] managing the Media3 [ExoPlayer] instance,
+ * Native Android foreground [MediaLibraryService] managing the Media3 [ExoPlayer] instance,
  * lock-screen & status-bar media notification controls, audio focus handling,
- * and audio becoming noisy events (pause on disconnect).
+ * and audio becoming noisy events (pause on disconnect). It also serves LFly's library to
+ * Android Auto, whose selections are handed to [PlaybackManager].
  */
-class SonoraMediaSessionService : MediaSessionService() {
+class SonoraMediaSessionService : MediaLibraryService() {
 
     companion object {
         private const val TAG = "SonoraMediaService"
@@ -53,11 +65,25 @@ class SonoraMediaSessionService : MediaSessionService() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_TOGGLE_FAVORITE = "ACTION_TOGGLE_FAVORITE"
         const val ACTION_DISLIKE = "ACTION_DISLIKE"
+        private const val CAR_START_PLAY_GUARD_MS = 2_000L
     }
 
     private var player: ExoPlayer? = null
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    private val autoLibrary by lazy {
+        val app = application as org.sonora.android.SonoraApp
+        AutoLibrary(
+            context = app,
+            repository = app.musicRepository,
+            youTubeMusic = YouTubeMusicClient(),
+            deezer = app.deezerClient
+        )
+    }
+
+    /** A car selection is already starting: the play command Media3 sends after it must not resume the old track. */
+    private var ignoreSessionPlayUntilMs = 0L
 
     private fun buildCustomLayout(track: Track?, isFavorite: Boolean): List<CommandButton> {
         val favoriteButton = CommandButton.Builder(
@@ -142,11 +168,44 @@ class SonoraMediaSessionService : MediaSessionService() {
             // Bluetooth, Quick Settings) through PlaybackManager so recovery works and a
             // Party guest forwards the command to its host instead of acting locally.
             override fun play() {
+                if (SystemClock.elapsedRealtime() < ignoreSessionPlayUntilMs) {
+                    ignoreSessionPlayUntilMs = 0L
+                    return
+                }
                 PlaybackManager.getInstance(this@SonoraMediaSessionService).play()
             }
 
             override fun pause() {
                 PlaybackManager.getInstance(this@SonoraMediaSessionService).pause()
+            }
+
+            override fun seekTo(positionMs: Long) {
+                PlaybackManager.getInstance(this@SonoraMediaSessionService).seekTo(positionMs)
+            }
+
+            // stop() would drop the notification and demote the foreground service.
+            override fun stop() {
+                PlaybackManager.getInstance(this@SonoraMediaSessionService).pause()
+            }
+
+            // PlaybackManager owns the queue and loads one resolved stream at a time on the raw
+            // ExoPlayer. Items sent by a controller carry only an id, so they must never get there.
+            override fun setMediaItem(mediaItem: MediaItem) = Unit
+            override fun setMediaItem(mediaItem: MediaItem, startPositionMs: Long) = Unit
+            override fun setMediaItem(mediaItem: MediaItem, resetPosition: Boolean) = Unit
+            override fun setMediaItems(mediaItems: MutableList<MediaItem>) = Unit
+            override fun setMediaItems(mediaItems: MutableList<MediaItem>, resetPosition: Boolean) = Unit
+            override fun setMediaItems(
+                mediaItems: MutableList<MediaItem>,
+                startIndex: Int,
+                startPositionMs: Long
+            ) = Unit
+            override fun clearMediaItems() = Unit
+
+            // Preparing an empty player reports STATE_ENDED, which would skip the track that
+            // PlaybackManager is still resolving for a car selection on a cold start.
+            override fun prepare() {
+                if (mediaItemCount > 0) super.prepare()
             }
 
             override fun seekToNext() {
@@ -194,9 +253,8 @@ class SonoraMediaSessionService : MediaSessionService() {
         val initialLayout = buildCustomLayout(initialTrack, initialIsFav)
 
         // Build MediaSession using ForwardingPlayer
-        val session = MediaSession.Builder(this, forwardingPlayer)
+        val session = MediaLibrarySession.Builder(this, forwardingPlayer, SonoraSessionCallback())
             .setSessionActivity(sessionActivityPendingIntent)
-            .setCallback(SonoraSessionCallback())
             .setCustomLayout(initialLayout)
             .setMediaButtonPreferences(initialLayout)
             .build()
@@ -242,6 +300,52 @@ class SonoraMediaSessionService : MediaSessionService() {
                 updateCustomLayout(track, isFav)
             }
         }
+
+        observeLibraryForCar(session)
+    }
+
+    /** Keeps the screens open on the car in step with the library. */
+    private fun observeLibraryForCar(session: MediaLibrarySession) {
+        val repository = MusicRepository.getInstance(this)
+        fun <T> watch(source: Flow<List<T>>, folderId: String) {
+            serviceScope.launch {
+                source.collect { items -> session.notifyChildrenChanged(folderId, items.size, null) }
+            }
+        }
+        watch(repository.favorites, AutoIds.FAVORITES)
+        watch(repository.playlists, AutoIds.PLAYLISTS)
+        watch(repository.history, AutoIds.HISTORY)
+        watch(repository.mixes, AutoIds.HOME)
+        watch(DownloadManager.downloadedTracks, AutoIds.DOWNLOADS)
+    }
+
+    private fun <T> asyncFuture(block: suspend () -> T): ListenableFuture<T> {
+        val future = SettableFuture.create<T>()
+        serviceScope.launch {
+            try {
+                future.set(block())
+            } catch (e: CancellationException) {
+                future.cancel(false)
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Android Auto request failed", e)
+                future.setException(e)
+            }
+        }
+        return future
+    }
+
+    private fun startFromCar(start: AutoStart) {
+        val playbackManager = PlaybackManager.getInstance(this)
+        ignoreSessionPlayUntilMs = SystemClock.elapsedRealtime() + CAR_START_PLAY_GUARD_MS
+        val selected = start.tracks[start.index]
+        // A Party guest follows the host: the pick is requested there, not played locally.
+        if (playbackManager.partyGuestMode) {
+            PartyManager.getInstance(this).guestAddToQueue(selected, asNext = true)
+            return
+        }
+        playbackManager.playQueue(start.tracks, start.index, start.label)
+        start.playlistId?.let { MusicRepository.getInstance(this).recordPlaylistPlay(it) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -258,7 +362,7 @@ class SonoraMediaSessionService : MediaSessionService() {
         return START_STICKY
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
         return mediaSession
     }
 
@@ -334,21 +438,25 @@ class SonoraMediaSessionService : MediaSessionService() {
     /**
      * Session callback accepting player commands and enabling seamless playback resumption.
      */
-    private inner class SonoraSessionCallback : MediaSession.Callback {
+    private inner class SonoraSessionCallback : MediaLibrarySession.Callback {
 
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .add(SessionCommand(ACTION_DISLIKE, Bundle.EMPTY))
                 .build()
+            // Repeat and shuffle live in PlaybackManager: a controller changing them on ExoPlayer
+            // would silently disagree with the app.
             val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
                 .add(Player.COMMAND_SEEK_TO_NEXT)
                 .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                 .add(Player.COMMAND_SEEK_TO_PREVIOUS)
                 .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .remove(Player.COMMAND_SET_REPEAT_MODE)
+                .remove(Player.COMMAND_SET_SHUFFLE_MODE)
                 .build()
 
             val playbackManager = PlaybackManager.getInstance(this@SonoraMediaSessionService)
@@ -399,6 +507,83 @@ class SonoraMediaSessionService : MediaSessionService() {
         // playPrevious). Handling it here as well would advance twice — the notification
         // "next" would then skip two tracks and play something different from the in-app
         // queue. Single source of truth = the ForwardingPlayer overrides.
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> = Futures.immediateFuture(
+            LibraryResult.ofItem(autoLibrary.rootItem, autoLibrary.rootParams)
+        )
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> = asyncFuture {
+            autoLibrary.item(mediaId)?.let { LibraryResult.ofItem(it, null) }
+                ?: LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = asyncFuture {
+            autoLibrary.children(parentId)?.let { LibraryResult.ofItemList(it.page(page, pageSize), params) }
+                ?: LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> {
+            serviceScope.launch {
+                val count = runCatching { autoLibrary.search(query).size }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrDefault(0)
+                session.notifySearchResultChanged(browser, query, count, params)
+            }
+            return Futures.immediateFuture(LibraryResult.ofVoid(params))
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = asyncFuture {
+            LibraryResult.ofItemList(autoLibrary.search(query).page(page, pageSize), params)
+        }
+
+        /** Car selections carry only an id: PlaybackManager rebuilds the queue and resolves the stream. */
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = asyncFuture {
+            val request = mediaItems.getOrNull(startIndex.coerceAtLeast(0))
+            val playback = PlaybackManager.getInstance(this@SonoraMediaSessionService).playbackState.value
+            autoLibrary.resolveStart(request, playback)?.let(::startFromCar)
+                ?: Log.d(TAG, "No new track to start for car request '${request?.mediaId}'")
+            MediaSession.MediaItemsWithStartPosition(mediaItems, C.INDEX_UNSET, C.TIME_UNSET)
+        }
+
+        private fun List<MediaItem>.page(page: Int, pageSize: Int): List<MediaItem> {
+            if (page < 0 || pageSize <= 0) return emptyList()
+            val start = page.toLong() * pageSize
+            if (start >= size) return emptyList()
+            return subList(start.toInt(), minOf(start + pageSize, size.toLong()).toInt())
+        }
 
         override fun onPlaybackResumption(
             mediaSession: MediaSession,

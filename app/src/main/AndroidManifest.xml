@@ -49,6 +49,14 @@
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="org.sonora.android.cast.CastOptionsProvider" />
 
+        <!-- Android Auto: LFly is a media app, the car draws the browse and playback screens. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
+            android:resource="@drawable/ic_notification" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -65,9 +73,17 @@
             android:foregroundServiceType="mediaPlayback"
             android:exported="true">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Serves only covers registered by the app: Android Auto needs local artwork URIs. -->
+        <provider
+            android:name=".playback.auto.AutoArtworkProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="true" />
 
         <!-- Re-starts the media session service when a media button is pressed from a
              headset / Bluetooth / lock-screen after the app process was killed. -->
