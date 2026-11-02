@@ -85,7 +85,6 @@ internal class CrossfadeController(
         const val POLL_MS = 20L
         const val RAMP_STEP_MS = 40L
         const val HANDOFF_SLACK_MS = 30L
-        const val NEXT_TRACK_WAIT_MS = 20_000L
 
         /** Automix waits this long for the incoming song before settling for a plain crossfade. */
         const val BEAT_MATCH_WAIT_MS = 4_000L
@@ -136,6 +135,8 @@ internal class CrossfadeController(
         beatMatch: BeatMatch? = null,
         /** Brings the outgoing song to the incoming one's level during the overlap. */
         outgoingGainDb: Double = 0.0,
+        /** How the two songs meet. */
+        style: TransitionStyle = TransitionStyle.FADE,
         advance: () -> Unit
     ) {
         cancel()
@@ -166,31 +167,22 @@ internal class CrossfadeController(
 
             tailPlayer.play()
             main.volume = 0f
+            val handoffAt = SystemClock.elapsedRealtime()
             advance()
 
             if (beatMatch != null &&
-                mixOnTheBeat(main, tailPlayer, beatMatch, realFadeMs, handoffMs + fadeMs, speed, outgoingGain)
+                mixOnTheBeat(main, tailPlayer, beatMatch, realFadeMs, handoffMs + fadeMs, speed, outgoingGain, style)
             ) {
                 finish()
                 return@launch
             }
 
-            val fadeIn = launch {
-                // The main player stays paused until the next song is resolved and starts.
-                val started = withTimeoutOrNull(NEXT_TRACK_WAIT_MS) {
-                    while (!main.isPlaying) delay(POLL_MS)
-                    true
-                }
-                if (started == true) ramp(realFadeMs) { main.volume = CrossfadeMath.fadeInGain(it) }
-                main.volume = 1f
+            // Both decks follow the wall clock from the hand-off. The next song may still be resolving:
+            // it joins the mix wherever it is, and if it starts after the mix it simply plays in full.
+            Log.i(LOG_TAG, "Crossfade %s over %d ms".format(style, realFadeMs))
+            runMix(main, tailPlayer, style, outgoingGain) {
+                (SystemClock.elapsedRealtime() - handoffAt).toFloat() / realFadeMs
             }
-            ramp(realFadeMs) {
-                val frame = TransitionCurves.frame(TransitionStyle.FADE, it, outgoingGain)
-                tailPlayer.volume = frame.outgoing.volume
-                tailDeck?.set(frame.outgoing.filter)
-            }
-            releaseTail()
-            fadeIn.join()
             finish()
         }
     }
@@ -223,7 +215,8 @@ internal class CrossfadeController(
         realMixMs: Long,
         mixEndMs: Long,
         speed: Float,
-        outgoingGain: Float
+        outgoingGain: Float,
+        style: TransitionStyle
     ): Boolean = coroutineScope {
         val started = withTimeoutOrNull(BEAT_MATCH_WAIT_MS) {
             while (!(main.isPlaying && main.currentMediaItem?.mediaId == match.incomingId)) delay(POLL_MS)
@@ -231,8 +224,8 @@ internal class CrossfadeController(
         }
         if (started != true) return@coroutineScope false
 
-        // The incoming bass is cut before anything of the song can be heard.
-        DjAudio.main?.set(TransitionCurves.frame(TransitionStyle.BASS_SWAP, 0f).incoming.filter)
+        // The incoming deck takes the style's opening settings before anything of the song can be heard.
+        DjAudio.main?.set(TransitionCurves.frame(style, 0f).incoming.filter)
         val base = speed * match.incomingRate
         restoreSpeed = speed
         main.setPlaybackParameters(PlaybackParameters(base))
@@ -282,10 +275,10 @@ internal class CrossfadeController(
             delay(SETTLE_MS)
             while (abs(phaseError(main, tail, match)) > LOCK_TOLERANCE_BEATS) delay(POLL_MS * 5)
         }
-        Log.i(LOG_TAG, "Automix fade starts: phase error %.3f beats".format(phaseError(main, tail, match)))
-        bassSwap(main, tail, match, realMixMs, mixEndMs, speed, outgoingGain)
+        Log.i(LOG_TAG, "Automix %s starts: phase error %.3f beats".format(style, phaseError(main, tail, match)))
+        mixOnSongClock(main, tail, match, realMixMs, mixEndMs, speed, outgoingGain, style)
         corrector.cancel()
-        Log.i(LOG_TAG, "Automix mixed: phase error %.3f beats at the end".format(phaseError(main, tail, match)))
+        Log.i(LOG_TAG, "Automix %s mixed: phase error %.3f beats at the end".format(style, phaseError(main, tail, match)))
         releaseTail()
         main.volume = 1f
         DjAudio.main?.setNeutral()
@@ -298,18 +291,18 @@ internal class CrossfadeController(
     }
 
     /**
-     * Runs the mixer on the outgoing song's clock, so the bass swap lands on its downbeat: the
-     * incoming song plays without bass, the bass lines change places over one beat at the bar
-     * nearest the middle, then the outgoing song fades.
+     * Runs the mixer on the outgoing song's clock, so the style's key moment (the bass swap, the cut)
+     * lands on its downbeat nearest the middle of the mix, over one beat.
      */
-    private suspend fun bassSwap(
+    private suspend fun mixOnSongClock(
         main: ExoPlayer,
         tail: ExoPlayer,
         match: BeatMatch,
         realMixMs: Long,
         mixEndMs: Long,
         speed: Float,
-        outgoingGain: Float
+        outgoingGain: Float,
+        style: TransitionStyle
     ) {
         val startMs = tail.currentPosition
         val spanMs = (mixEndMs - startMs).coerceAtLeast(MIN_MIX_SPAN_MS).toDouble()
@@ -318,17 +311,37 @@ internal class CrossfadeController(
         val swapAt = ((swapMs - startMs) / spanMs).toFloat()
         val swapWidth = (beatMs / spanMs).toFloat()
         val deadline = SystemClock.elapsedRealtime() + (spanMs / speed).toLong().coerceAtMost(realMixMs) + MIX_OVERRUN_MS
-        Log.i(LOG_TAG, "Bass swap at %d ms (%.2f of %.0f ms)".format(swapMs.toLong(), swapAt, spanMs))
-        while (true) {
-            val songProgress = ((tail.currentPosition - startMs) / spanMs).toFloat()
+        Log.i(LOG_TAG, "Automix %s: swap at %d ms (%.2f of %.0f ms)".format(style, swapMs.toLong(), swapAt, spanMs))
+        runMix(main, tail, style, outgoingGain, swapAt, swapWidth) {
             val over = tail.playbackState == Player.STATE_ENDED || SystemClock.elapsedRealtime() >= deadline
-            val progress = if (over) 1f else songProgress.coerceIn(0f, 1f)
-            val frame = TransitionCurves.frame(TransitionStyle.BASS_SWAP, progress, outgoingGain, swapAt, swapWidth)
-            main.volume = frame.incoming.volume
+            if (over) 1f else ((tail.currentPosition - startMs) / spanMs).toFloat()
+        }
+    }
+
+    /**
+     * Applies [style] to both decks until [progress] reaches 1. The incoming deck stays silent, on the
+     * current frame's filter, until the main player actually plays; then it joins the frame where it is.
+     * Polled rather than stepped, so a busy main thread cannot stretch the mix.
+     */
+    private suspend fun runMix(
+        main: ExoPlayer,
+        tail: ExoPlayer,
+        style: TransitionStyle,
+        outgoingGain: Float,
+        swapAt: Float = TransitionCurves.SWAP_AT,
+        swapWidth: Float = TransitionCurves.SWAP_WIDTH,
+        progress: () -> Float
+    ) {
+        var joined = false
+        while (true) {
+            val p = progress().coerceIn(0f, 1f)
+            val frame = TransitionCurves.frame(style, p, outgoingGain, swapAt, swapWidth)
+            joined = joined || main.isPlaying
+            main.volume = if (joined) frame.incoming.volume else 0f
             DjAudio.main?.set(frame.incoming.filter)
             tail.volume = frame.outgoing.volume
             tailDeck?.set(frame.outgoing.filter)
-            if (progress >= 1f) return
+            if (p >= 1f) return
             delay(RAMP_STEP_MS)
         }
     }
@@ -356,17 +369,6 @@ internal class CrossfadeController(
         tail?.release()
         tail = null
         tailDeck = null
-    }
-
-    /** Follows the clock, not a step count: a busy main thread must not stretch the fade. */
-    private suspend fun ramp(durationMs: Long, apply: (Float) -> Unit) {
-        val startMs = SystemClock.elapsedRealtime()
-        while (true) {
-            val progress = ((SystemClock.elapsedRealtime() - startMs).toFloat() / durationMs).coerceIn(0f, 1f)
-            apply(progress)
-            if (progress >= 1f) return
-            delay(RAMP_STEP_MS)
-        }
     }
 
     private fun buildTailPlayer(main: ExoPlayer, speed: Float): ExoPlayer {

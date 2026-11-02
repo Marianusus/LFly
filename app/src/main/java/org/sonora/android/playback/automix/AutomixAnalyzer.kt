@@ -15,8 +15,9 @@ import org.sonora.android.playback.AudioCacheManager
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Finds the beats where songs meet: the last half minute of the playing song and the first half
- * minute of the next. One analysis runs at a time, in the background, and each result is kept.
+ * Finds the beats and phrases where songs meet: the last minute of the playing song and the first
+ * minute of the next. One analysis runs at a time, in the background, and each result is kept
+ * (the audio itself is dropped as soon as it is measured).
  */
 @OptIn(UnstableApi::class)
 internal class AutomixAnalyzer(private val context: Context, private val scope: CoroutineScope) {
@@ -26,13 +27,16 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
     private companion object {
         const val TAG = "AutomixAnalyzer"
 
-        /** Exactly one model chunk of audio. */
-        const val WINDOW_SECONDS = 29.5
+        /**
+         * About two model chunks of audio: long enough to hold a whole outro or intro and the section
+         * next to it, which the energy profile needs to tell them apart. 1.3 M samples at the model rate.
+         */
+        const val WINDOW_SECONDS = 59.0
         const val MAX_RESULTS = 64
     }
 
-    /** A finished analysis; [grid] is null when the song has no trackable beat there. */
-    private class Result(val grid: BeatGrid?, val loudness: Double?)
+    /** A finished analysis; [grid] (and with it [energy]) is null when the song has no trackable beat there. */
+    private class Result(val grid: BeatGrid?, val loudness: Double?, val energy: EnergyProfile?)
 
     private val tracker by lazy { BeatTracker(context) }
     private val results = LruCache<String, Result>(MAX_RESULTS)
@@ -41,6 +45,9 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
 
     /** The grid, once analysed. */
     fun grid(trackId: String, part: Part): BeatGrid? = results.get(key(trackId, part))?.grid
+
+    /** Bar-by-bar energy of the analysed stretch, once analysed and when it had a beat grid. */
+    fun energy(trackId: String, part: Part): EnergyProfile? = results.get(key(trackId, part))?.energy
 
     /** Loudness of the analysed stretch in LUFS, once analysed and when it is not silence. */
     fun loudness(trackId: String, part: Part): Double? = results.get(key(trackId, part))?.loudness
@@ -74,7 +81,14 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
                             .getOrNull()
                     }
                     val loudness = window?.let { Loudness.lufs(it.samples, LogMelSpectrogram.SAMPLE_RATE) }
-                    results.put(key, Result(grid, loudness))
+                    val energy = if (window != null && grid != null) {
+                        runCatching {
+                            EnergyProfile.compute(window.samples, LogMelSpectrogram.SAMPLE_RATE, window.startSeconds, grid)
+                        }.onFailure { Log.w(TAG, "Energy failed for $trackId $part", it) }.getOrNull()
+                    } else {
+                        null
+                    }
+                    results.put(key, Result(grid, loudness, energy))
                     Log.i(
                         TAG,
                         "$trackId $part: " + (grid?.let {
@@ -82,7 +96,7 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
                                 it.bpm, it.beats.size, it.downbeats.size, it.confidence
                             )
                         } ?: "no grid") + ", loudness " + (loudness?.let { "%.1f LUFS".format(it) } ?: "n/a") +
-                            " in ${SystemClock.elapsedRealtime() - started} ms"
+                            ", energy " + (energy?.let { describe(it) } ?: "n/a") + " in ${SystemClock.elapsedRealtime() - started} ms"
                     )
                 }
             } finally {
@@ -92,4 +106,12 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
     }
 
     private fun key(trackId: String, part: Part) = "$trackId|$part"
+
+    private fun describe(energy: EnergyProfile): String =
+        "%d bars%s, outro %s, rise %s".format(
+            energy.barStarts.size,
+            if (energy.isCalm) " calm" else "",
+            energy.outroStart?.let { "%.1f s".format(it) } ?: "none",
+            energy.firstRise?.let { "%.1f s".format(it) } ?: "none"
+        )
 }

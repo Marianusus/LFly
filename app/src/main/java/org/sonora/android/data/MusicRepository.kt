@@ -2,6 +2,7 @@ package org.sonora.android.data
 
 import android.content.Context
 import android.util.Log
+import org.sonora.android.playback.automix.MixStyle
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CompletableDeferred
@@ -58,6 +59,7 @@ class MusicRepository(
         private const val KEY_AMBIENT_ROTATION = "ambient_rotation"
         private const val KEY_CROSSFADE_SECONDS = "crossfade_seconds"
         private const val KEY_AUTOMIX = "automix"
+        private const val KEY_AUTOMIX_STYLE = "automix_style"
         private const val KEY_LIQUID_GLASS = "liquid_glass"
         private const val KEY_ACCENT_COLOR = "accent_color"
         private const val KEY_TRANSLATE_LYRICS = "translate_lyrics"
@@ -213,6 +215,15 @@ class MusicRepository(
     fun setAutomixEnabled(enabled: Boolean) {
         _automixEnabled.value = enabled
         prefs?.edit()?.putBoolean(KEY_AUTOMIX, enabled)?.apply()
+    }
+
+    /** How Automix moves between songs; AUTO picks a style for each transition. */
+    private val _automixStyle = MutableStateFlow(MixStyle.fromKey(prefs?.getString(KEY_AUTOMIX_STYLE, null)))
+    val automixStyle: StateFlow<MixStyle> = _automixStyle.asStateFlow()
+
+    fun setAutomixStyle(style: MixStyle) {
+        _automixStyle.value = style
+        prefs?.edit()?.putString(KEY_AUTOMIX_STYLE, style.name)?.apply()
     }
 
     private fun loadSavedCrossfadeSeconds(): Int =

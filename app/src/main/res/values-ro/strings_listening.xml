@@ -14,4 +14,15 @@
     <string name="crossfade_seconds">%1$d s</string>
     <string name="automix_title">Automix (AI)</string>
     <string name="automix_subtitle">Tranziții ca la DJ: un model AI de pe telefon aliniază bătăile și tempoul între piese. Când nu e sigur, face crossfade</string>
+    <string name="automix_style_title">Stilul tranzițiilor</string>
+    <string name="automix_style_auto">Automat</string>
+    <string name="automix_style_auto_desc">Alege singur pentru fiecare trecere</string>
+    <string name="automix_style_fade">Estompare</string>
+    <string name="automix_style_fade_desc">Volumele se întrepătrund</string>
+    <string name="automix_style_bass_swap">Bass swap</string>
+    <string name="automix_style_bass_swap_desc">Basul trece de la o piesă la alta pe bătaie</string>
+    <string name="automix_style_filter">Filtru</string>
+    <string name="automix_style_filter_desc">Un filtru închide piesa care se termină și o deschide pe cea nouă</string>
+    <string name="automix_style_rise">Urcare</string>
+    <string name="automix_style_rise_desc">Piesa urcă și taie brusc în cea nouă</string>
 </resources>

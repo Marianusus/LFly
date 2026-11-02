@@ -14,4 +14,15 @@
     <string name="crossfade_seconds">%1$d s</string>
     <string name="automix_title">Automix (AI)</string>
     <string name="automix_subtitle">DJ-style transitions: an on-device AI model lines up beats and tempo between songs. When unsure, it crossfades</string>
+    <string name="automix_style_title">Transition style</string>
+    <string name="automix_style_auto">Automatic</string>
+    <string name="automix_style_auto_desc">Picks one for each transition</string>
+    <string name="automix_style_fade">Fade</string>
+    <string name="automix_style_fade_desc">The volumes cross over</string>
+    <string name="automix_style_bass_swap">Bass swap</string>
+    <string name="automix_style_bass_swap_desc">The bass moves from one song to the next on the beat</string>
+    <string name="automix_style_filter">Filter</string>
+    <string name="automix_style_filter_desc">A filter closes the ending song and opens the new one</string>
+    <string name="automix_style_rise">Rise</string>
+    <string name="automix_style_rise_desc">The song builds up and cuts sharply into the new one</string>
 </resources>

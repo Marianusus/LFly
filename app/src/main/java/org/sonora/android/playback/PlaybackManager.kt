@@ -18,6 +18,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.MediaSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,7 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 import org.sonora.android.R
 import org.sonora.android.api.DeezerClient
+import org.sonora.android.api.ArtistCredits
 import org.sonora.android.api.AudioQuality
 import org.sonora.android.api.PlaybackSource
 import org.sonora.android.api.StreamResolver
@@ -48,7 +50,10 @@ import org.sonora.android.data.NetworkMonitor
 import org.sonora.android.party.SyncEngine
 import org.sonora.android.playback.automix.AutomixAnalyzer
 import org.sonora.android.playback.automix.AutomixPlanner
+import org.sonora.android.playback.automix.EnergyProfile
 import org.sonora.android.playback.automix.Loudness
+import org.sonora.android.playback.automix.TransitionCurves
+import org.sonora.android.playback.automix.TransitionStyle
 import java.io.File
 import android.media.MediaMetadataRetriever
 import android.media.AudioDeviceInfo
@@ -79,8 +84,12 @@ class PlaybackManager private constructor(private val context: Context) {
 
         /** Automix falls back to this crossfade when crossfade itself is off. */
         private const val AUTOMIX_FALLBACK_SECONDS = 6
-        /** Analysis starts this long before a song ends: enough for two windows on a slow phone. */
-        private const val AUTOMIX_ANALYSIS_LEAD_MS = 90_000L
+        /**
+         * Analysis starts this long before a song ends. The tail and the next head (about 59 s each)
+         * are analysed one after the other, and the mix can leave up to 59 s before the end, so this
+         * leaves about 90 s for both even on a slow phone.
+         */
+        private const val AUTOMIX_ANALYSIS_LEAD_MS = 150_000L
         private const val AUTOMIX_MIN_PREPARE_MS = 400L
 
         fun getInstance(context: Context): PlaybackManager {
@@ -292,8 +301,36 @@ class PlaybackManager private constructor(private val context: Context) {
         val handoffMs = CrossfadeMath.handoffPositionMs(positionMs, durationMs, fadeMs) ?: return
         crossfadeTriedForRequest = request
         val gainDb = if (automixOn) automixGainDb() else 0.0
-        crossfade.start(p, handoffMs, fadeMs, _playbackSpeed.value, outgoingGainDb = gainDb) { advanceForCrossfade(p) }
+        // The listener's own crossfade setting stays a plain fade; only Automix shapes the transition.
+        val style = if (automixOn) {
+            val (outgoingEnergy, incomingEnergy) = automixEnergies()
+            automixStyle(beatMatched = false, outgoingEnergy, incomingEnergy)
+        } else {
+            TransitionStyle.FADE
+        }
+        crossfade.start(p, handoffMs, fadeMs, _playbackSpeed.value, outgoingGainDb = gainDb, style = style) {
+            advanceForCrossfade(p)
+        }
     }
+
+    /** Energy of this song's ending and the next song's start, each null until analysed. */
+    private fun automixEnergies(): Pair<EnergyProfile?, EnergyProfile?> {
+        val current = _playbackState.value.currentTrack ?: return null to null
+        val next = peekNextTrack() ?: return null to null
+        return automix.energy(current.id, AutomixAnalyzer.Part.TAIL) to
+            automix.energy(next.id, AutomixAnalyzer.Part.HEAD)
+    }
+
+    /** The listener's mix style for this transition; a calm edge on either side keeps AUTO on a fade. */
+    private fun automixStyle(
+        beatMatched: Boolean,
+        outgoingEnergy: EnergyProfile?,
+        incomingEnergy: EnergyProfile?
+    ): TransitionStyle = TransitionCurves.resolve(
+        musicRepository.automixStyle.value,
+        beatMatched = beatMatched,
+        calm = outgoingEnergy?.isCalm == true || incomingEnergy?.isCalm == true
+    )
 
     /** Level difference between this song's ending and the next song's start, when both were analysed. */
     private fun automixGainDb(): Double {
@@ -311,17 +348,21 @@ class PlaybackManager private constructor(private val context: Context) {
         val next = peekNextTrack() ?: return false
         val outgoing = automix.grid(current.id, AutomixAnalyzer.Part.TAIL) ?: return false
         val incoming = automix.grid(next.id, AutomixAnalyzer.Part.HEAD) ?: return false
-        val plan = AutomixPlanner.plan(outgoing, durationMs, incoming) ?: return false
+        val outgoingEnergy = automix.energy(current.id, AutomixAnalyzer.Part.TAIL)
+        val incomingEnergy = automix.energy(next.id, AutomixAnalyzer.Part.HEAD)
+        val plan = AutomixPlanner.plan(outgoing, durationMs, incoming, outgoingEnergy, incomingEnergy) ?: return false
         if (positionMs > plan.exitMs - AUTOMIX_MIN_PREPARE_MS) return false
         if (positionMs < plan.exitMs - CrossfadeMath.PREPARE_LEAD_MS) return true
 
         crossfadeTriedForRequest = request
         automixEntry = next.id to plan.entryMs
         val gainDb = automixGainDb()
+        val style = automixStyle(beatMatched = true, outgoingEnergy, incomingEnergy)
         Log.i(
             TAG,
             "Automix '${current.title}' -> '${next.title}': exit ${plan.exitMs} ms, entry ${plan.entryMs} ms, " +
-                "rate ${plan.incomingRate}, mix ${plan.mixMs} ms, level %+.1f dB".format(gainDb)
+                "rate ${plan.incomingRate}, mix ${plan.mixMs} ms (${plan.mixBeats} beats), $style, " +
+                "level %+.1f dB".format(gainDb)
         )
         crossfade.start(
             main = p,
@@ -329,7 +370,8 @@ class PlaybackManager private constructor(private val context: Context) {
             fadeMs = plan.mixMs,
             speed = _playbackSpeed.value,
             beatMatch = BeatMatch(next.id, outgoing, incoming, plan.incomingRate),
-            outgoingGainDb = gainDb
+            outgoingGainDb = gainDb,
+            style = style
         ) { advanceForCrossfade(p) }
         return true
     }
@@ -357,6 +399,24 @@ class PlaybackManager private constructor(private val context: Context) {
             ?: next.streamUrl?.takeUnless { it.isBlank() || isPreviewUrl(it) }
             ?: return
         automix.request(next.id, nextSource, AutomixAnalyzer.Part.HEAD, next.durationMs)
+    }
+
+    // ── DJ hooks ─────────────────────────────────────────────────────────────
+    /**
+     * While set, autoplay asks the DJ for the next songs instead of the recommendation engine. An
+     * empty answer falls back to normal autoplay.
+     */
+    @Volatile
+    var autoplayProvider: (suspend (seed: Track) -> List<Track>)? = null
+
+    /** True while a crossfade or an Automix transition is running. */
+    val isTransitioning: Boolean
+        get() = crossfade.isRunning
+
+    /** Lowers the music under a DJ voice line (1f is full). Ignored during a transition, which owns the volume. */
+    fun setVoiceDuck(level: Float) {
+        if (crossfade.isRunning) return
+        player?.volume = level.coerceIn(0f, 1f)
     }
 
     // ── Party (group listening) hooks ────────────────────────────────────────
@@ -869,7 +929,7 @@ class PlaybackManager private constructor(private val context: Context) {
                 }
                 attempts++
             }
-            if (state.isAutoplayEnabled && state.currentTrack != null) {
+            if (autoplayActive(state) && state.currentTrack != null) {
                 triggerAutoplay(state.currentTrack, playImmediately = true)
             }
             return
@@ -883,7 +943,7 @@ class PlaybackManager private constructor(private val context: Context) {
             playFromQueueIndex(nextIndex)
         } else if (state.repeatMode == RepeatMode.ALL) {
             playFromQueueIndex(0)
-        } else if (state.isAutoplayEnabled && state.currentTrack != null) {
+        } else if (autoplayActive(state) && state.currentTrack != null) {
             triggerAutoplay(state.currentTrack, playImmediately = true)
         }
     }
@@ -1480,7 +1540,7 @@ class PlaybackManager private constructor(private val context: Context) {
                         canAdvance -> playNext()
                         failureState.repeatMode == RepeatMode.ALL && failureQueue.isNotEmpty() ->
                             playFromQueueIndex(0)
-                        failureState.isAutoplayEnabled && failureState.currentTrack != null ->
+                        autoplayActive(failureState) && failureState.currentTrack != null ->
                             triggerAutoplay(failureState.currentTrack, playImmediately = true)
                         else -> {
                             runCatching { player?.pause() }
@@ -1649,7 +1709,7 @@ class PlaybackManager private constructor(private val context: Context) {
             RepeatMode.OFF -> {
                 if (state.currentIndex in 0 until state.queue.size - 1 || state.isShuffle) {
                     playNext()
-                } else if (state.isAutoplayEnabled && state.currentTrack != null) {
+                } else if (autoplayActive(state) && state.currentTrack != null) {
                     triggerAutoplay(state.currentTrack, playImmediately = true)
                 } else {
                     _playbackState.update { it.copy(isPlaying = false, positionMs = 0L) }
@@ -1662,9 +1722,13 @@ class PlaybackManager private constructor(private val context: Context) {
     // Smart Autoplay & Continuous Radio
     // ==========================================
 
+    /** The queue keeps growing on its own with autoplay on, or while the DJ picks the songs. */
+    private fun autoplayActive(state: PlaybackState): Boolean =
+        state.isAutoplayEnabled || autoplayProvider != null
+
     private fun checkAndTriggerAutoplayIfNeeded() {
         val state = _playbackState.value
-        if (!state.isAutoplayEnabled) return
+        if (!autoplayActive(state)) return
         if (state.repeatMode != RepeatMode.OFF) return
         val currentTrack = state.currentTrack ?: return
 
@@ -1708,17 +1772,19 @@ class PlaybackManager private constructor(private val context: Context) {
                     dislikedArtists = musicRepository.dislikedArtists.value
                 )
 
-                val recommendations = withContext(Dispatchers.IO) {
-                    recommendationEngine.getRecommendedTracks(
-                        currentTrack = seedTrack,
-                        count = 10,
-                        excludedTrackIds = excludedIds,
-                        activeQueueTracks = queueTracks,
-                        historyTracks = historyTracks,
-                        dislikedTrackIds = musicRepository.dislikedTrackIds.value,
-                        dislikedArtists = musicRepository.dislikedArtists.value,
-                        tasteProfile = tasteProfile
-                    )
+                val recommendations = djTracks(seedTrack, excludedIds).ifEmpty {
+                    withContext(Dispatchers.IO) {
+                        recommendationEngine.getRecommendedTracks(
+                            currentTrack = seedTrack,
+                            count = 10,
+                            excludedTrackIds = excludedIds,
+                            activeQueueTracks = queueTracks,
+                            historyTracks = historyTracks,
+                            dislikedTrackIds = musicRepository.dislikedTrackIds.value,
+                            dislikedArtists = musicRepository.dislikedArtists.value,
+                            tasteProfile = tasteProfile
+                        )
+                    }
                 }
 
                 if (recommendations.isNotEmpty()) {
@@ -1762,6 +1828,35 @@ class PlaybackManager private constructor(private val context: Context) {
                 isFetchingAutoplay = false
             }
         }
+    }
+
+    /**
+     * The DJ's next songs for [seed], minus anything queued, recently played or disliked. Empty when
+     * no DJ is on or it has nothing, so autoplay falls back to the recommendation engine.
+     */
+    private suspend fun djTracks(seed: Track, excludedIds: Set<String>): List<Track> {
+        val provider = autoplayProvider ?: return emptyList()
+        val picked = try {
+            provider(seed)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Autoplay: the DJ failed to pick songs after '${seed.title}'", e)
+            return emptyList()
+        }
+        val dislikedIds = musicRepository.dislikedTrackIds.value
+        val dislikedArtists = musicRepository.dislikedArtists.value
+        val tracks = picked
+            .distinctBy { it.id }
+            .filter { it.id !in excludedIds && it.id !in dislikedIds && artistKey(it.artist) !in dislikedArtists }
+        Log.i(TAG, "Autoplay: the DJ picked ${tracks.size} of ${picked.size} songs after '${seed.title}'")
+        return tracks
+    }
+
+    /** Same key [MusicRepository] stores disliked artists under. */
+    private fun artistKey(artist: String): String {
+        val primary = ArtistCredits.primaryName(ArtistCredits.fromText(artist)).ifBlank { artist }
+        return ArtistCredits.normalize(primary)
     }
 
     // ==========================================
@@ -1980,7 +2075,7 @@ class PlaybackManager private constructor(private val context: Context) {
         when {
             canAdvance -> playNext()
             state.repeatMode == RepeatMode.ALL && queue.isNotEmpty() -> playFromQueueIndex(0)
-            state.isAutoplayEnabled && currentTrack != null ->
+            autoplayActive(state) && currentTrack != null ->
                 triggerAutoplay(currentTrack, playImmediately = true)
             else -> _playbackState.update { it.copy(isPlaying = false, positionMs = 0L) }
         }

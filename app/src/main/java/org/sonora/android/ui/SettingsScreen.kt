@@ -1,6 +1,7 @@
 package org.sonora.android.ui
 
 import org.sonora.android.playback.CrossfadeMath
+import org.sonora.android.playback.automix.MixStyle
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.annotation.StringRes
 
@@ -77,6 +78,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -196,6 +198,8 @@ fun SettingsScreen(
     onCrossfadeSecondsChange: (Int) -> Unit = {},
     automixEnabled: Boolean = false,
     onAutomixChange: (Boolean) -> Unit = {},
+    automixStyle: MixStyle = MixStyle.AUTO,
+    onAutomixStyleChange: (MixStyle) -> Unit = {},
     liquidGlass: Boolean = false,
     onLiquidGlassChange: (Boolean) -> Unit = {},
     currentAudioQuality: AudioQuality,
@@ -396,7 +400,9 @@ fun SettingsScreen(
                             crossfadeSeconds = crossfadeSeconds,
                             onCrossfadeSecondsChange = onCrossfadeSecondsChange,
                             automixEnabled = automixEnabled,
-                            onAutomixChange = onAutomixChange
+                            onAutomixChange = onAutomixChange,
+                            automixStyle = automixStyle,
+                            onAutomixStyleChange = onAutomixStyleChange
                         )
                     }
                     item {
@@ -1004,7 +1010,9 @@ private fun PlaybackSection(
     crossfadeSeconds: Int,
     onCrossfadeSecondsChange: (Int) -> Unit,
     automixEnabled: Boolean,
-    onAutomixChange: (Boolean) -> Unit
+    onAutomixChange: (Boolean) -> Unit,
+    automixStyle: MixStyle,
+    onAutomixStyleChange: (MixStyle) -> Unit
 ) {
     SettingsGroup(
         header = stringResource(R.string.settings_playback_section_title),
@@ -1039,10 +1047,94 @@ private fun PlaybackSection(
             icon = Icons.Default.AutoAwesome,
             tile = SettingsTile.Purple
         )
+        if (automixEnabled) {
+            SettingsRowDivider(hasLeading = true)
+            AutomixStyleRow(style = automixStyle, onStyleChange = onAutomixStyleChange)
+        }
     }
 }
 
 private const val DEFAULT_CROSSFADE_SECONDS = 6
+
+@get:StringRes
+private val MixStyle.titleRes: Int
+    get() = when (this) {
+        MixStyle.AUTO -> R.string.automix_style_auto
+        MixStyle.FADE -> R.string.automix_style_fade
+        MixStyle.BASS_SWAP -> R.string.automix_style_bass_swap
+        MixStyle.FILTER -> R.string.automix_style_filter
+        MixStyle.RISE -> R.string.automix_style_rise
+    }
+
+@get:StringRes
+private val MixStyle.descriptionRes: Int
+    get() = when (this) {
+        MixStyle.AUTO -> R.string.automix_style_auto_desc
+        MixStyle.FADE -> R.string.automix_style_fade_desc
+        MixStyle.BASS_SWAP -> R.string.automix_style_bass_swap_desc
+        MixStyle.FILTER -> R.string.automix_style_filter_desc
+        MixStyle.RISE -> R.string.automix_style_rise_desc
+    }
+
+@Composable
+private fun AutomixStyleRow(style: MixStyle, onStyleChange: (MixStyle) -> Unit) {
+    var pickerOpen by remember { mutableStateOf(false) }
+    if (pickerOpen) {
+        AutomixStyleDialog(
+            current = style,
+            onDismiss = { pickerOpen = false },
+            onSelect = { picked ->
+                pickerOpen = false
+                onStyleChange(picked)
+            }
+        )
+    }
+    SettingsRow(
+        title = stringResource(R.string.automix_style_title),
+        value = stringResource(style.titleRes),
+        icon = Icons.Default.Tune,
+        tile = SettingsTile.Indigo,
+        showChevron = true,
+        onClick = { pickerOpen = true }
+    )
+}
+
+@Composable
+private fun AutomixStyleDialog(
+    current: MixStyle,
+    onDismiss: () -> Unit,
+    onSelect: (MixStyle) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SonoraSurfaceCard,
+        title = {
+            Text(
+                text = stringResource(R.string.automix_style_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = SonoraTextPrimary
+            )
+        },
+        text = {
+            Column {
+                MixStyle.entries.forEachIndexed { index, option ->
+                    if (index > 0) SettingsRowDivider()
+                    SettingsChoiceRow(
+                        title = stringResource(option.titleRes),
+                        subtitle = stringResource(option.descriptionRes),
+                        selected = option == current,
+                        onClick = { onSelect(option) }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.action_close), color = SonoraTextSecondary)
+            }
+        }
+    )
+}
 
 /** The slider writes once on release, not on every step of the drag. */
 @Composable

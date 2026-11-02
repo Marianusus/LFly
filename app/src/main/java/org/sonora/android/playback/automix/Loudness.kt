@@ -25,22 +25,18 @@ internal object Loudness {
         val step = (STEP_SECONDS * sampleRate).toInt()
         if (samples.size < block || step <= 0) return null
 
-        val rate = sampleRate.toDouble()
-        val shelf = DjFilterMath.highShelf(rate, 1_681.97, 4.0)
-        val highPass = DjFilterMath.highPass(rate, 38.13, 0.5)
-        val shelfState = BiquadState()
-        val highPassState = BiquadState()
-        val squares = DoubleArray(samples.size) {
-            val y = highPassState.run(highPass, shelfState.run(shelf, samples[it].toDouble()))
-            y * y
-        }
+        val weighting = KWeighting(sampleRate.toDouble())
 
-        // Prefix sums make every overlapping block a subtraction.
-        val sums = DoubleArray(squares.size + 1)
-        for (i in squares.indices) sums[i + 1] = sums[i] + squares[i]
+        // Prefix sums make every overlapping block a subtraction; built straight from the filter,
+        // so a minute of audio needs one array of doubles, not two.
+        val sums = DoubleArray(samples.size + 1)
+        for (i in samples.indices) {
+            val y = weighting.run(samples[i].toDouble())
+            sums[i + 1] = sums[i] + y * y
+        }
         val powers = ArrayList<Double>()
         var start = 0
-        while (start + block <= squares.size) {
+        while (start + block <= samples.size) {
             powers += (sums[start + block] - sums[start]) / block
             start += step
         }
@@ -60,5 +56,16 @@ internal object Loudness {
 
     fun gain(db: Double): Float = 10.0.pow(db / 20.0).toFloat()
 
-    private fun toLufs(meanSquare: Double): Double = -0.691 + 10 * log10(meanSquare.coerceAtLeast(1e-12))
+    /** BS.1770 loudness of a mean square of K-weighted samples. */
+    internal fun toLufs(meanSquare: Double): Double = -0.691 + 10 * log10(meanSquare.coerceAtLeast(1e-12))
+
+    /** BS.1770 K-weighting (the head's high shelf, then a low cut), run sample by sample on one channel. */
+    internal class KWeighting(sampleRate: Double) {
+        private val shelf = DjFilterMath.highShelf(sampleRate, 1_681.97, 4.0)
+        private val highPass = DjFilterMath.highPass(sampleRate, 38.13, 0.5)
+        private val shelfState = BiquadState()
+        private val highPassState = BiquadState()
+
+        fun run(x: Double): Double = highPassState.run(highPass, shelfState.run(shelf, x))
+    }
 }

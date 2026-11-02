@@ -64,8 +64,9 @@ internal object AudioWindowDecoder {
                 start()
             }
 
-            val mono = FloatSamples()
             var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            // Sized for the window up front: growing by doubling would peak at twice a minute of audio.
+            val mono = FloatSamples(((durationSeconds + 0.5) * sampleRate).toInt())
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var isFloat = false
             var firstKeptUs = -1L
@@ -145,8 +146,8 @@ internal object AudioWindowDecoder {
         else -> null
     }?.takeIf { File(it).isFile }
 
-    private class FloatSamples {
-        private var data = FloatArray(1 shl 16)
+    private class FloatSamples(capacity: Int = 1 shl 16) {
+        private var data = FloatArray(capacity.coerceIn(1 shl 16, 1 shl 23))
         var size = 0
             private set
 

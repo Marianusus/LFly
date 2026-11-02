@@ -318,6 +318,7 @@ fun MainScreen(
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
     val automixEnabled by viewModel.automixEnabled.collectAsState()
+    val automixStyle by viewModel.automixStyle.collectAsState()
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -924,6 +925,8 @@ fun MainScreen(
                                     onCrossfadeSecondsChange = { seconds -> viewModel.setCrossfadeSeconds(seconds) },
                                     automixEnabled = automixEnabled,
                                     onAutomixChange = { enabled -> viewModel.setAutomixEnabled(enabled) },
+                                    automixStyle = automixStyle,
+                                    onAutomixStyleChange = { style -> viewModel.setAutomixStyle(style) },
                                     liquidGlass = isLiquidGlassEnabled,
                                     onLiquidGlassChange = { enabled -> viewModel.setLiquidGlass(enabled) },
                                     currentAudioQuality = audioQuality,

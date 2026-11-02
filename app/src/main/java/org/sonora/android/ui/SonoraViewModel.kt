@@ -100,6 +100,7 @@ import org.sonora.android.playback.RecommendationEngine
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.playback.SleepTimer
 import org.sonora.android.playback.TasteProfile
+import org.sonora.android.playback.automix.MixStyle
 
 private const val RECOMMENDATION_REFRESH_DEBOUNCE_MS = 600L
 
@@ -1134,6 +1135,8 @@ class SonoraViewModel @JvmOverloads constructor(
     fun setCrossfadeSeconds(seconds: Int) = musicRepository.setCrossfadeSeconds(seconds)
     val automixEnabled: StateFlow<Boolean> = musicRepository.automixEnabled
     fun setAutomixEnabled(enabled: Boolean) = musicRepository.setAutomixEnabled(enabled)
+    val automixStyle: StateFlow<MixStyle> = musicRepository.automixStyle
+    fun setAutomixStyle(style: MixStyle) = musicRepository.setAutomixStyle(style)
 
     fun openAmbient() {
         _ambientOpenedFromMenu.value = true
