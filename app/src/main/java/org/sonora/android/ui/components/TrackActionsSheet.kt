@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbDownOffAlt
 import androidx.compose.material.icons.filled.Timer
@@ -53,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -80,13 +82,28 @@ import org.sonora.android.api.TrackMetadata
 import org.sonora.android.api.withMetadata
 import org.sonora.android.playback.DownloadProgress
 import org.sonora.android.playback.DownloadStatus
+import org.sonora.android.playback.PLAYBACK_SPEEDS
+import org.sonora.android.playback.SleepTimer
+import android.os.SystemClock
+import java.text.DecimalFormat
+import kotlinx.coroutines.delay
 import org.sonora.android.ui.player.v2.rememberArtworkGradient
 import org.sonora.android.ui.theme.BackgroundScheme
 import org.sonora.android.ui.theme.LocalBackgroundScheme
 import org.sonora.android.ui.theme.mixColor
 import org.sonora.android.ui.theme.onColorFor
 
-private enum class ActionsPage { ACTIONS, INFO }
+private enum class ActionsPage { ACTIONS, INFO, SLEEP, SPEED }
+
+/** Sleep timer and speed, offered only in the full player's menu. */
+class PlayerPlaybackOptions(
+    val sleepTimer: SleepTimer,
+    val speed: Float,
+    val onSleepMinutes: (Int) -> Unit,
+    val onSleepAtTrackEnd: () -> Unit,
+    val onCancelSleep: () -> Unit,
+    val onSpeed: (Float) -> Unit,
+)
 
 /**
  * BitChord-style track menu: the track's own artwork tints the sheet, the
@@ -117,6 +134,7 @@ fun TrackActionsSheet(
     onOpenAmbient: (() -> Unit)? = null,
     onOpenAlbum: ((String) -> Unit)? = null,
     onOpenArtist: ((ArtistCredit) -> Unit)? = null,
+    playbackOptions: PlayerPlaybackOptions? = null,
 ) {
     val detailed = track.withMetadata(metadata)
     val scheme = LocalBackgroundScheme.current
@@ -124,7 +142,7 @@ fun TrackActionsSheet(
     var page by remember { mutableStateOf(ActionsPage.ACTIONS) }
 
     BackHandler {
-        if (page == ActionsPage.INFO) page = ActionsPage.ACTIONS else onDismissRequest()
+        if (page != ActionsPage.ACTIONS) page = ActionsPage.ACTIONS else onDismissRequest()
     }
 
     ModalBottomSheet(
@@ -162,7 +180,26 @@ fun TrackActionsSheet(
                     onOpenAmbient = onOpenAmbient,
                     onOpenAlbum = onOpenAlbum,
                     onOpenArtist = onOpenArtist,
+                    playbackOptions = playbackOptions,
+                    onOpenSleep = { page = ActionsPage.SLEEP },
+                    onOpenSpeed = { page = ActionsPage.SPEED },
                 )
+                ActionsPage.SLEEP -> playbackOptions?.let { options ->
+                    SleepTimerPage(
+                        options = options,
+                        scheme = scheme,
+                        onBack = { page = ActionsPage.ACTIONS },
+                        onDone = onDismissRequest,
+                    )
+                }
+                ActionsPage.SPEED -> playbackOptions?.let { options ->
+                    SpeedPage(
+                        options = options,
+                        scheme = scheme,
+                        onBack = { page = ActionsPage.ACTIONS },
+                        onDone = onDismissRequest,
+                    )
+                }
                 ActionsPage.INFO -> TrackInfoPage(
                     track = detailed,
                     metadata = metadata,
@@ -273,6 +310,9 @@ private fun TrackActionsContent(
     onOpenAmbient: (() -> Unit)?,
     onOpenAlbum: ((String) -> Unit)?,
     onOpenArtist: ((ArtistCredit) -> Unit)?,
+    playbackOptions: PlayerPlaybackOptions?,
+    onOpenSleep: () -> Unit,
+    onOpenSpeed: () -> Unit,
 ) {
     val ink = scheme.onBackground
     val secondary = scheme.onBackgroundSecondary
@@ -415,6 +455,25 @@ private fun TrackActionsContent(
             onOpenAmbient()
         }
     }
+    if (playbackOptions != null) {
+        val sleepValue = sleepTimerValue(playbackOptions.sleepTimer)
+        ActionRow(
+            icon = Icons.Default.Timer,
+            label = stringResource(R.string.sleep_timer_title),
+            scheme = scheme,
+            tint = if (playbackOptions.sleepTimer != SleepTimer.Off) accent else null,
+            trailing = sleepValue?.let { value -> { TrailingValue(value, accent) } },
+            onClick = onOpenSleep,
+        )
+        ActionRow(
+            icon = Icons.Default.Speed,
+            label = stringResource(R.string.playback_speed_title),
+            scheme = scheme,
+            tint = if (playbackOptions.speed != 1f) accent else null,
+            trailing = { TrailingValue(formatSpeed(playbackOptions.speed), secondary) },
+            onClick = onOpenSpeed,
+        )
+    }
     if (onShare != null) {
         ActionRow(Icons.Default.Share, stringResource(R.string.track_item_share), scheme = scheme) {
             onDismissRequest()
@@ -459,6 +518,128 @@ private fun TrackActionsContent(
         }
     }
 
+}
+
+/** What the sleep timer row shows: the time left, ticking, or the end of the track. */
+@Composable
+private fun sleepTimerValue(timer: SleepTimer): String? {
+    val remainingMs by produceState(initialValue = remainingMs(timer), timer) {
+        while (timer is SleepTimer.At) {
+            value = remainingMs(timer)
+            delay(1_000L)
+        }
+        value = remainingMs(timer)
+    }
+    return when (timer) {
+        SleepTimer.Off -> null
+        SleepTimer.EndOfTrack -> stringResource(R.string.sleep_timer_end_of_track)
+        is SleepTimer.At -> formatCountdown(remainingMs)
+    }
+}
+
+private fun remainingMs(timer: SleepTimer): Long =
+    (timer as? SleepTimer.At)?.let { (it.endsAtElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L) } ?: 0L
+
+private fun formatCountdown(ms: Long): String {
+    val totalSeconds = (ms + 999L) / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
+}
+
+/** 1.25 reads "1,25×" in Italian and "1.25×" in English. */
+private fun formatSpeed(speed: Float): String = DecimalFormat("0.##").format(speed.toDouble()) + "×"
+
+@Composable
+private fun TrailingValue(text: String, color: Color) {
+    Text(text = text, style = MaterialTheme.typography.bodyLarge, color = color, maxLines = 1)
+}
+
+@Composable
+private fun SubpageHeader(title: String, scheme: BackgroundScheme, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 22.dp, top = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.IconButton(onClick = onBack) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.audio_output_back),
+                tint = scheme.onBackground,
+            )
+        }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = scheme.onBackground,
+        )
+    }
+}
+
+@Composable
+private fun SleepTimerPage(
+    options: PlayerPlaybackOptions,
+    scheme: BackgroundScheme,
+    onBack: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val timer = options.sleepTimer
+    SubpageHeader(stringResource(R.string.sleep_timer_title), scheme, onBack)
+    val status = when (timer) {
+        SleepTimer.Off -> null
+        SleepTimer.EndOfTrack -> stringResource(R.string.sleep_timer_stops_at_track_end)
+        is SleepTimer.At -> sleepTimerValue(timer)?.let { stringResource(R.string.sleep_timer_stops_in, it) }
+    }
+    if (status != null) {
+        Text(
+            text = status,
+            style = MaterialTheme.typography.bodyMedium,
+            color = scheme.accent,
+            modifier = Modifier.padding(start = 22.dp, end = 22.dp, bottom = 8.dp),
+        )
+    }
+    SourceActionRow(stringResource(R.string.sleep_timer_off), selected = timer == SleepTimer.Off, scheme = scheme) {
+        options.onCancelSleep()
+        onDone()
+    }
+    SleepTimer.PRESET_MINUTES.forEach { minutes ->
+        SourceActionRow(stringResource(R.string.sleep_timer_minutes, minutes), selected = false, scheme = scheme) {
+            options.onSleepMinutes(minutes)
+            onDone()
+        }
+    }
+    SourceActionRow(
+        stringResource(R.string.sleep_timer_end_of_track),
+        selected = timer == SleepTimer.EndOfTrack,
+        scheme = scheme,
+    ) {
+        options.onSleepAtTrackEnd()
+        onDone()
+    }
+}
+
+@Composable
+private fun SpeedPage(
+    options: PlayerPlaybackOptions,
+    scheme: BackgroundScheme,
+    onBack: () -> Unit,
+    onDone: () -> Unit,
+) {
+    SubpageHeader(stringResource(R.string.playback_speed_title), scheme, onBack)
+    PLAYBACK_SPEEDS.forEach { speed ->
+        val label = if (speed == 1f) {
+            "${formatSpeed(speed)} · ${stringResource(R.string.playback_speed_normal)}"
+        } else {
+            formatSpeed(speed)
+        }
+        SourceActionRow(label, selected = speed == options.speed, scheme = scheme) {
+            options.onSpeed(speed)
+            onDone()
+        }
+    }
 }
 
 @Composable

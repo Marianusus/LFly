@@ -2,7 +2,10 @@ package org.sonora.android.playback.auto
 
 import org.sonora.android.api.Track
 import org.sonora.android.data.Mix
+import org.sonora.android.data.MusicRepository
 import org.sonora.android.data.Playlist
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 /** Ids of the Android Auto browse tree. A track id keeps its folder so the queue can be rebuilt. */
 internal object AutoIds {
@@ -13,14 +16,17 @@ internal object AutoIds {
     const val DOWNLOADS = "downloads"
     const val HISTORY = "history"
     const val CHARTS = "charts"
-    const val SEARCH = "search"
 
     private const val PLAYLIST_PREFIX = "playlist/"
     private const val MIX_PREFIX = "mix/"
+    private const val SEARCH_PREFIX = "search/"
     private const val TRACK_PREFIX = "t|"
 
     fun playlist(id: String) = PLAYLIST_PREFIX + id
     fun mix(id: String) = MIX_PREFIX + id
+
+    /** Search results keep their query, so a tap still works after another search or a restart. */
+    fun search(query: String): String = SEARCH_PREFIX + URLEncoder.encode(query, Charsets.UTF_8.name())
     fun track(folderId: String, trackId: String) = "$TRACK_PREFIX$folderId|$trackId"
 
     fun playlistIdOf(folderId: String): String? =
@@ -28,6 +34,11 @@ internal object AutoIds {
 
     fun mixIdOf(folderId: String): String? =
         folderId.takeIf { it.startsWith(MIX_PREFIX) }?.removePrefix(MIX_PREFIX)
+
+    fun searchQueryOf(folderId: String): String? =
+        folderId.takeIf { it.startsWith(SEARCH_PREFIX) }?.let { id ->
+            runCatching { URLDecoder.decode(id.removePrefix(SEARCH_PREFIX), Charsets.UTF_8.name()) }.getOrNull()
+        }
 
     /** Splits a track item id into its folder and track id, or null for anything else. */
     fun parseTrack(mediaId: String): Pair<String, String>? {
@@ -105,13 +116,13 @@ internal object AutoBrowseTree {
             AutoIds.DOWNLOADS -> snapshot.downloads
             AutoIds.HISTORY -> snapshot.history
             AutoIds.CHARTS -> snapshot.charts
-            AutoIds.SEARCH -> snapshot.searchResults
             else -> {
                 val playlistId = AutoIds.playlistIdOf(folderId)
                 val mixId = AutoIds.mixIdOf(folderId)
                 when {
                     playlistId != null -> snapshot.playlists.firstOrNull { it.id == playlistId }?.tracks
                     mixId != null -> snapshot.mixes.firstOrNull { it.id == mixId }?.let(::mixTracks)
+                    AutoIds.searchQueryOf(folderId) != null -> snapshot.searchResults
                     else -> null
                 }
             }
@@ -137,7 +148,7 @@ internal object AutoBrowseTree {
 
     private fun playlists(snapshot: AutoLibrarySnapshot): List<AutoNode> =
         snapshot.playlists
-            .filter { it.tracks.isNotEmpty() && it.id != DOWNLOADS_PLAYLIST_ID }
+            .filter { it.tracks.isNotEmpty() && it.id != MusicRepository.PLAYLIST_DOWNLOADED_ID }
             .map { playlist ->
                 AutoNode.Folder(
                     id = AutoIds.playlist(playlist.id),
@@ -158,6 +169,4 @@ internal object AutoBrowseTree {
             }
             .distinctBy { it.id }
             .take(MAX_TRACKS)
-
-    private const val DOWNLOADS_PLAYLIST_ID = "playlist_downloaded_ytdlp"
 }

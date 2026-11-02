@@ -3,8 +3,9 @@ package org.sonora.android.ui.ambient
 /**
  * Ambient mode is the StandBy-style landscape screen of the full player.
  *
- * It opens by rotating the phone (when the setting is on) or from the player menu. Closing it
- * while the phone is still in landscape must stick until the phone returns to portrait.
+ * It opens by turning the phone from portrait with the full player open (when the setting is on)
+ * or from the player menu. [rotationArmed] records that turn: a player opened in a landscape window
+ * stays the player, and closing ambient sticks until the phone returns to portrait.
  */
 internal fun shouldShowAmbient(
     hasTrack: Boolean,
@@ -12,10 +13,10 @@ internal fun shouldShowAmbient(
     isLandscape: Boolean,
     rotationEnabled: Boolean,
     openedFromMenu: Boolean,
-    dismissed: Boolean
+    rotationArmed: Boolean
 ): Boolean {
-    if (!hasTrack || !isPlayerExpanded || dismissed) return false
-    return openedFromMenu || (isLandscape && rotationEnabled)
+    if (!hasTrack || !isPlayerExpanded) return false
+    return openedFromMenu || (isLandscape && rotationEnabled && rotationArmed)
 }
 
 /** Burn-in protection: a slow walk through small offsets, in dp, for always-on OLED content. */

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sleep_timer_title">Temporizator de oprire</string>
+    <string name="sleep_timer_off">Dezactivat</string>
+    <string name="sleep_timer_minutes">%1$d minute</string>
+    <string name="sleep_timer_end_of_track">Sfârșitul piesei</string>
+    <string name="sleep_timer_stops_in">Se oprește în %1$s</string>
+    <string name="sleep_timer_stops_at_track_end">Se oprește la sfârșitul acestei piese</string>
+    <string name="playback_speed_title">Viteză de redare</string>
+    <string name="playback_speed_normal">Normală</string>
+    <string name="crossfade_title">Crossfade</string>
+    <string name="crossfade_subtitle">Îmbină finalul unei piese cu începutul următoarei</string>
+    <string name="crossfade_duration">Durată</string>
+    <string name="crossfade_seconds">%1$d s</string>
+    <string name="automix_title">Automix (AI)</string>
+    <string name="automix_subtitle">Tranziții ca la DJ: un model AI de pe telefon aliniază bătăile și tempoul între piese. Când nu e sigur, face crossfade</string>
+</resources>

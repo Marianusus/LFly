@@ -11,6 +11,7 @@ import okhttp3.Request
 import org.sonora.android.api.HttpClientProvider
 import java.io.File
 import java.io.FileNotFoundException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Serves browse artwork to Android Auto, which only loads local `content://` image URIs.
@@ -23,6 +24,7 @@ class AutoArtworkProvider : ContentProvider() {
         private const val CACHE_DIR = "auto_artwork"
         private const val MAX_CACHED_FILES = 300
         private const val MAX_IMAGE_BYTES = 8L * 1024L * 1024L
+        private val KEY = Regex("[0-9a-f]{64}")
 
         fun uriFor(context: Context, coverUrl: String?): Uri? {
             val key = AutoArtworkRegistry.register(coverUrl) ?: return null
@@ -34,21 +36,34 @@ class AutoArtworkProvider : ContentProvider() {
         }
     }
 
+    private val downloadLocks = ConcurrentHashMap<String, Any>()
+
     override fun onCreate(): Boolean = true
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (mode != "r") throw FileNotFoundException("Read-only provider")
-        val key = uri.lastPathSegment ?: throw FileNotFoundException("Missing key")
-        val source = AutoArtworkRegistry.sourceFor(key) ?: throw FileNotFoundException("Unknown key")
-        val file = if (source.startsWith("/")) File(source) else cachedRemote(key, source)
+        val key = uri.lastPathSegment?.takeIf(KEY::matches) ?: throw FileNotFoundException("Bad key")
+        val file = cachedFile(key).takeIf { it.length() > 0L } ?: run {
+            // The registry is empty after a restart, while the car still holds these URIs.
+            val source = AutoArtworkRegistry.sourceFor(key) ?: throw FileNotFoundException("Unknown key")
+            if (source.startsWith("/")) File(source) else cachedRemote(key, source)
+        }
         if (!file.isFile) throw FileNotFoundException("Artwork not available")
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
-    private fun cachedRemote(key: String, url: String): File {
+    private fun cachedFile(key: String): File {
         val context = context ?: throw FileNotFoundException("No context")
-        val directory = File(context.cacheDir, CACHE_DIR).apply { mkdirs() }
-        val target = File(directory, key)
+        return File(File(context.cacheDir, CACHE_DIR).apply { mkdirs() }, key)
+    }
+
+    /** All the tracks of an album ask for one cover at the same time: one download serves them. */
+    private fun cachedRemote(key: String, url: String): File =
+        synchronized(downloadLocks.getOrPut(key) { Any() }) { download(key, url) }
+
+    private fun download(key: String, url: String): File {
+        val target = cachedFile(key)
+        val directory = target.parentFile ?: throw FileNotFoundException("No cache directory")
         if (target.length() > 0L) return target
 
         val temp = File(directory, "$key.tmp")

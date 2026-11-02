@@ -14,8 +14,8 @@ class AmbientModeTest {
         isLandscape: Boolean = false,
         rotationEnabled: Boolean = true,
         openedFromMenu: Boolean = false,
-        dismissed: Boolean = false
-    ) = shouldShowAmbient(hasTrack, isPlayerExpanded, isLandscape, rotationEnabled, openedFromMenu, dismissed)
+        rotationArmed: Boolean = true
+    ) = shouldShowAmbient(hasTrack, isPlayerExpanded, isLandscape, rotationEnabled, openedFromMenu, rotationArmed)
 
     @Test
     fun `rotating the full player to landscape opens ambient`() {
@@ -39,8 +39,13 @@ class AmbientModeTest {
     }
 
     @Test
-    fun `a dismissal holds while the phone stays in landscape`() {
-        assertFalse(show(isLandscape = true, dismissed = true))
+    fun `landscape alone is not a rotation, so a dismissal or a wide window stays in the player`() {
+        assertFalse(show(isLandscape = true, rotationArmed = false))
+    }
+
+    @Test
+    fun `the menu opens ambient without a rotation`() {
+        assertTrue(show(isLandscape = true, rotationArmed = false, openedFromMenu = true))
     }
 
     @Test

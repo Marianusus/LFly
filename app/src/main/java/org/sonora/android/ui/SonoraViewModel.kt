@@ -98,6 +98,7 @@ import org.sonora.android.party.PartyRole
 import org.sonora.android.party.PartyState
 import org.sonora.android.playback.RecommendationEngine
 import org.sonora.android.playback.PlaybackState
+import org.sonora.android.playback.SleepTimer
 import org.sonora.android.playback.TasteProfile
 
 private const val RECOMMENDATION_REFRESH_DEBOUNCE_MS = 600L
@@ -258,8 +259,8 @@ class SonoraViewModel @JvmOverloads constructor(
     val ambientRotationEnabled: StateFlow<Boolean> = musicRepository.ambientRotationEnabled
     private val _ambientOpenedFromMenu = MutableStateFlow(false)
     val ambientOpenedFromMenu: StateFlow<Boolean> = _ambientOpenedFromMenu.asStateFlow()
-    private val _ambientDismissed = MutableStateFlow(false)
-    val ambientDismissed: StateFlow<Boolean> = _ambientDismissed.asStateFlow()
+    private val _ambientRotationArmed = MutableStateFlow(false)
+    val ambientRotationArmed: StateFlow<Boolean> = _ambientRotationArmed.asStateFlow()
     val liquidGlass: StateFlow<Boolean> = musicRepository.liquidGlass
     val translateLyrics: StateFlow<Boolean> = musicRepository.translateLyrics
     val translationTargetLang: StateFlow<String> = musicRepository.translationTargetLang
@@ -594,6 +595,19 @@ class SonoraViewModel @JvmOverloads constructor(
                 .distinctUntilChanged()
                 .debounce(RECOMMENDATION_REFRESH_DEBOUNCE_MS)
                 .collect { loadHomeRecommendations() }
+        }
+
+        // A Party plays everyone at the same tempo, and its host keeps the guests in step.
+        viewModelScope.launch {
+            partyManager.state
+                .map { it.role != PartyRole.IDLE }
+                .distinctUntilChanged()
+                .collect { inParty ->
+                    if (inParty) {
+                        playbackManager.setPlaybackSpeed(1f)
+                        playbackManager.cancelSleepTimer()
+                    }
+                }
         }
 
         // Sync audio cache size
@@ -1109,18 +1123,29 @@ class SonoraViewModel @JvmOverloads constructor(
         musicRepository.setAmbientRotationEnabled(enabled)
     }
 
+    val sleepTimer: StateFlow<SleepTimer> = playbackManager.sleepTimer
+    val playbackSpeed: StateFlow<Float> = playbackManager.playbackSpeed
+    val crossfadeSeconds: StateFlow<Int> = musicRepository.crossfadeSeconds
+
+    fun setSleepTimer(minutes: Int) = playbackManager.setSleepTimer(minutes)
+    fun setSleepTimerAtTrackEnd() = playbackManager.setSleepTimerAtTrackEnd()
+    fun cancelSleepTimer() = playbackManager.cancelSleepTimer()
+    fun setPlaybackSpeed(speed: Float) = playbackManager.setPlaybackSpeed(speed)
+    fun setCrossfadeSeconds(seconds: Int) = musicRepository.setCrossfadeSeconds(seconds)
+    val automixEnabled: StateFlow<Boolean> = musicRepository.automixEnabled
+    fun setAutomixEnabled(enabled: Boolean) = musicRepository.setAutomixEnabled(enabled)
+
     fun openAmbient() {
         _ambientOpenedFromMenu.value = true
-        _ambientDismissed.value = false
     }
 
     fun closeAmbient() {
         _ambientOpenedFromMenu.value = false
-        _ambientDismissed.value = true
+        _ambientRotationArmed.value = false
     }
 
-    fun resetAmbientDismissal() {
-        _ambientDismissed.value = false
+    fun setAmbientRotationArmed(armed: Boolean) {
+        _ambientRotationArmed.value = armed
     }
 
     fun setLiquidGlass(enabled: Boolean) {

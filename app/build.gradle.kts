@@ -78,6 +78,10 @@ android {
     buildFeatures {
         compose = true
     }
+    androidResources {
+        // The model is copied to disk once; compressing it would only slow that copy.
+        noCompress += "onnx"
+    }
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -102,10 +106,12 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
     // Media3 (ExoPlayer & Session)
-    implementation("androidx.media3:media3-exoplayer:1.5.0")
-    implementation("androidx.media3:media3-session:1.5.0")
-    implementation("androidx.media3:media3-ui:1.5.0")
-    implementation("androidx.media3:media3-datasource-okhttp:1.5.0")
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    // Automix: on-device inference of the Beat This! beat tracker (CPJKU, MIT).
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
+    implementation("androidx.media3:media3-session:1.8.0")
+    implementation("androidx.media3:media3-ui:1.8.0")
+    implementation("androidx.media3:media3-datasource-okhttp:1.8.0")
 
     // Coil for album artwork
     implementation("io.coil-kt:coil-compose:2.7.0")

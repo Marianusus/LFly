@@ -38,6 +38,30 @@ class AutoBrowseTreeTest {
     }
 
     @Test
+    fun `search ids carry their query through a track id`() {
+        val folderId = AutoIds.search("ac|dc/live è")
+
+        val (parsedFolder, trackId) = AutoIds.parseTrack(AutoIds.track(folderId, "yt_1"))!!
+
+        assertEquals(folderId, parsedFolder)
+        assertEquals("yt_1", trackId)
+        assertEquals("ac|dc/live è", AutoIds.searchQueryOf(parsedFolder))
+    }
+
+    @Test
+    fun `a broken search id is not a folder`() {
+        assertNull(AutoIds.searchQueryOf("search/%"))
+        assertNull(AutoIds.searchQueryOf("favorites"))
+    }
+
+    @Test
+    fun `search folders return the results they were resolved with`() {
+        val snapshot = AutoLibrarySnapshot(searchResults = listOf(track("yt_1")))
+
+        assertEquals(listOf("yt_1"), AutoBrowseTree.tracksFor(AutoIds.search("q"), snapshot)?.map { it.id })
+    }
+
+    @Test
     fun `ids that are not tracks do not parse`() {
         assertNull(AutoIds.parseTrack("favorites"))
         assertNull(AutoIds.parseTrack("yt_abc"))

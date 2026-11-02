@@ -1,5 +1,7 @@
 package org.sonora.android.ui
 
+import org.sonora.android.playback.CrossfadeMath
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.annotation.StringRes
 
 import androidx.compose.animation.AnimatedVisibility
@@ -39,6 +41,7 @@ import coil.compose.AsyncImage
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.Lyrics
@@ -83,6 +86,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -187,6 +192,10 @@ fun SettingsScreen(
     onReduceMotionChange: (Boolean) -> Unit = {},
     ambientRotationEnabled: Boolean = true,
     onAmbientRotationChange: (Boolean) -> Unit = {},
+    crossfadeSeconds: Int = 0,
+    onCrossfadeSecondsChange: (Int) -> Unit = {},
+    automixEnabled: Boolean = false,
+    onAutomixChange: (Boolean) -> Unit = {},
     liquidGlass: Boolean = false,
     onLiquidGlassChange: (Boolean) -> Unit = {},
     currentAudioQuality: AudioQuality,
@@ -383,7 +392,11 @@ fun SettingsScreen(
                     item {
                         PlaybackSection(
                             isAutoplayEnabled = isAutoplayEnabled,
-                            onAutoplayChange = onAutoplayChange
+                            onAutoplayChange = onAutoplayChange,
+                            crossfadeSeconds = crossfadeSeconds,
+                            onCrossfadeSecondsChange = onCrossfadeSecondsChange,
+                            automixEnabled = automixEnabled,
+                            onAutomixChange = onAutomixChange
                         )
                     }
                     item {
@@ -987,7 +1000,11 @@ private fun EqualizerSettingsSection(
 @Composable
 private fun PlaybackSection(
     isAutoplayEnabled: Boolean,
-    onAutoplayChange: (Boolean) -> Unit
+    onAutoplayChange: (Boolean) -> Unit,
+    crossfadeSeconds: Int,
+    onCrossfadeSecondsChange: (Int) -> Unit,
+    automixEnabled: Boolean,
+    onAutomixChange: (Boolean) -> Unit
 ) {
     SettingsGroup(
         header = stringResource(R.string.settings_playback_section_title),
@@ -1000,6 +1017,64 @@ private fun PlaybackSection(
             onCheckedChange = onAutoplayChange,
             icon = Icons.Default.Radio,
             tile = SettingsTile.Green
+        )
+        SettingsRowDivider(hasLeading = true)
+        SettingsToggleRow(
+            title = stringResource(R.string.crossfade_title),
+            subtitle = stringResource(R.string.crossfade_subtitle),
+            checked = crossfadeSeconds > 0,
+            onCheckedChange = { on -> onCrossfadeSecondsChange(if (on) DEFAULT_CROSSFADE_SECONDS else 0) },
+            icon = Icons.Default.GraphicEq,
+            tile = SettingsTile.Orange
+        )
+        if (crossfadeSeconds > 0) {
+            CrossfadeDurationRow(seconds = crossfadeSeconds, onSecondsChange = onCrossfadeSecondsChange)
+        }
+        SettingsRowDivider(hasLeading = true)
+        SettingsToggleRow(
+            title = stringResource(R.string.automix_title),
+            subtitle = stringResource(R.string.automix_subtitle),
+            checked = automixEnabled,
+            onCheckedChange = onAutomixChange,
+            icon = Icons.Default.AutoAwesome,
+            tile = SettingsTile.Purple
+        )
+    }
+}
+
+private const val DEFAULT_CROSSFADE_SECONDS = 6
+
+/** The slider writes once on release, not on every step of the drag. */
+@Composable
+private fun CrossfadeDurationRow(seconds: Int, onSecondsChange: (Int) -> Unit) {
+    var dragged by remember(seconds) { mutableFloatStateOf(seconds.toFloat()) }
+    Column(modifier = Modifier.fillMaxWidth().padding(start = 58.dp, end = 16.dp, bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.crossfade_duration),
+                style = MaterialTheme.typography.bodyLarge,
+                color = SonoraTextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = stringResource(R.string.crossfade_seconds, dragged.roundToInt()),
+                style = MaterialTheme.typography.bodyLarge,
+                color = SonoraTextSecondary
+            )
+        }
+        Slider(
+            value = dragged,
+            onValueChange = { dragged = it },
+            onValueChangeFinished = { onSecondsChange(dragged.roundToInt()) },
+            valueRange = 1f..CrossfadeMath.MAX_SECONDS.toFloat(),
+            steps = CrossfadeMath.MAX_SECONDS - 2,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = SonoraTheme.colors.primaryAccent,
+                inactiveTrackColor = SonoraSurfaceHighlight,
+                activeTickColor = Color.Transparent,
+                inactiveTickColor = Color.Transparent
+            )
         )
     }
 }

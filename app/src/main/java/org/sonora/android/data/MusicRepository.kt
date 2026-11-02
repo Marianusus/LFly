@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.sonora.android.playback.CrossfadeMath
 import org.sonora.android.api.ArtistCredit
 import org.sonora.android.api.ArtistCredits
 import org.sonora.android.api.HighlightMode
@@ -55,6 +56,8 @@ class MusicRepository(
         private const val KEY_APPEARANCE_MODE = "appearance_mode"
         private const val KEY_REDUCE_MOTION = "reduce_motion"
         private const val KEY_AMBIENT_ROTATION = "ambient_rotation"
+        private const val KEY_CROSSFADE_SECONDS = "crossfade_seconds"
+        private const val KEY_AUTOMIX = "automix"
         private const val KEY_LIQUID_GLASS = "liquid_glass"
         private const val KEY_ACCENT_COLOR = "accent_color"
         private const val KEY_TRANSLATE_LYRICS = "translate_lyrics"
@@ -192,6 +195,28 @@ class MusicRepository(
 
     private fun loadSavedAmbientRotationEnabled(): Boolean =
         prefs?.getBoolean(KEY_AMBIENT_ROTATION, true) ?: true
+
+    /** Seconds two songs overlap at a change; 0 turns crossfade off. */
+    private val _crossfadeSeconds = MutableStateFlow(loadSavedCrossfadeSeconds())
+    val crossfadeSeconds: StateFlow<Int> = _crossfadeSeconds.asStateFlow()
+
+    fun setCrossfadeSeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(0, CrossfadeMath.MAX_SECONDS)
+        _crossfadeSeconds.value = clamped
+        prefs?.edit()?.putInt(KEY_CROSSFADE_SECONDS, clamped)?.apply()
+    }
+
+    /** DJ-style transitions planned by the on-device beat model. */
+    private val _automixEnabled = MutableStateFlow(prefs?.getBoolean(KEY_AUTOMIX, false) ?: false)
+    val automixEnabled: StateFlow<Boolean> = _automixEnabled.asStateFlow()
+
+    fun setAutomixEnabled(enabled: Boolean) {
+        _automixEnabled.value = enabled
+        prefs?.edit()?.putBoolean(KEY_AUTOMIX, enabled)?.apply()
+    }
+
+    private fun loadSavedCrossfadeSeconds(): Int =
+        (prefs?.getInt(KEY_CROSSFADE_SECONDS, 0) ?: 0).coerceIn(0, CrossfadeMath.MAX_SECONDS)
 
     private val _liquidGlass = MutableStateFlow(loadSavedLiquidGlass())
     val liquidGlass: StateFlow<Boolean> = _liquidGlass.asStateFlow()

@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
@@ -39,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -47,6 +49,7 @@ import org.sonora.android.api.Track
 import org.sonora.android.api.YouTubeMusicClient
 import org.sonora.android.data.MusicRepository
 import org.sonora.android.party.PartyManager
+import org.sonora.android.playback.auto.AutoBrowseTree
 import org.sonora.android.playback.auto.AutoIds
 import org.sonora.android.playback.auto.AutoLibrary
 import org.sonora.android.playback.auto.AutoStart
@@ -66,6 +69,12 @@ class SonoraMediaSessionService : MediaLibraryService() {
         const val ACTION_TOGGLE_FAVORITE = "ACTION_TOGGLE_FAVORITE"
         const val ACTION_DISLIKE = "ACTION_DISLIKE"
         private const val CAR_START_PLAY_GUARD_MS = 2_000L
+
+        /** Android Auto and the Assistant, the only outside apps that browse LFly or pick tracks. */
+        private val LIBRARY_CALLERS = setOf(
+            "com.google.android.projection.gearhead",
+            "com.google.android.googlequicksearchbox"
+        )
     }
 
     private var player: ExoPlayer? = null
@@ -316,8 +325,47 @@ class SonoraMediaSessionService : MediaLibraryService() {
         watch(repository.playlists, AutoIds.PLAYLISTS)
         watch(repository.history, AutoIds.HISTORY)
         watch(repository.mixes, AutoIds.HOME)
-        watch(DownloadManager.downloadedTracks, AutoIds.DOWNLOADS)
+        watch(
+            combine(DownloadManager.downloadedTracks, repository.localTracks) { downloads, locals ->
+                AutoBrowseTree.mergeOffline(downloads, locals)
+            },
+            AutoIds.DOWNLOADS
+        )
+
+        // A folder that disappears is notified once more, so its open screen does not go stale.
+        fun <T> watchFolders(source: Flow<List<T>>, folderSizes: (List<T>) -> Map<String, Int>) {
+            serviceScope.launch {
+                var shown = emptySet<String>()
+                source.collect { items ->
+                    val sizes = folderSizes(items)
+                    (shown - sizes.keys).forEach { session.notifyChildrenChanged(it, 0, null) }
+                    sizes.forEach { (folderId, size) -> session.notifyChildrenChanged(folderId, size, null) }
+                    shown = sizes.keys
+                }
+            }
+        }
+        watchFolders(repository.playlists) { list -> list.associate { AutoIds.playlist(it.id) to it.tracks.size } }
+        watchFolders(repository.mixes) { list -> list.associate { AutoIds.mix(it.id) to it.tracks.size } }
     }
+
+    /**
+     * The service is exported, and Bluetooth, Wear and system controls still need play and pause.
+     * The library holds private data, so only LFly, Android Auto, the Assistant and callers the
+     * system trusts for media control may read it.
+     */
+    @OptIn(UnstableApi::class)
+    private fun canUseLibrary(controller: MediaSession.ControllerInfo): Boolean {
+        if (controller.uid == Process.myUid() || controller.isTrusted) return true
+        val callerPackages = packageManager.getPackagesForUid(controller.uid).orEmpty()
+        return controller.packageName in LIBRARY_CALLERS && controller.packageName in callerPackages
+    }
+
+    /** Before Android 9 the platform hides who sent a command, so Android Auto cannot be told apart. */
+    @OptIn(UnstableApi::class)
+    private fun canStartTracks(controller: MediaSession.ControllerInfo): Boolean =
+        canUseLibrary(controller) ||
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.P &&
+                controller.packageName == MediaSession.ControllerInfo.LEGACY_CONTROLLER_PACKAGE_NAME)
 
     private fun <T> asyncFuture(block: suspend () -> T): ListenableFuture<T> {
         val future = SettableFuture.create<T>()
@@ -444,7 +492,12 @@ class SonoraMediaSessionService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+            val baseCommands = if (canUseLibrary(controller)) {
+                MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+            } else {
+                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
+            }
+            val sessionCommands = baseCommands.buildUpon()
                 .add(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .add(SessionCommand(ACTION_DISLIKE, Bundle.EMPTY))
                 .build()
@@ -573,8 +626,12 @@ class SonoraMediaSessionService : MediaLibraryService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = asyncFuture {
             val request = mediaItems.getOrNull(startIndex.coerceAtLeast(0))
             val playback = PlaybackManager.getInstance(this@SonoraMediaSessionService).playbackState.value
-            autoLibrary.resolveStart(request, playback)?.let(::startFromCar)
-                ?: Log.d(TAG, "No new track to start for car request '${request?.mediaId}'")
+            if (canStartTracks(controller)) {
+                autoLibrary.resolveStart(request, playback)?.let(::startFromCar)
+                    ?: Log.d(TAG, "No new track to start for car request '${request?.mediaId}'")
+            } else {
+                Log.w(TAG, "Ignored a track selection from ${controller.packageName}")
+            }
             MediaSession.MediaItemsWithStartPosition(mediaItems, C.INDEX_UNSET, C.TIME_UNSET)
         }
 

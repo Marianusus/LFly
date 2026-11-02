@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -55,8 +56,7 @@ internal class AutoLibrary(
             charts = context.getString(R.string.auto_charts)
         )
 
-    private var lastSearchQuery: String? = null
-    private var lastSearchResults: List<Track> = emptyList()
+    private val searchCache = AutoSearchCache(SystemClock::elapsedRealtime)
     private var fallbackCharts: List<Track> = emptyList()
 
     val rootItem: MediaItem
@@ -98,8 +98,10 @@ internal class AutoLibrary(
             ?.let(::folderItem)
     }
 
-    suspend fun search(query: String): List<MediaItem> =
-        searchTracks(query).map { toMediaItem(AutoNode.Song(AutoIds.track(AutoIds.SEARCH, it.id), it)) }
+    suspend fun search(query: String): List<MediaItem> {
+        val folderId = AutoIds.search(query)
+        return searchTracks(query).map { toMediaItem(AutoNode.Song(AutoIds.track(folderId, it.id), it)) }
+    }
 
     /** Null means "nothing to start": the car simply resumes what is already loaded. */
     suspend fun resolveStart(request: MediaItem?, playback: PlaybackState): AutoStart? {
@@ -133,14 +135,13 @@ internal class AutoLibrary(
     }
 
     private suspend fun searchTracks(query: String): List<Track> {
-        if (query == lastSearchQuery) return lastSearchResults
+        searchCache.get(query)?.let { return it }
         val disliked = repository.dislikedTrackIds.value
-        val online = withContext(Dispatchers.IO) {
-            youTubeMusic.searchTracks(query, SEARCH_LIMIT).getOrNull().orEmpty()
-        }
-        val results = online.ifEmpty { searchOffline(query) }.filter { it.id !in disliked }
-        lastSearchQuery = query
-        lastSearchResults = results
+        val online = withContext(Dispatchers.IO) { youTubeMusic.searchTracks(query, SEARCH_LIMIT) }
+        val results = online.getOrNull().orEmpty()
+            .ifEmpty { searchOffline(query) }
+            .filter { it.id !in disliked }
+        if (online.isSuccess) searchCache.putOnline(query, results) else searchCache.putFallback(query, results)
         return results
     }
 
@@ -160,7 +161,7 @@ internal class AutoLibrary(
             downloads = offlineTracks(),
             history = repository.history.value,
             charts = if (folderId == AutoIds.CHARTS) charts() else emptyList(),
-            searchResults = lastSearchResults,
+            searchResults = AutoIds.searchQueryOf(folderId)?.let { searchTracks(it) }.orEmpty(),
             dislikedTrackIds = repository.dislikedTrackIds.value
         )
     }
@@ -200,6 +201,7 @@ internal class AutoLibrary(
             val mixId = AutoIds.mixIdOf(folderId)
             playlistId?.let { id -> repository.playlists.value.firstOrNull { it.id == id }?.name }
                 ?: mixId?.let { id -> repository.mixes.value.firstOrNull { it.id == id }?.name }
+                ?: AutoIds.searchQueryOf(folderId)
         }
     }
 

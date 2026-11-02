@@ -152,6 +152,7 @@ import org.sonora.android.ui.components.TrackAnchor
 import org.sonora.android.ui.components.TrackActionsSheet
 import org.sonora.android.ui.components.MarqueeText
 import org.sonora.android.ui.components.PlayerSharedKeys
+import org.sonora.android.ui.components.PlayerPlaybackOptions
 import org.sonora.android.ui.components.SourceSwitchMenuItems
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.player.v2.ArtworkGradient
@@ -199,6 +200,7 @@ fun PlayerScreenV2(
     onOpenAlbum: (String) -> Unit = {},
     onRequestTrackMetadata: (Track) -> Unit = {},
     isPartyActive: Boolean = false,
+    playbackOptions: PlayerPlaybackOptions? = null,
     onArtistClick: (ArtistCredit) -> Unit = {},
     trackMetadata: TrackMetadata? = null,
     metadataLoading: Boolean = false,
@@ -511,6 +513,7 @@ fun PlayerScreenV2(
                 onOpenAmbient = onOpenAmbient,
                 onOpenAlbum = onOpenAlbum,
                 onOpenArtist = onArtistClick,
+                playbackOptions = playbackOptions,
             )
         }
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sleep_timer_title">Timer di spegnimento</string>
+    <string name="sleep_timer_off">Disattivato</string>
+    <string name="sleep_timer_minutes">%1$d minuti</string>
+    <string name="sleep_timer_end_of_track">Fine del brano</string>
+    <string name="sleep_timer_stops_in">Si ferma tra %1$s</string>
+    <string name="sleep_timer_stops_at_track_end">Si ferma alla fine di questo brano</string>
+    <string name="playback_speed_title">Velocità</string>
+    <string name="playback_speed_normal">Normale</string>
+    <string name="crossfade_title">Crossfade</string>
+    <string name="crossfade_subtitle">Sfuma la fine di un brano nell\'inizio del successivo</string>
+    <string name="crossfade_duration">Durata</string>
+    <string name="crossfade_seconds">%1$d s</string>
+    <string name="automix_title">Automix (AI)</string>
+    <string name="automix_subtitle">Transizioni da DJ: un modello AI sul telefono allinea battiti e tempo tra i brani. Quando non è sicuro, usa il crossfade</string>
+</resources>

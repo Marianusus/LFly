@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.OptIn
@@ -45,6 +46,8 @@ import org.sonora.android.api.TrackSourcePreferences
 import org.sonora.android.data.MusicRepository
 import org.sonora.android.data.NetworkMonitor
 import org.sonora.android.party.SyncEngine
+import org.sonora.android.playback.automix.AutomixAnalyzer
+import org.sonora.android.playback.automix.AutomixPlanner
 import java.io.File
 import android.media.MediaMetadataRetriever
 import android.media.AudioDeviceInfo
@@ -72,6 +75,12 @@ class PlaybackManager private constructor(private val context: Context) {
 
         @Volatile
         private var instance: PlaybackManager? = null
+
+        /** Automix falls back to this crossfade when crossfade itself is off. */
+        private const val AUTOMIX_FALLBACK_SECONDS = 6
+        /** Analysis starts this long before a song ends: enough for two windows on a slow phone. */
+        private const val AUTOMIX_ANALYSIS_LEAD_MS = 90_000L
+        private const val AUTOMIX_MIN_PREPARE_MS = 400L
 
         fun getInstance(context: Context): PlaybackManager {
             return instance ?: synchronized(this) {
@@ -192,6 +201,150 @@ class PlaybackManager private constructor(private val context: Context) {
     // Pending action in case play is requested before service is attached
     private var pendingPlayTrack: Track? = null
 
+    // ── Sleep timer, speed and crossfade ─────────────────────────────────────
+    private val _sleepTimer = MutableStateFlow<SleepTimer>(SleepTimer.Off)
+    val sleepTimer: StateFlow<SleepTimer> = _sleepTimer.asStateFlow()
+    private var sleepTimerJob: Job? = null
+
+    private val _playbackSpeed = MutableStateFlow(1f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
+
+    private val crossfade by lazy { CrossfadeController(context, managerScope) }
+
+    /** True while a crossfade moves to the next song, so that move does not cancel the crossfade. */
+    private var crossfadeHandingOff = false
+
+    /** The play request a crossfade was already tried for: one try per song start. */
+    private var crossfadeTriedForRequest = -1L
+
+    private val automix by lazy { AutomixAnalyzer(context, managerScope) }
+
+    /** Where the song an Automix just moved to must start: its first downbeat. */
+    private var automixEntry: Pair<String, Long>? = null
+
+    private fun takeAutomixEntry(trackId: String): Long {
+        val entry = automixEntry
+        automixEntry = null
+        return if (entry?.first == trackId) entry.second else 0L
+    }
+
+    fun setSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        val durationMs = minutes.coerceAtLeast(1) * 60_000L
+        _sleepTimer.value = SleepTimer.At(SystemClock.elapsedRealtime() + durationMs)
+        sleepTimerJob = managerScope.launch {
+            delay(durationMs)
+            sleepTimerJob = null
+            _sleepTimer.value = SleepTimer.Off
+            stopForSleep()
+        }
+    }
+
+    fun setSleepTimerAtTrackEnd() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _sleepTimer.value = SleepTimer.EndOfTrack
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _sleepTimer.value = SleepTimer.Off
+    }
+
+    /** Local only: a Party guest going to sleep must not pause the host. */
+    private fun stopForSleep() {
+        cancelCrossfade()
+        player?.pause()
+    }
+
+    /** Changes tempo, keeping the pitch. A Party guest stays at the host's normal speed. */
+    fun setPlaybackSpeed(speed: Float) {
+        val clamped = speed.coerceIn(PLAYBACK_SPEEDS.first(), PLAYBACK_SPEEDS.last())
+        _playbackSpeed.value = clamped
+        if (!partyGuestMode) player?.setPlaybackParameters(PlaybackParameters(clamped))
+    }
+
+    private fun cancelCrossfade() {
+        if (!crossfadeHandingOff) crossfade.cancel()
+    }
+
+    private fun maybeStartCrossfade(p: ExoPlayer, positionMs: Long, durationMs: Long) {
+        if (crossfadeHandingOff || crossfade.isRunning) return
+        val request = playRequestCounter.get()
+        if (request == crossfadeTriedForRequest) return
+        val state = _playbackState.value
+        if (partyGuestMode || _sleepTimer.value == SleepTimer.EndOfTrack) return
+        if (state.repeatMode == RepeatMode.ONE || state.queue.isEmpty()) return
+        val hasNext = state.isShuffle ||
+            state.repeatMode == RepeatMode.ALL ||
+            state.currentIndex in 0 until state.queue.size - 1
+        if (!hasNext) return
+
+        val automixOn = musicRepository.automixEnabled.value
+        if (automixOn && tryAutomix(p, positionMs, durationMs, request)) return
+
+        // Without a usable Automix plan the transition is a plain crossfade.
+        val fadeSeconds = musicRepository.crossfadeSeconds.value.takeIf { it > 0 }
+            ?: if (automixOn) AUTOMIX_FALLBACK_SECONDS else 0
+        val fadeMs = fadeSeconds * 1_000L
+        val handoffMs = CrossfadeMath.handoffPositionMs(positionMs, durationMs, fadeMs) ?: return
+        crossfadeTriedForRequest = request
+        crossfade.start(p, handoffMs, fadeMs, _playbackSpeed.value) { advanceForCrossfade(p) }
+    }
+
+    /** True when an Automix is planned for this song: started now, or waiting for its downbeat. */
+    private fun tryAutomix(p: ExoPlayer, positionMs: Long, durationMs: Long, request: Long): Boolean {
+        val current = _playbackState.value.currentTrack ?: return false
+        val next = peekNextTrack() ?: return false
+        val outgoing = automix.grid(current.id, AutomixAnalyzer.Part.TAIL) ?: return false
+        val incoming = automix.grid(next.id, AutomixAnalyzer.Part.HEAD) ?: return false
+        val plan = AutomixPlanner.plan(outgoing, durationMs, incoming) ?: return false
+        if (positionMs > plan.exitMs - AUTOMIX_MIN_PREPARE_MS) return false
+        if (positionMs < plan.exitMs - CrossfadeMath.PREPARE_LEAD_MS) return true
+
+        crossfadeTriedForRequest = request
+        automixEntry = next.id to plan.entryMs
+        Log.i(
+            TAG,
+            "Automix '${current.title}' -> '${next.title}': exit ${plan.exitMs} ms, entry ${plan.entryMs} ms, " +
+                "rate ${plan.incomingRate}, mix ${plan.mixMs} ms"
+        )
+        crossfade.start(
+            main = p,
+            handoffMs = plan.exitMs,
+            fadeMs = plan.mixMs,
+            speed = _playbackSpeed.value,
+            beatMatch = BeatMatch(next.id, outgoing, incoming, plan.incomingRate)
+        ) { advanceForCrossfade(p) }
+        return true
+    }
+
+    private fun advanceForCrossfade(p: ExoPlayer) {
+        crossfadeHandingOff = true
+        try {
+            // Paused, the old song cannot reach its end and advance the queue a second time.
+            p.pause()
+            handleTrackEnded()
+        } finally {
+            crossfadeHandingOff = false
+        }
+    }
+
+    /** Analyses the end of this song and the start of the next while there is time to. */
+    private fun maybePrepareAutomix(p: ExoPlayer, positionMs: Long, durationMs: Long) {
+        if (!musicRepository.automixEnabled.value || partyGuestMode) return
+        if (durationMs < AutomixPlanner.MIN_SONG_MS || durationMs - positionMs > AUTOMIX_ANALYSIS_LEAD_MS) return
+        val current = _playbackState.value.currentTrack ?: return
+        val source = p.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        automix.request(current.id, source, AutomixAnalyzer.Part.TAIL, durationMs)
+        val next = peekNextTrack() ?: return
+        val nextSource = DownloadManager.localPathFor(next.id)
+            ?: next.streamUrl?.takeUnless { it.isBlank() || isPreviewUrl(it) }
+            ?: return
+        automix.request(next.id, nextSource, AutomixAnalyzer.Part.HEAD, next.durationMs)
+    }
+
     // ── Party (group listening) hooks ────────────────────────────────────────
     /** True while this device follows a Party host: autoplay/queue logic is suspended. */
     @Volatile
@@ -302,7 +455,7 @@ class PlaybackManager private constructor(private val context: Context) {
     /** Restores normal playback speed and clears Party drift state (called when leaving a Party). */
     fun resetPartyPlaybackAdjustments() {
         partyDriftAction = SyncEngine.DriftAction.NONE
-        player?.setPlaybackParameters(PlaybackParameters.DEFAULT)
+        player?.setPlaybackParameters(PlaybackParameters(_playbackSpeed.value))
     }
 
     /** Live playback position (the state flow's value can lag behind the ticker). */
@@ -336,6 +489,11 @@ class PlaybackManager private constructor(private val context: Context) {
                     _playbackState.update { it.copy(isLoading = false, isBuffering = false) }
                 }
             }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            // Any pause (button, call, unplugged headphones, sleep) also silences a fading tail.
+            if (!playWhenReady) cancelCrossfade()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -396,6 +554,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
         // Sync repeat mode with ExoPlayer
         applyRepeatModeToPlayer(_playbackState.value.repeatMode)
+        if (!partyGuestMode) exoPlayer.setPlaybackParameters(PlaybackParameters(_playbackSpeed.value))
 
         // Process any pending track play request
         val pending = pendingPlayTrack
@@ -408,6 +567,7 @@ class PlaybackManager private constructor(private val context: Context) {
     @OptIn(UnstableApi::class)
     fun detachPlayer() {
         Log.i(TAG, "Detaching player from PlaybackManager")
+        crossfade.cancel()
         player?.removeListener(playerListener)
         player?.removeAnalyticsListener(analyticsListener)
         equalizerManager.detachAudioSession()
@@ -491,6 +651,7 @@ class PlaybackManager private constructor(private val context: Context) {
      * Plays a single track immediately. If queue is empty, sets queue to this single track.
      */
     fun playTrack(track: Track, context: String? = null) {
+        cancelCrossfade()
         val sanitized = sanitizeTrack(track)
         val currentQueue = _playbackState.value.queue
         val existingIndex = currentQueue.indexOfFirst { it.id == sanitized.id }
@@ -511,6 +672,7 @@ class PlaybackManager private constructor(private val context: Context) {
      * Replaces the active queue and starts playback from [startIndex].
      */
     fun playQueue(tracks: List<Track>, startIndex: Int = 0, context: String? = null) {
+        cancelCrossfade()
         if (tracks.isEmpty()) {
             clearQueue()
             return
@@ -617,7 +779,9 @@ class PlaybackManager private constructor(private val context: Context) {
                 retryCount = 0
                 consecutiveFailures = 0
                 if (state.currentIndex in state.queue.indices) {
-                    playFromQueueIndex(state.currentIndex)
+                    // An empty player means the service was rebuilt mid-track: pick up where it was.
+                    val resumeMs = if (noMediaItems) state.positionMs else 0L
+                    playFromQueueIndex(state.currentIndex, resumeMs)
                 } else {
                     playTrack(current)
                 }
@@ -661,6 +825,9 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun seekTo(positionMs: Long) {
         if (forwardToParty(PartyTransportAction.SEEK, positionMs)) return
+        cancelCrossfade()
+        // After a seek the song may reach its end again: it gets a new crossfade.
+        crossfadeTriedForRequest = -1L
         val clamped = positionMs.coerceAtLeast(0L)
         _playbackState.update { it.copy(positionMs = clamped) }
         player?.seekTo(clamped)
@@ -668,6 +835,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun playNext() {
         if (forwardToParty(PartyTransportAction.NEXT)) return
+        cancelCrossfade()
         val state = _playbackState.value
         val queue = state.queue
         if (queue.isEmpty()) return
@@ -708,6 +876,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun playPrevious() {
         if (forwardToParty(PartyTransportAction.PREVIOUS)) return
+        cancelCrossfade()
         val p = player
         val currentPos = p?.currentPosition ?: _playbackState.value.positionMs
 
@@ -1030,6 +1199,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun clearQueue() {
+        cancelCrossfade()
         player?.stop()
         player?.clearMediaItems()
         prefetchedTrackIds.clear()
@@ -1123,9 +1293,10 @@ class PlaybackManager private constructor(private val context: Context) {
         return true
     }
 
-    fun playFromQueueIndex(index: Int) {
+    fun playFromQueueIndex(index: Int, resumePositionMs: Long = 0L) {
         val state = _playbackState.value
         if (index !in state.queue.indices) return
+        cancelCrossfade()
 
         // A direct tap can jump anywhere in the queue: keep the shuffle cursor in sync so
         // the following "next" continues from the tapped track.
@@ -1141,13 +1312,13 @@ class PlaybackManager private constructor(private val context: Context) {
                 currentTrack = target,
                 isLoading = !hasResolvedStream(target),
                 isBuffering = false,
-                positionMs = 0L,
+                positionMs = resumePositionMs,
                 durationMs = target.durationMs,
                 error = null
             )
         }
 
-        executeStreamResolutionAndPlay(target)
+        executeStreamResolutionAndPlay(target, resumePositionMs = resumePositionMs)
     }
 
     private fun executeStreamResolutionAndPlay(
@@ -1159,6 +1330,8 @@ class PlaybackManager private constructor(private val context: Context) {
         // Only the newest request may reach the player: resolution and artwork take seconds, and
         // the listener can move to another track (or retry this one) in the meantime.
         val requestId = playRequestCounter.incrementAndGet()
+        // An Automix starts the next song on its first downbeat rather than at 0.
+        val startPositionMs = if (resumePositionMs > 0L) resumePositionMs else takeAutomixEntry(track.id)
         val isSuperseded = {
             requestId != playRequestCounter.get() || _playbackState.value.currentTrack?.id != track.id
         }
@@ -1398,9 +1571,9 @@ class PlaybackManager private constructor(private val context: Context) {
                     p.prepare()
                     // Recovery of the same track resumes where it was instead of restarting at 0
                     // (e.g. a seek that hit an expired signed URL triggers this path).
-                    if (resumePositionMs > 0L) {
-                        p.seekTo(resumePositionMs)
-                        _playbackState.update { it.copy(positionMs = resumePositionMs) }
+                    if (startPositionMs > 0L) {
+                        p.seekTo(startPositionMs)
+                        _playbackState.update { it.copy(positionMs = startPositionMs) }
                     }
                     p.play()
                     // Promote only once the player is actually running, so Media3 posts the
@@ -1442,6 +1615,12 @@ class PlaybackManager private constructor(private val context: Context) {
         state.currentTrack?.let { track ->
             val playedMs = if (state.positionMs > 0L) state.positionMs else state.durationMs
             musicRepository.recordCompletion(track, playedMs)
+        }
+        if (_sleepTimer.value == SleepTimer.EndOfTrack) {
+            _sleepTimer.value = SleepTimer.Off
+            player?.pause()
+            _playbackState.update { it.copy(isPlaying = false) }
+            return
         }
         // In a Party the host owns the queue: wait for its next STATE instead of advancing.
         if (partyGuestMode) return
@@ -1575,12 +1754,10 @@ class PlaybackManager private constructor(private val context: Context) {
     // Stream Prefetching
     // ==========================================
 
-    private fun prefetchNextTrack() {
-        val state = _playbackState.value
+    /** The queue index "next" would play, with the same shuffle and dislike rules as [playNext]. */
+    private fun peekNextIndex(state: PlaybackState): Int {
         val queue = state.queue
-        if (queue.isEmpty() || state.currentIndex !in queue.indices) return
-
-        val nextIndex = when {
+        return when {
             state.isShuffle -> {
                 if (shuffledIndices.isNotEmpty()) {
                     var nextPointer = (shufflePointer + 1) % shuffledIndices.size
@@ -1619,6 +1796,20 @@ class PlaybackManager private constructor(private val context: Context) {
                 idx
             }
         }
+    }
+
+    private fun peekNextTrack(): Track? {
+        val state = _playbackState.value
+        val index = peekNextIndex(state)
+        return if (index in state.queue.indices && index != state.currentIndex) state.queue[index] else null
+    }
+
+    private fun prefetchNextTrack() {
+        val state = _playbackState.value
+        val queue = state.queue
+        if (queue.isEmpty() || state.currentIndex !in queue.indices) return
+
+        val nextIndex = peekNextIndex(state)
 
         if (nextIndex in queue.indices && nextIndex != state.currentIndex) {
             val nextTrack = queue[nextIndex]
@@ -1832,6 +2023,11 @@ class PlaybackManager private constructor(private val context: Context) {
                     // Proactively pre-fetch and pre-cache next track when 25s or less remain
                     if (dur > 0 && pos > 0 && (dur - pos) <= 25_000L) {
                         prefetchNextTrack()
+                    }
+
+                    if (dur > 0) {
+                        maybePrepareAutomix(p, pos, dur)
+                        maybeStartCrossfade(p, pos, dur)
                     }
                 }
                 delay(250L) // 4 updates/sec for ultra-smooth UI progress bar

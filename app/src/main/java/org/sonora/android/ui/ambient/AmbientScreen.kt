@@ -1,6 +1,7 @@
 package org.sonora.android.ui.ambient
 
 import android.content.Context
+import android.os.Build
 import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
@@ -93,6 +94,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import org.sonora.android.R
 import org.sonora.android.api.HighlightMode
@@ -529,6 +531,8 @@ private fun LyricSweepText(line: String, accent: Color, readReveal: () -> Float)
     }
 }
 
+private const val AMBIENT_BLUR_FALLBACK_PX = 24
+
 /**
  * The song fills the screen, as in the full player. The scrim keeps the text side readable on any
  * cover: on a pure white one the ink stays above 8:1 and the secondary ink above 5:1.
@@ -536,8 +540,17 @@ private fun LyricSweepText(line: String, accent: Color, readReveal: () -> Float)
 @Composable
 private fun AmbientHeroBackground(artworkUrl: String?) {
     if (!artworkUrl.isNullOrBlank()) {
+        val context = LocalContext.current
+        // Modifier.blur does nothing before Android 12: a tiny image scaled up gives the same wash.
+        val model: Any = remember(artworkUrl) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                artworkUrl
+            } else {
+                ImageRequest.Builder(context).data(artworkUrl).size(AMBIENT_BLUR_FALLBACK_PX).build()
+            }
+        }
         AsyncImage(
-            model = artworkUrl,
+            model = model,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier

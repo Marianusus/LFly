@@ -121,6 +121,7 @@ import org.sonora.android.api.ArtistCredits
 import org.sonora.android.ui.ambient.AmbientScreen
 import org.sonora.android.ui.ambient.AmbientWindowEffect
 import org.sonora.android.ui.ambient.shouldShowAmbient
+import org.sonora.android.ui.components.PlayerPlaybackOptions
 import org.sonora.android.ui.components.AddToPlaylistDialog
 import org.sonora.android.ui.components.DownloadUiState
 import org.sonora.android.ui.components.BottomChrome
@@ -312,7 +313,11 @@ fun MainScreen(
     val reduceMotion by viewModel.reduceMotion.collectAsState()
     val ambientRotationEnabled by viewModel.ambientRotationEnabled.collectAsState()
     val ambientOpenedFromMenu by viewModel.ambientOpenedFromMenu.collectAsState()
-    val ambientDismissed by viewModel.ambientDismissed.collectAsState()
+    val ambientRotationArmed by viewModel.ambientRotationArmed.collectAsState()
+    val sleepTimer by viewModel.sleepTimer.collectAsState()
+    val playbackSpeed by viewModel.playbackSpeed.collectAsState()
+    val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
+    val automixEnabled by viewModel.automixEnabled.collectAsState()
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -333,11 +338,15 @@ fun MainScreen(
         isLandscape = isLandscape,
         rotationEnabled = ambientRotationEnabled,
         openedFromMenu = ambientOpenedFromMenu,
-        dismissed = ambientDismissed
+        rotationArmed = ambientRotationArmed
     )
     AmbientWindowEffect(active = ambientVisible, forceLandscape = ambientOpenedFromMenu)
-    LaunchedEffect(isLandscape, ambientOpenedFromMenu) {
-        if (!isLandscape && !ambientOpenedFromMenu) viewModel.resetAmbientDismissal()
+    // Only the open player in portrait arms the rotation: a window that is already wide is not a turn.
+    LaunchedEffect(isLandscape, isPlayerExpanded, ambientOpenedFromMenu) {
+        when {
+            !isPlayerExpanded -> viewModel.setAmbientRotationArmed(false)
+            !isLandscape && !ambientOpenedFromMenu -> viewModel.setAmbientRotationArmed(true)
+        }
     }
     LaunchedEffect(ambientOpenedFromMenu, isPlayerExpanded, hasTrack) {
         if (ambientOpenedFromMenu && (!isPlayerExpanded || !hasTrack)) viewModel.closeAmbient()
@@ -911,6 +920,10 @@ fun MainScreen(
                                     onReduceMotionChange = { enabled -> viewModel.setReduceMotion(enabled) },
                                     ambientRotationEnabled = ambientRotationEnabled,
                                     onAmbientRotationChange = { enabled -> viewModel.setAmbientRotationEnabled(enabled) },
+                                    crossfadeSeconds = crossfadeSeconds,
+                                    onCrossfadeSecondsChange = { seconds -> viewModel.setCrossfadeSeconds(seconds) },
+                                    automixEnabled = automixEnabled,
+                                    onAutomixChange = { enabled -> viewModel.setAutomixEnabled(enabled) },
                                     liquidGlass = isLiquidGlassEnabled,
                                     onLiquidGlassChange = { enabled -> viewModel.setLiquidGlass(enabled) },
                                     currentAudioQuality = audioQuality,
@@ -1531,7 +1544,8 @@ fun MainScreen(
         ) {
             val visibilityScope = this
             val track = playbackState.currentTrack
-            if (track != null) {
+            // Ambient is opaque and can stay on for hours: nothing hidden under it should recompose.
+            if (track != null && !ambientVisible) {
                 PlayerScreenV2(
                     playbackState = playbackState,
                     isFavorite = isCurrentFavorite,
@@ -1561,6 +1575,19 @@ fun MainScreen(
                     },
                     onRequestTrackMetadata = viewModel::requestTrackMetadata,
                     isPartyActive = partyState.role != PartyRole.IDLE,
+                    // A Party keeps everyone at the same tempo, and the host decides when it stops.
+                    playbackOptions = if (partyState.role == PartyRole.IDLE) {
+                        PlayerPlaybackOptions(
+                            sleepTimer = sleepTimer,
+                            speed = playbackSpeed,
+                            onSleepMinutes = viewModel::setSleepTimer,
+                            onSleepAtTrackEnd = viewModel::setSleepTimerAtTrackEnd,
+                            onCancelSleep = viewModel::cancelSleepTimer,
+                            onSpeed = viewModel::setPlaybackSpeed,
+                        )
+                    } else {
+                        null
+                    },
                     onArtistClick = playerArtistClick,
                     trackMetadata = trackMetadata[track.id],
                     metadataLoading = !track.provider.equals("Local", ignoreCase = true) &&
