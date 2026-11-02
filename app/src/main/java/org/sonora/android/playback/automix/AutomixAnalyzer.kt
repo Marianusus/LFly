@@ -32,7 +32,7 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
     }
 
     /** A finished analysis; [grid] is null when the song has no trackable beat there. */
-    private class Result(val grid: BeatGrid?)
+    private class Result(val grid: BeatGrid?, val loudness: Double?)
 
     private val tracker by lazy { BeatTracker(context) }
     private val results = LruCache<String, Result>(MAX_RESULTS)
@@ -41,6 +41,9 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
 
     /** The grid, once analysed. */
     fun grid(trackId: String, part: Part): BeatGrid? = results.get(key(trackId, part))?.grid
+
+    /** Loudness of the analysed stretch in LUFS, once analysed and when it is not silence. */
+    fun loudness(trackId: String, part: Part): Double? = results.get(key(trackId, part))?.loudness
 
     fun isDone(trackId: String, part: Part): Boolean = results.get(key(trackId, part)) != null
 
@@ -57,22 +60,29 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
                     } else {
                         0.0
                     }
-                    val grid = runCatching {
+                    val window = runCatching {
                         AudioWindowDecoder.decode(
                             source = source,
                             startSeconds = start,
                             durationSeconds = WINDOW_SECONDS,
                             remote = AudioCacheManager.getCacheDataSourceFactory(context)
-                        )?.let(tracker::track)
-                    }.onFailure { Log.w(TAG, "Analysis failed for $trackId $part", it) }.getOrNull()
-                    results.put(key, Result(grid))
+                        )
+                    }.onFailure { Log.w(TAG, "Decoding failed for $trackId $part", it) }.getOrNull()
+                    val grid = window?.let {
+                        runCatching { tracker.track(it) }
+                            .onFailure { e -> Log.w(TAG, "Analysis failed for $trackId $part", e) }
+                            .getOrNull()
+                    }
+                    val loudness = window?.let { Loudness.lufs(it.samples, LogMelSpectrogram.SAMPLE_RATE) }
+                    results.put(key, Result(grid, loudness))
                     Log.i(
                         TAG,
                         "$trackId $part: " + (grid?.let {
                             "%.1f BPM, %d beats, %d downbeats, confidence %.2f".format(
                                 it.bpm, it.beats.size, it.downbeats.size, it.confidence
                             )
-                        } ?: "no grid") + " in ${SystemClock.elapsedRealtime() - started} ms"
+                        } ?: "no grid") + ", loudness " + (loudness?.let { "%.1f LUFS".format(it) } ?: "n/a") +
+                            " in ${SystemClock.elapsedRealtime() - started} ms"
                     )
                 }
             } finally {

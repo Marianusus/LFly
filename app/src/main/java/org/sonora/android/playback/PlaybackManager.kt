@@ -48,6 +48,7 @@ import org.sonora.android.data.NetworkMonitor
 import org.sonora.android.party.SyncEngine
 import org.sonora.android.playback.automix.AutomixAnalyzer
 import org.sonora.android.playback.automix.AutomixPlanner
+import org.sonora.android.playback.automix.Loudness
 import java.io.File
 import android.media.MediaMetadataRetriever
 import android.media.AudioDeviceInfo
@@ -290,7 +291,18 @@ class PlaybackManager private constructor(private val context: Context) {
         val fadeMs = fadeSeconds * 1_000L
         val handoffMs = CrossfadeMath.handoffPositionMs(positionMs, durationMs, fadeMs) ?: return
         crossfadeTriedForRequest = request
-        crossfade.start(p, handoffMs, fadeMs, _playbackSpeed.value) { advanceForCrossfade(p) }
+        val gainDb = if (automixOn) automixGainDb() else 0.0
+        crossfade.start(p, handoffMs, fadeMs, _playbackSpeed.value, outgoingGainDb = gainDb) { advanceForCrossfade(p) }
+    }
+
+    /** Level difference between this song's ending and the next song's start, when both were analysed. */
+    private fun automixGainDb(): Double {
+        val current = _playbackState.value.currentTrack ?: return 0.0
+        val next = peekNextTrack() ?: return 0.0
+        return Loudness.matchGainDb(
+            automix.loudness(current.id, AutomixAnalyzer.Part.TAIL),
+            automix.loudness(next.id, AutomixAnalyzer.Part.HEAD)
+        )
     }
 
     /** True when an Automix is planned for this song: started now, or waiting for its downbeat. */
@@ -305,17 +317,19 @@ class PlaybackManager private constructor(private val context: Context) {
 
         crossfadeTriedForRequest = request
         automixEntry = next.id to plan.entryMs
+        val gainDb = automixGainDb()
         Log.i(
             TAG,
             "Automix '${current.title}' -> '${next.title}': exit ${plan.exitMs} ms, entry ${plan.entryMs} ms, " +
-                "rate ${plan.incomingRate}, mix ${plan.mixMs} ms"
+                "rate ${plan.incomingRate}, mix ${plan.mixMs} ms, level %+.1f dB".format(gainDb)
         )
         crossfade.start(
             main = p,
             handoffMs = plan.exitMs,
             fadeMs = plan.mixMs,
             speed = _playbackSpeed.value,
-            beatMatch = BeatMatch(next.id, outgoing, incoming, plan.incomingRate)
+            beatMatch = BeatMatch(next.id, outgoing, incoming, plan.incomingRate),
+            outgoingGainDb = gainDb
         ) { advanceForCrossfade(p) }
         return true
     }

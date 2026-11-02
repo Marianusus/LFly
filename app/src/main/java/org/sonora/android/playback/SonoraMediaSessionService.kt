@@ -53,6 +53,8 @@ import org.sonora.android.playback.auto.AutoBrowseTree
 import org.sonora.android.playback.auto.AutoIds
 import org.sonora.android.playback.auto.AutoLibrary
 import org.sonora.android.playback.auto.AutoStart
+import org.sonora.android.playback.automix.DjAudio
+import org.sonora.android.playback.automix.DjFilterProcessor
 
 /**
  * Native Android foreground [MediaLibraryService] managing the Media3 [ExoPlayer] instance,
@@ -139,7 +141,11 @@ class SonoraMediaSessionService : MediaLibraryService() {
             .setDataSourceFactory(cacheDataSourceFactory)
 
         // Instantiate ExoPlayer with full resilience
+        // The main deck of the DJ mixer: Automix shapes the incoming song through it.
+        val deck = DjFilterProcessor()
+        DjAudio.main = deck
         val exoPlayer = ExoPlayer.Builder(this)
+            .setRenderersFactory(DjAudio.renderersFactory(this, deck))
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -456,6 +462,7 @@ class SonoraMediaSessionService : MediaLibraryService() {
             mediaSession = null
         }
         player = null
+        DjAudio.main = null
         super.onDestroy()
     }
 
