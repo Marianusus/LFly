@@ -54,11 +54,13 @@ import org.sonora.android.data.RankedTrack
 import org.sonora.android.data.ShelfEntry
 import org.sonora.android.data.buildShelfEntries
 import org.sonora.android.playback.PlaybackState
+import org.sonora.android.playback.dj.DjState
 import org.sonora.android.ui.components.LocalBottomChromeInset
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.home.HomeCharts
 import org.sonora.android.ui.home.HomeChartsSkeleton
 import org.sonora.android.ui.home.HomeDimens
+import org.sonora.android.ui.home.HomeDj
 import org.sonora.android.ui.home.HomeHero
 import org.sonora.android.ui.home.HomeHeroSkeleton
 import org.sonora.android.ui.home.HomeRail
@@ -81,6 +83,8 @@ fun HomeScreen(
     topTracks: List<RankedTrack> = emptyList(),
     topPlaylists: List<RankedPlaylist> = emptyList(),
     mixes: List<Mix> = emptyList(),
+    djState: DjState = DjState(),
+    onDjClick: () -> Unit = {},
     playbackState: PlaybackState,
     isFavorite: (String) -> Boolean,
     isDisliked: (String) -> Boolean = { false },
@@ -225,6 +229,10 @@ fun HomeScreen(
                             HomeHeroSkeleton()
                         }
                     }
+                }
+
+                item(key = "home_dj") {
+                    HomeDj(state = djState, onClick = onDjClick)
                 }
 
                 if (shelfItems.isNotEmpty()) {

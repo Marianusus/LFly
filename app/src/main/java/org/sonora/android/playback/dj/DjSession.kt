@@ -1,0 +1,356 @@
+package org.sonora.android.playback.dj
+
+import android.content.Context
+import android.util.Log
+import java.util.Locale
+import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.sonora.android.AppLanguage
+import org.sonora.android.api.Track
+import org.sonora.android.api.YouTubeMusicClient
+import org.sonora.android.data.MusicRepository
+import org.sonora.android.playback.PlaybackManager
+import org.sonora.android.playback.PlaybackState
+import org.sonora.android.playback.TasteProfile
+
+/**
+ * The DJ: plays the listener's music in themed blocks of a few songs and introduces each block with
+ * its voice, like a radio host. One per process.
+ */
+class DjSession private constructor(private val context: Context) {
+
+    companion object {
+        /** `PlaybackState.sourceContext` of the queues the DJ starts. */
+        const val SOURCE_CONTEXT = "dj"
+
+        private const val TAG = "DjSession"
+
+        /** The first song may need a while to resolve its stream before the welcome can play. */
+        private const val FIRST_LINE_WAIT_MS = 15_000L
+
+        /** Long enough for a crossfade or Automix transition to finish. */
+        private const val LINE_WAIT_MS = 20_000L
+
+        /** Lets the new song be heard for a moment before the DJ talks over it. */
+        private const val SETTLE_MS = 600L
+        private const val POLL_MS = 250L
+
+        private const val DISCOVERY_COUNT = 15
+        private const val ARTIST_RELATED_COUNT = 10
+        private const val ARTIST_TOP_TRACKS = 20
+
+        @Volatile
+        private var instance: DjSession? = null
+
+        fun getInstance(context: Context): DjSession =
+            instance ?: synchronized(this) {
+                instance ?: DjSession(context.applicationContext).also { instance = it }
+            }
+    }
+
+    private val _state = MutableStateFlow(DjState())
+    val state: StateFlow<DjState> = _state.asStateFlow()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val playbackManager: PlaybackManager by lazy { PlaybackManager.getInstance(context) }
+    private val repository: MusicRepository by lazy { MusicRepository.getInstance(context) }
+    private val youTube: YouTubeMusicClient by lazy { YouTubeMusicClient() }
+    private val random: Random = Random.Default
+    private val blockMutex = Mutex()
+
+    /** What autoplay calls while the DJ runs; compared by identity so stop() only clears its own. */
+    private val provider: suspend (Track) -> List<Track> = { seed -> provideBlock(seed) }
+
+    // Session state, touched on the main thread only.
+    private var sessionJob: Job? = null
+    private var speakJob: Job? = null
+    private var voice: DjVoice? = null
+    private val blocksById = HashMap<String, DjBlock>()
+    private val blocksByKey = HashMap<String, DjBlock>()
+    private val announced = HashSet<String>()
+    private val sessionTracks = ArrayList<Track>()
+    private var firstBlockStart: String? = null
+    private var lastKind: DjBlockKind? = null
+    private var lastArtist: String? = null
+    private var lastMix: String? = null
+
+    /** Starts the DJ: a first block with a spoken intro, then a new block whenever the queue runs low. */
+    fun start() {
+        if (playbackManager.partyGuestMode || _state.value.active) return
+        resetSession()
+        val job = SupervisorJob(scope.coroutineContext[Job])
+        sessionJob = job
+        _state.value = DjState(active = true, loading = true)
+        scope.launch(job) {
+            val block = nextBlock(seed = null)
+            if (block == null || playbackManager.partyGuestMode) {
+                Log.w(TAG, "No first block to play; the DJ stays off")
+                stop()
+                return@launch
+            }
+            playbackManager.playQueue(block.tracks, 0, SOURCE_CONTEXT)
+            playbackManager.autoplayProvider = provider
+            _state.update { it.copy(loading = false, block = block) }
+            launch { observePlayback() }
+        }
+    }
+
+    /** Stops the DJ; the music keeps playing and autoplay goes back to normal. */
+    fun stop() {
+        if (playbackManager.autoplayProvider === provider) playbackManager.autoplayProvider = null
+        val job = sessionJob
+        sessionJob = null
+        speakJob = null
+        job?.cancel()
+        voice?.let {
+            voice = null
+            it.stop()
+            it.release()
+        }
+        if (job != null) playbackManager.setVoiceDuck(1f)
+        resetSession()
+        _state.value = DjState()
+    }
+
+    private fun resetSession() {
+        blocksById.clear()
+        blocksByKey.clear()
+        announced.clear()
+        sessionTracks.clear()
+        firstBlockStart = null
+        lastKind = null
+        lastArtist = null
+        lastMix = null
+    }
+
+    // ── Blocks ───────────────────────────────────────────────────────────────
+
+    /** Autoplay's hook: the next block's songs, or nothing so autoplay recommends as usual. */
+    private suspend fun provideBlock(seed: Track): List<Track> {
+        val job = sessionJob?.takeIf { it.isActive } ?: return emptyList()
+        return try {
+            scope.async(job) { nextBlock(seed)?.tracks.orEmpty() }.await()
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            emptyList()
+        }
+    }
+
+    /** Builds and records the next block, trying kinds in rotation until one has enough songs. */
+    private suspend fun nextBlock(seed: Track?): DjBlock? = blockMutex.withLock {
+        val library = library()
+        val exclusions = exclusions(library)
+        for (kind in DjBlocks.kindOrder(lastKind, DjBlocks.availableKinds(library, exclusions))) {
+            val block = try {
+                buildBlock(kind, seed, library, exclusions)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not build a $kind block", e)
+                null
+            }
+            if (block != null) {
+                record(block)
+                Log.i(TAG, "Next block: $kind (${block.subject.orEmpty()}), ${block.tracks.size} songs")
+                return@withLock block
+            }
+        }
+        Log.w(TAG, "No block available after $lastKind")
+        null
+    }
+
+    private suspend fun buildBlock(
+        kind: DjBlockKind,
+        seed: Track?,
+        library: DjLibrary,
+        exclusions: DjExclusions
+    ): DjBlock? = when (kind) {
+        DjBlockKind.DISCOVERY -> {
+            val start = seed ?: DjBlocks.seedFor(library)
+            start?.let { DjBlocks.block(kind, recommend(it, library, exclusions, DISCOVERY_COUNT), exclusions, random) }
+        }
+        DjBlockKind.FOLLOWED_ARTIST -> artistBlock(library, exclusions)
+        else -> DjBlocks.localBlock(kind, library, exclusions, random, lastMix)
+    }
+
+    private suspend fun artistBlock(library: DjLibrary, exclusions: DjExclusions): DjBlock? {
+        val artist = DjBlocks.pickArtist(library.followedArtists, exclusions, lastArtist, random) ?: return null
+        val own = DjBlocks.tracksByArtist(artist.name, library.history + library.favorites + library.topPlayed)
+        val top = artist.browseId?.takeIf { it.isNotBlank() }?.let { browseId ->
+            withContext(Dispatchers.IO) { youTube.getYouTubeArtistTopTracks(browseId, ARTIST_TOP_TRACKS) }.getOrNull()
+        }.orEmpty()
+        val artistTracks = own + top
+        val seed = artistTracks.firstOrNull() ?: return null
+        val related = recommend(seed, library, exclusions, ARTIST_RELATED_COUNT)
+        return DjBlocks.artistBlock(artist.name, artistTracks, related, exclusions, random)
+    }
+
+    /** The recommendation engine with the same taste profile normal autoplay uses. */
+    private suspend fun recommend(seed: Track, library: DjLibrary, exclusions: DjExclusions, count: Int): List<Track> {
+        val history = library.history.take(100)
+        val dislikedIds = repository.dislikedTrackIds.value
+        val dislikedArtists = repository.dislikedArtists.value
+        val tasteProfile = TasteProfile.build(
+            followedArtists = library.followedArtists,
+            history = history,
+            topPlayedTracks = repository.topPlayedTracks(15).map { it to repository.playCountOf(it.id) },
+            topPlayedArtists = repository.topPlayedArtists(10),
+            dislikedTrackIds = dislikedIds,
+            dislikedArtists = dislikedArtists
+        )
+        return playbackManager.recommendationEngine.getRecommendedTracks(
+            currentTrack = seed,
+            count = count,
+            excludedTrackIds = exclusions.sessionTracks.mapTo(HashSet()) { it.id } +
+                exclusions.recentHistory.map { it.id },
+            activeQueueTracks = playbackManager.playbackState.value.queue,
+            historyTracks = history,
+            dislikedTrackIds = dislikedIds,
+            dislikedArtists = dislikedArtists,
+            tasteProfile = tasteProfile
+        )
+    }
+
+    private fun library(): DjLibrary = DjLibrary(
+        topPlayed = repository.topPlayedTracks(DjBlocks.MAX_TRACKS * 5),
+        favorites = repository.favorites.value,
+        history = repository.history.value,
+        followedArtists = repository.followedArtists.value,
+        mixes = repository.mixes.value
+    )
+
+    /** Before the first block only the song on now is off limits; afterwards the whole queue is. */
+    private fun exclusions(library: DjLibrary): DjExclusions {
+        val playback = playbackManager.playbackState.value
+        val queued = if (firstBlockStart == null) listOfNotNull(playback.currentTrack) else playback.queue
+        return DjExclusions(
+            dislikedTrackIds = repository.dislikedTrackIds.value,
+            dislikedArtists = repository.dislikedArtists.value,
+            sessionTracks = sessionTracks + queued,
+            recentHistory = library.history.take(DjBlocks.RECENT_HISTORY)
+        )
+    }
+
+    private fun record(block: DjBlock) {
+        val start = block.tracks.first().id
+        if (firstBlockStart == null) firstBlockStart = start
+        block.tracks.forEach {
+            blocksById[it.id] = block
+            blocksByKey[DjBlocks.trackKey(it)] = block
+        }
+        sessionTracks += block.tracks
+        lastKind = block.kind
+        when (block.kind) {
+            DjBlockKind.FOLLOWED_ARTIST -> lastArtist = block.subject
+            DjBlockKind.MIX -> lastMix = block.subject
+            else -> Unit
+        }
+    }
+
+    /** Matches by id, or by title and artist when the player swapped the song for another source. */
+    private fun blockOf(track: Track): DjBlock? = blocksById[track.id] ?: blocksByKey[DjBlocks.trackKey(track)]
+
+    private fun isDjTrack(track: Track): Boolean = blockOf(track) != null
+
+    // ── Playback and voice ───────────────────────────────────────────────────
+
+    private suspend fun observePlayback() {
+        playbackManager.playbackState
+            .distinctUntilChanged { a, b ->
+                a.currentTrack?.id == b.currentTrack?.id && a.queue === b.queue && a.sourceContext == b.sourceContext
+            }
+            .collect { onPlayback(it) }
+    }
+
+    private fun onPlayback(playback: PlaybackState) {
+        if (playbackManager.partyGuestMode || replacedByListener(playback)) {
+            Log.i(TAG, "The listener moved on from the DJ's queue; stopping")
+            stop()
+            return
+        }
+        val current = playback.currentTrack ?: return
+        val block = blockOf(current) ?: return
+        if (_state.value.block != block) _state.update { it.copy(block = block) }
+        val start = block.tracks.first()
+        val isStart = current.id == start.id || DjBlocks.trackKey(current) == DjBlocks.trackKey(start)
+        if (!isStart || !announced.add(start.id)) return
+        val job = sessionJob ?: return
+        val previous = speakJob
+        speakJob = scope.launch(job) {
+            previous?.cancelAndJoin()
+            announce(current.id, block, first = start.id == firstBlockStart)
+        }
+    }
+
+    /**
+     * True when the listener started something else. sourceContext alone is not enough: a queue started
+     * without a context keeps "dj". Songs the listener queued themselves leave DJ songs in the queue.
+     */
+    private fun replacedByListener(playback: PlaybackState): Boolean {
+        val source = playback.sourceContext
+        if (source != null && source != SOURCE_CONTEXT) return true
+        if (playback.queue.isEmpty()) return true
+        val current = playback.currentTrack
+        if (current != null && isDjTrack(current)) return false
+        return playback.queue.none { isDjTrack(it) }
+    }
+
+    /** Speaks the block's line once its first song is really playing and no transition is running. */
+    private suspend fun announce(trackId: String, block: DjBlock, first: Boolean) {
+        val wait = if (first) FIRST_LINE_WAIT_MS else LINE_WAIT_MS
+        if (withTimeoutOrNull(wait) { awaitSpeakable(trackId) } != true) return
+        delay(SETTLE_MS)
+        if (playbackManager.playbackState.value.currentTrack?.id != trackId) return
+        val language = language()
+        val line = DjScript.line(block, language, first, random)
+        if (line.isBlank()) return
+        _state.update { it.copy(block = block, speaking = true, lastLine = line) }
+        try {
+            if (!voiceForSession().speak(line, language, playbackManager::setVoiceDuck)) {
+                Log.i(TAG, "No voice available; the line is only shown")
+            }
+        } catch (e: CancellationException) {
+            voice?.stop()
+            throw e
+        } finally {
+            _state.update { it.copy(speaking = false) }
+        }
+    }
+
+    /** Suspends until [trackId] plays outside a transition; false as soon as another song is on. */
+    private suspend fun awaitSpeakable(trackId: String): Boolean {
+        while (true) {
+            val playback = playbackManager.playbackState.value
+            if (playback.currentTrack?.id != trackId) return false
+            if (playback.isPlaying && !playbackManager.isTransitioning) return true
+            delay(POLL_MS)
+        }
+    }
+
+    private fun voiceForSession(): DjVoice = voice ?: DjVoice(context).also { voice = it }
+
+    private fun language(): String {
+        val tag = AppLanguage.preferredTag(context)
+        val language = if (tag == AppLanguage.SYSTEM) Locale.getDefault().language else tag
+        return language.takeIf { it in DjScript.LANGUAGES } ?: AppLanguage.ENGLISH
+    }
+}

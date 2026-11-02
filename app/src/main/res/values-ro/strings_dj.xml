@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dj_card_title">DJ</string>
+    <string name="dj_card_subtitle">Muzica ta, aleasă și prezentată pentru tine</string>
+    <string name="dj_card_start">Pornește DJ-ul</string>
+    <string name="dj_card_stop">Oprește DJ-ul</string>
+    <string name="dj_card_loading">DJ-ul îți pregătește selecția…</string>
+    <string name="dj_card_speaking">DJ-ul vorbește</string>
+    <string name="dj_block_top_played">Piesele pe care le asculți cel mai des</string>
+    <string name="dj_block_followed_artist">Despre %1$s</string>
+    <string name="dj_block_followed_artist_generic">De la artiștii pe care îi urmărești</string>
+    <string name="dj_block_discovery">Descoperiri noi pentru tine</string>
+    <string name="dj_block_throwback">Favorite pe care nu le-ai mai ascultat de ceva vreme</string>
+    <string name="dj_block_mix">Din mixul %1$s</string>
+    <string name="dj_block_mix_generic">Din mixurile tale</string>
+</resources>

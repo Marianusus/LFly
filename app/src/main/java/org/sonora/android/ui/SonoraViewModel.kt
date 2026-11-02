@@ -101,6 +101,8 @@ import org.sonora.android.playback.PlaybackState
 import org.sonora.android.playback.SleepTimer
 import org.sonora.android.playback.TasteProfile
 import org.sonora.android.playback.automix.MixStyle
+import org.sonora.android.playback.dj.DjSession
+import org.sonora.android.playback.dj.DjState
 
 private const val RECOMMENDATION_REFRESH_DEBOUNCE_MS = 600L
 
@@ -1137,6 +1139,14 @@ class SonoraViewModel @JvmOverloads constructor(
     fun setAutomixEnabled(enabled: Boolean) = musicRepository.setAutomixEnabled(enabled)
     val automixStyle: StateFlow<MixStyle> = musicRepository.automixStyle
     fun setAutomixStyle(style: MixStyle) = musicRepository.setAutomixStyle(style)
+
+    private val djSession: DjSession = DjSession.getInstance(application)
+    val djState: StateFlow<DjState> = djSession.state
+
+    /** Stops the DJ when it is on, otherwise starts it. */
+    fun toggleDj() {
+        if (djSession.state.value.active) djSession.stop() else djSession.start()
+    }
 
     fun openAmbient() {
         _ambientOpenedFromMenu.value = true

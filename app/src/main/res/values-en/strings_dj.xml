@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dj_card_title">DJ</string>
+    <string name="dj_card_subtitle">Your music, picked and introduced for you</string>
+    <string name="dj_card_start">Start the DJ</string>
+    <string name="dj_card_stop">Stop the DJ</string>
+    <string name="dj_card_loading">The DJ is getting your selection ready…</string>
+    <string name="dj_card_speaking">The DJ is speaking</string>
+    <string name="dj_block_top_played">The songs you play most</string>
+    <string name="dj_block_followed_artist">All about %1$s</string>
+    <string name="dj_block_followed_artist_generic">From artists you follow</string>
+    <string name="dj_block_discovery">New finds for you</string>
+    <string name="dj_block_throwback">Favourites you haven\'t heard in a while</string>
+    <string name="dj_block_mix">From the %1$s mix</string>
+    <string name="dj_block_mix_generic">From your mixes</string>
+</resources>

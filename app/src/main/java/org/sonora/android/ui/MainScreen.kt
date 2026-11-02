@@ -319,6 +319,7 @@ fun MainScreen(
     val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
     val automixEnabled by viewModel.automixEnabled.collectAsState()
     val automixStyle by viewModel.automixStyle.collectAsState()
+    val djState by viewModel.djState.collectAsState()
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -740,6 +741,8 @@ fun MainScreen(
                                     topTracks = homeTopTracks,
                                     topPlaylists = homeTopPlaylists,
                                     mixes = mixes,
+                                    djState = djState,
+                                    onDjClick = viewModel::toggleDj,
                                     onPlaylistClick = { playlist -> viewModel.navigateToPlaylist(playlist.id) },
                                     onMixClick = { mix -> viewModel.navigateToMix(mix.id, fromLibrary = false) },
                                     onMixSaveToggle = { mix -> viewModel.toggleMixSaved(mix.id) },
