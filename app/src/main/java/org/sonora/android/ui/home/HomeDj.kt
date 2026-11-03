@@ -187,7 +187,8 @@ internal fun HomeDj(
 }
 
 @Composable
-private fun djBlockLabel(block: DjBlock): String = when (block.kind) {
+internal fun djBlockLabel(block: DjBlock): String = when (block.kind) {
+    DjBlockKind.FLOW -> stringResource(R.string.dj_block_flow)
     DjBlockKind.TOP_PLAYED -> stringResource(R.string.dj_block_top_played)
     DjBlockKind.FOLLOWED_ARTIST -> block.subject?.let { stringResource(R.string.dj_block_followed_artist, it) }
         ?: stringResource(R.string.dj_block_followed_artist_generic)
@@ -201,7 +202,7 @@ private val DjBarRest = floatArrayOf(0.55f, 0.9f, 0.7f)
 
 /** Three bars that move while the DJ talks; still under Reduce Motion. */
 @Composable
-private fun DjSpeakingBars(color: Color) {
+internal fun DjSpeakingBars(color: Color) {
     val motion = LocalMotionPreferences.current
     Row(
         modifier = Modifier.height(18.dp),

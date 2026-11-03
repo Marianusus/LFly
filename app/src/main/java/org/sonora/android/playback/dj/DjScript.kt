@@ -179,6 +179,12 @@ object DjScript {
             "Eccoci qua, sono il tuo DJ."
         ),
         intros = mapOf(
+            DjBlockKind.FLOW to listOf(
+                "Partiamo da $SONG, uno dei tuoi più ascoltati, e vediamo dove ci porta.",
+                "Si comincia da $SONG, che ascolti spesso. Da lì ti porto io.",
+                "Metto su $SONG, uno dei tuoi pezzi, e da qui ci muoviamo insieme.",
+                "Uno dei tuoi preferiti per aprire: $SONG. Poi lasciati portare."
+            ),
             DjBlockKind.TOP_PLAYED to listOf(
                 "Partiamo dai tuoi pezzi preferiti, quelli che non ti stanchi mai di ascoltare.",
                 "Ecco i brani che ascolti di più.",
@@ -233,6 +239,12 @@ object DjScript {
             "Hey! I'm your DJ today."
         ),
         intros = mapOf(
+            DjBlockKind.FLOW to listOf(
+                "Let's start from $SONG, one you play a lot, and see where it takes us.",
+                "Kicking off with $SONG, one of your regulars. I'll take it from there.",
+                "One of yours to open: $SONG. Then let the music lead.",
+                "Starting with $SONG, a song you keep coming back to, and flowing on from it."
+            ),
             DjBlockKind.TOP_PLAYED to listOf(
                 "Let's start with your favorites, the ones you keep coming back to.",
                 "Here are the songs you play the most.",
@@ -287,6 +299,12 @@ object DjScript {
             "Hei, la pupitru sunt eu, DJ-ul tău."
         ),
         intros = mapOf(
+            DjBlockKind.FLOW to listOf(
+                "Pornim de la $SONG, una dintre piesele tale preferate, și vedem unde ne duce.",
+                "Începem cu $SONG, pe care o asculți des. De aici te duc eu.",
+                "Una de-a ta pentru început: $SONG. Apoi lasă-te purtat de muzică.",
+                "Deschidem cu $SONG, o piesă la care revii mereu, și mergem mai departe de la ea."
+            ),
             DjBlockKind.TOP_PLAYED to listOf(
                 "Începem cu preferatele tale, piesele la care revii mereu.",
                 "Iată melodiile pe care le asculți cel mai des.",

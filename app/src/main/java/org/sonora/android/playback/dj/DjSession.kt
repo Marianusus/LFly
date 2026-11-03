@@ -1,6 +1,7 @@
 package org.sonora.android.playback.dj
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import java.util.Locale
 import kotlin.random.Random
@@ -43,6 +44,9 @@ class DjSession private constructor(private val context: Context) {
         const val SOURCE_CONTEXT = "dj"
 
         private const val TAG = "DjSession"
+
+        /** The voice's duck ramp ends at 0.3; once the music is this low the line is being spoken. */
+        private const val VOICE_STARTS_BELOW = 0.31f
 
         /** The first song may need a while to resolve its stream before the welcome can play. */
         private const val FIRST_LINE_WAIT_MS = 15_000L
@@ -148,17 +152,35 @@ class DjSession private constructor(private val context: Context) {
     private suspend fun provideBlock(seed: Track): List<Track> {
         val job = sessionJob?.takeIf { it.isActive } ?: return emptyList()
         return try {
-            scope.async(job) { nextBlock(seed)?.tracks.orEmpty() }.await()
+            // The new block has to follow the last song queued, not the one playing now.
+            val last = playbackManager.playbackState.value.queue.lastOrNull() ?: seed
+            scope.async(job) { nextBlock(last)?.tracks.orEmpty() }.await()
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
             emptyList()
         }
     }
 
-    /** Builds and records the next block, trying kinds in rotation until one has enough songs. */
+    /**
+     * Builds and records the next block: a flow from one of the most played songs when it can,
+     * otherwise the kinds in rotation until one has enough songs.
+     */
     private suspend fun nextBlock(seed: Track?): DjBlock? = blockMutex.withLock {
         val library = library()
         val exclusions = exclusions(library)
+        val flow = try {
+            flowBlock(seed, library, exclusions)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not build a flow", e)
+            null
+        }
+        if (flow != null) {
+            record(flow)
+            Log.i(TAG, "Next block: FLOW from '${flow.tracks.first().title}': " + flow.tracks.joinToString(" -> ") { it.title })
+            return@withLock flow
+        }
         for (kind in DjBlocks.kindOrder(lastKind, DjBlocks.availableKinds(library, exclusions))) {
             val block = try {
                 buildBlock(kind, seed, library, exclusions)
@@ -190,6 +212,30 @@ class DjSession private constructor(private val context: Context) {
         }
         DjBlockKind.FOLLOWED_ARTIST -> artistBlock(library, exclusions)
         else -> DjBlocks.localBlock(kind, library, exclusions, random, lastMix)
+    }
+
+    /**
+     * Like a DJ working a set: it opens on one of the listener's most played songs (the one that
+     * follows best from [previous]) and then lets each next song grow out of the one before, asking
+     * the engine what fits that song and keeping tempo and variety in mind.
+     */
+    private suspend fun flowBlock(previous: Track?, library: DjLibrary, exclusions: DjExclusions): DjBlock? {
+        val favourites = DjBlocks.usable(DjBlockKind.TOP_PLAYED, library.topPlayed + library.favorites, exclusions)
+        val anchor = DjFlow.pickAnchor(favourites, previous, random) ?: return null
+        val chain = mutableListOf(anchor)
+        val size = random.nextInt(DjBlocks.MIN_TRACKS, DjBlocks.MAX_TRACKS + 1)
+        while (chain.size < size) {
+            val taken = exclusions.copy(sessionTracks = exclusions.sessionTracks + chain)
+            val candidates = DjBlocks.usable(
+                DjBlockKind.DISCOVERY,
+                recommend(chain.last(), library, taken, DjFlow.CANDIDATES),
+                taken
+            )
+            val next = DjFlow.pickNext(chain.last(), candidates, chain.takeLast(3).map { it.artist }, random) ?: break
+            chain += next
+        }
+        if (chain.size < DjBlocks.MIN_TRACKS) return null
+        return DjBlock(DjBlockKind.FLOW, chain)
     }
 
     private suspend fun artistBlock(library: DjLibrary, exclusions: DjExclusions): DjBlock? {
@@ -323,16 +369,23 @@ class DjSession private constructor(private val context: Context) {
         val language = language()
         val line = DjScript.line(block, language, first, random)
         if (line.isBlank()) return
-        _state.update { it.copy(block = block, speaking = true, lastLine = line) }
+        _state.update { it.copy(block = block, speaking = true, lastLine = line, voiceStartedAtMs = null) }
         try {
-            if (!voiceForSession().speak(line, language, playbackManager::setVoiceDuck)) {
+            // The voice starts right after the music has ducked: from then on the caption follows it.
+            val duck: (Float) -> Unit = { level ->
+                playbackManager.setVoiceDuck(level)
+                if (level <= VOICE_STARTS_BELOW && _state.value.voiceStartedAtMs == null) {
+                    _state.update { it.copy(voiceStartedAtMs = SystemClock.uptimeMillis()) }
+                }
+            }
+            if (!voiceForSession().speak(line, language, duck)) {
                 Log.i(TAG, "No voice available; the line is only shown")
             }
         } catch (e: CancellationException) {
             voice?.stop()
             throw e
         } finally {
-            _state.update { it.copy(speaking = false) }
+            _state.update { it.copy(speaking = false, voiceStartedAtMs = null) }
         }
     }
 

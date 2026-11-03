@@ -6,6 +6,7 @@
     <string name="dj_card_stop">Stop the DJ</string>
     <string name="dj_card_loading">The DJ is getting your selection ready…</string>
     <string name="dj_card_speaking">The DJ is speaking</string>
+    <string name="dj_block_flow">A flow from your most played</string>
     <string name="dj_block_top_played">The songs you play most</string>
     <string name="dj_block_followed_artist">All about %1$s</string>
     <string name="dj_block_followed_artist_generic">From artists you follow</string>

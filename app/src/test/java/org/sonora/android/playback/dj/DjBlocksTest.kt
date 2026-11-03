@@ -27,7 +27,8 @@ class DjBlocksTest {
 
     private fun tracks(prefix: String, count: Int) = (1..count).map { track("$prefix$it") }
 
-    private val allKinds = DjBlockKind.entries.toSet()
+    // FLOW is built before the rotation, so it is never part of it.
+    private val allKinds = DjBlockKind.entries.toSet() - DjBlockKind.FLOW
 
     @Test
     fun firstBlockPrefersTopPlayedThenDiscovery() {

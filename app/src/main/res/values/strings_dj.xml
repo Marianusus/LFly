@@ -6,6 +6,7 @@
     <string name="dj_card_stop">Ferma il DJ</string>
     <string name="dj_card_loading">Il DJ sta preparando la selezione…</string>
     <string name="dj_card_speaking">Il DJ sta parlando</string>
+    <string name="dj_block_flow">Un flow dai tuoi più ascoltati</string>
     <string name="dj_block_top_played">I brani che ascolti di più</string>
     <string name="dj_block_followed_artist">Dedicato a %1$s</string>
     <string name="dj_block_followed_artist_generic">Dagli artisti che segui</string>

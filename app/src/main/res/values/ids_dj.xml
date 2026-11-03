@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Marks which DJ island installed the status bar insets listener on the content view. -->
+    <item name="dj_island_insets_owner" type="id" />
+</resources>

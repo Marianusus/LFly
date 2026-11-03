@@ -147,6 +147,7 @@ import org.sonora.android.ui.components.backdrop.isLiquidGlassSupported
 import org.sonora.android.ui.components.backdrop.backdrops.layerBackdrop
 import org.sonora.android.ui.components.backdrop.backdrops.rememberLayerBackdrop
 import org.sonora.android.ui.components.LiquidGlassChrome
+import org.sonora.android.ui.components.DjIsland
 import org.sonora.android.ui.components.MiniPlayer
 import org.sonora.android.ui.components.rememberGlassChromeScrollState
 import org.sonora.android.ui.components.QueueBottomSheet
@@ -1741,6 +1742,9 @@ fun MainScreen(
                 onPlayPrevious = { viewModel.playPrevious() },
                 onClose = { viewModel.closeAmbient() }
             )
+        } else {
+            // Above everything, like the system's own island: the DJ talking.
+            DjIsland(state = djState, backdrop = if (glassActive) appBackdrop else null)
         }
     }
 }

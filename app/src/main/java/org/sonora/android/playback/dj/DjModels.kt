@@ -4,6 +4,9 @@ import org.sonora.android.api.Track
 
 /** Why the DJ picked a block of songs; the DJ says it out loud. */
 enum class DjBlockKind {
+    /** Starts from one of the most played songs, then each song flows out of the one before. */
+    FLOW,
+
     /** Songs the listener plays most. */
     TOP_PLAYED,
 
@@ -37,5 +40,7 @@ data class DjState(
     /** True while the DJ's voice is speaking. */
     val speaking: Boolean = false,
     /** The last line the DJ said, for a caption. */
-    val lastLine: String? = null
+    val lastLine: String? = null,
+    /** `SystemClock.uptimeMillis()` when the voice actually started the line; null until then. */
+    val voiceStartedAtMs: Long? = null
 )
