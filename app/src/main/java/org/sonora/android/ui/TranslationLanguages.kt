@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.google.mlkit.nl.translate.TranslateLanguage
 import org.sonora.android.R
 import org.sonora.android.ui.theme.LocalBackgroundScheme
-import org.sonora.android.ui.theme.SonoraSurfaceCard
+import org.sonora.android.ui.theme.SonoraOpaqueSurfaceCard
 import org.sonora.android.ui.theme.SonoraTextPrimary
 import org.sonora.android.ui.theme.SonoraTextSecondary
 import java.util.Locale
@@ -62,7 +62,7 @@ fun TranslationLanguageDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = SonoraSurfaceCard,
+        containerColor = SonoraOpaqueSurfaceCard,
         title = {
             Text(
                 text = stringResource(R.string.translation_lang_dialog_title),

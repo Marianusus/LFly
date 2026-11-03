@@ -231,10 +231,6 @@ fun HomeScreen(
                     }
                 }
 
-                item(key = "home_dj") {
-                    HomeDj(state = djState, onClick = onDjClick)
-                }
-
                 if (shelfItems.isNotEmpty()) {
                     item(key = "home_shelf") {
                         HomeShelf(
@@ -271,6 +267,11 @@ fun HomeScreen(
                     }
                 } else if (isLoadingRecommendations) {
                     item(key = "home_rail_skeleton") { HomeRailSkeleton() }
+                }
+
+                // Under "For you": the DJ is the next step from picks to a whole session.
+                item(key = "home_dj") {
+                    HomeDj(state = djState, onClick = onDjClick)
                 }
 
                 if (showCharts) {

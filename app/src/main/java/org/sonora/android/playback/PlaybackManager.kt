@@ -52,6 +52,7 @@ import org.sonora.android.playback.automix.AutomixAnalyzer
 import org.sonora.android.playback.automix.AutomixPlanner
 import org.sonora.android.playback.automix.EnergyProfile
 import org.sonora.android.playback.automix.Loudness
+import org.sonora.android.playback.automix.MixPoint
 import org.sonora.android.playback.automix.TransitionCurves
 import org.sonora.android.playback.automix.TransitionStyle
 import java.io.File
@@ -279,25 +280,68 @@ class PlaybackManager private constructor(private val context: Context) {
         if (!crossfadeHandingOff) crossfade.cancel()
     }
 
+    private val _mixPoint = MutableStateFlow<MixPoint?>(null)
+
+    /** The transition planned for the playing song, for the seek bar; null when the song just ends. */
+    val mixPoint: StateFlow<MixPoint?> = _mixPoint.asStateFlow()
+
+    /** True when this song should hand over to the next one instead of simply ending. */
+    private fun canTransition(): Boolean {
+        val state = _playbackState.value
+        if (partyGuestMode || _sleepTimer.value == SleepTimer.EndOfTrack) return false
+        if (state.repeatMode == RepeatMode.ONE || state.queue.isEmpty()) return false
+        return state.isShuffle ||
+            state.repeatMode == RepeatMode.ALL ||
+            state.currentIndex in 0 until state.queue.size - 1
+    }
+
+    /** Fade length of a plain crossfade: the listener's setting, or Automix's fallback. */
+    private fun plainFadeMs(automixOn: Boolean): Long =
+        (musicRepository.crossfadeSeconds.value.takeIf { it > 0 } ?: if (automixOn) AUTOMIX_FALLBACK_SECONDS else 0) * 1_000L
+
+    /** Where the coming transition will sit: the Automix plan once both edges are analysed, else the fade. */
+    private fun updateMixPoint(durationMs: Long) {
+        val current = _playbackState.value.currentTrack
+        if (current == null || !canTransition()) {
+            _mixPoint.value = null
+            return
+        }
+        val automixOn = musicRepository.automixEnabled.value
+        if (automixOn) {
+            val next = peekNextTrack()
+            val outgoing = automix.grid(current.id, AutomixAnalyzer.Part.TAIL)
+            val incoming = next?.let { automix.grid(it.id, AutomixAnalyzer.Part.HEAD) }
+            if (next != null && outgoing != null && incoming != null) {
+                val plan = AutomixPlanner.plan(
+                    outgoing, durationMs, incoming,
+                    automix.energy(current.id, AutomixAnalyzer.Part.TAIL),
+                    automix.energy(next.id, AutomixAnalyzer.Part.HEAD)
+                )
+                if (plan != null) {
+                    _mixPoint.value = MixPoint(current.id, plan.exitMs, plan.exitMs + plan.mixMs, beatMatched = true)
+                    return
+                }
+            }
+        }
+        val fadeMs = plainFadeMs(automixOn)
+        _mixPoint.value = if (fadeMs > 0 && durationMs >= CrossfadeMath.MIN_TRACK_MS) {
+            MixPoint(current.id, durationMs - fadeMs, durationMs, beatMatched = false)
+        } else {
+            null
+        }
+    }
+
     private fun maybeStartCrossfade(p: ExoPlayer, positionMs: Long, durationMs: Long) {
         if (crossfadeHandingOff || crossfade.isRunning) return
         val request = playRequestCounter.get()
         if (request == crossfadeTriedForRequest) return
-        val state = _playbackState.value
-        if (partyGuestMode || _sleepTimer.value == SleepTimer.EndOfTrack) return
-        if (state.repeatMode == RepeatMode.ONE || state.queue.isEmpty()) return
-        val hasNext = state.isShuffle ||
-            state.repeatMode == RepeatMode.ALL ||
-            state.currentIndex in 0 until state.queue.size - 1
-        if (!hasNext) return
+        if (!canTransition()) return
 
         val automixOn = musicRepository.automixEnabled.value
         if (automixOn && tryAutomix(p, positionMs, durationMs, request)) return
 
         // Without a usable Automix plan the transition is a plain crossfade.
-        val fadeSeconds = musicRepository.crossfadeSeconds.value.takeIf { it > 0 }
-            ?: if (automixOn) AUTOMIX_FALLBACK_SECONDS else 0
-        val fadeMs = fadeSeconds * 1_000L
+        val fadeMs = plainFadeMs(automixOn)
         val handoffMs = CrossfadeMath.handoffPositionMs(positionMs, durationMs, fadeMs) ?: return
         crossfadeTriedForRequest = request
         val gainDb = if (automixOn) automixGainDb() else 0.0
@@ -2137,6 +2181,8 @@ class PlaybackManager private constructor(private val context: Context) {
                     if (dur > 0) {
                         maybePrepareAutomix(p, pos, dur)
                         maybeStartCrossfade(p, pos, dur)
+                        // The incoming song already plays during a mix; its own point comes after.
+                        if (!crossfade.isRunning) updateMixPoint(dur)
                     }
                 }
                 delay(250L) // 4 updates/sec for ultra-smooth UI progress bar

@@ -316,6 +316,7 @@ fun MainScreen(
     val ambientRotationArmed by viewModel.ambientRotationArmed.collectAsState()
     val sleepTimer by viewModel.sleepTimer.collectAsState()
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
+    val mixPoint by viewModel.mixPoint.collectAsState()
     val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
     val automixEnabled by viewModel.automixEnabled.collectAsState()
     val automixStyle by viewModel.automixStyle.collectAsState()
@@ -1554,6 +1555,7 @@ fun MainScreen(
             if (track != null && !ambientVisible) {
                 PlayerScreenV2(
                     playbackState = playbackState,
+                    mixPoint = mixPoint,
                     isFavorite = isCurrentFavorite,
                     isDisliked = isCurrentDisliked,
                     lyrics = lyrics,

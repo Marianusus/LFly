@@ -136,6 +136,7 @@ import kotlin.math.roundToInt
 import org.sonora.android.ui.theme.SonoraStatusDegraded
 import org.sonora.android.ui.theme.SonoraStatusOffline
 import org.sonora.android.ui.theme.SonoraStatusOnline
+import org.sonora.android.ui.theme.SonoraOpaqueSurfaceCard
 import org.sonora.android.ui.theme.SonoraSurfaceCard
 import org.sonora.android.ui.theme.SonoraSurfaceHighlight
 import org.sonora.android.ui.theme.SonoraTextPrimary
@@ -523,7 +524,7 @@ private fun CountryPickerDialog(
     val accent = SonoraTheme.colors.primaryAccent
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = SonoraSurfaceCard,
+        containerColor = SonoraOpaqueSurfaceCard,
         title = {
             Text(
                 text = stringResource(R.string.settings_country_dialog_title),
@@ -598,7 +599,7 @@ private fun AppLanguageDialog(
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = SonoraSurfaceCard,
+        containerColor = SonoraOpaqueSurfaceCard,
         title = {
             Text(
                 text = stringResource(R.string.settings_language_dialog_title),
@@ -1107,7 +1108,7 @@ private fun AutomixStyleDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = SonoraSurfaceCard,
+        containerColor = SonoraOpaqueSurfaceCard,
         title = {
             Text(
                 text = stringResource(R.string.automix_style_title),

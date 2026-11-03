@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -158,6 +159,7 @@ import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.player.v2.ArtworkGradient
 import org.sonora.android.ui.player.v2.rememberArtworkGradient
 import org.sonora.android.ui.theme.LocalBackgroundScheme
+import org.sonora.android.playback.automix.MixPoint
 import org.sonora.android.ui.theme.LocalMotionPreferences
 import org.sonora.android.ui.theme.artworkBottomFade
 import org.sonora.android.ui.theme.pressScale
@@ -173,6 +175,7 @@ import org.sonora.android.ui.theme.pressScale
 @Composable
 fun PlayerScreenV2(
     playbackState: PlaybackState,
+    mixPoint: MixPoint? = null,
     isFavorite: Boolean,
     isDisliked: Boolean = false,
     lyrics: Lyrics?,
@@ -330,15 +333,21 @@ fun PlayerScreenV2(
             // The song stays as a full-screen blur; the sharp sleeve dissolves into
             // that same image so there is no seam at the bottom of the cover.
             Box(modifier = Modifier.fillMaxSize()) {
-                if (!currentTrack.artworkUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = currentTrack.artworkUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .blur(64.dp)
-                    )
+                Crossfade(
+                    targetState = currentTrack.artworkUrl,
+                    animationSpec = tween(if (motion.reduceMotion) 0 else TRACK_CHANGE_MS),
+                    label = "playerBackdrop"
+                ) { artworkUrl ->
+                    if (!artworkUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = artworkUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(64.dp)
+                        )
+                    }
                 }
             }
 
@@ -457,6 +466,7 @@ fun PlayerScreenV2(
                     Spacer(modifier = Modifier.height(12.dp))
                     SeekSection(
                         playbackState = playbackState,
+                        mixPoint = mixPoint,
                         ink = ink,
                         inkSecondary = inkSecondary,
                         accent = accent,
@@ -698,20 +708,29 @@ private fun HeroCover(
                 .background(gradient.top),
             contentAlignment = Alignment.Center
         ) {
-            if (track.artworkUrl.isNullOrBlank()) {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.35f),
-                    modifier = Modifier.size(96.dp)
-                )
-            } else {
-                AsyncImage(
-                    model = track.artworkUrl,
-                    contentDescription = track.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+            // A new song (an Automix hand-off above all) dissolves in instead of cutting.
+            Crossfade(
+                targetState = track.artworkUrl to track.title,
+                animationSpec = tween(if (LocalMotionPreferences.current.reduceMotion) 0 else TRACK_CHANGE_MS),
+                label = "playerCover"
+            ) { (artworkUrl, title) ->
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (artworkUrl.isNullOrBlank()) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.35f),
+                            modifier = Modifier.size(96.dp)
+                        )
+                    } else {
+                        AsyncImage(
+                            model = artworkUrl,
+                            contentDescription = title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
         }
     }
@@ -766,7 +785,13 @@ private fun TrackMetaRow(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Crossfade(
+            targetState = track,
+            animationSpec = tween(if (LocalMotionPreferences.current.reduceMotion) 0 else TRACK_CHANGE_MS / 2),
+            modifier = Modifier.weight(1f),
+            label = "playerTitle"
+        ) { track ->
+        Column(modifier = Modifier.fillMaxWidth()) {
             val titleAnchor = remember { TrackAnchor() }
             val contextMenu = LocalTrackContextMenu.current
             MarqueeText(
@@ -806,6 +831,7 @@ private fun TrackMetaRow(
                 linksEnabled = true,
                 onArtistClick = onArtistClick
             )
+        }
         }
 
         val heartScale by animateFloatAsState(
@@ -874,10 +900,17 @@ private fun BareIconButton(
     )
 }
 
+/** How long the cover, backdrop and title take to dissolve into the next song. */
+private const val TRACK_CHANGE_MS = 900
+
+/** The bubble on the seek bar where the next transition starts. */
+private val MIX_BUBBLE_SIZE = 12.dp
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SeekSection(
     playbackState: PlaybackState,
+    mixPoint: MixPoint?,
     ink: Color,
     inkSecondary: Color,
     accent: Color,
@@ -892,6 +925,12 @@ private fun SeekSection(
         (playbackState.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     }
     val shownPositionMs = if (isUserSeeking) (seekProgress * durationMs).toLong() else playbackState.positionMs
+    // The planned transition, as fractions of the song: a bubble where it starts, a tint while it lasts.
+    val mix = mixPoint
+        ?.takeIf { it.trackId == playbackState.currentTrack?.id && playbackState.durationMs > 0 }
+        ?.let {
+            (it.startMs.toFloat() / durationMs).coerceIn(0f, 1f) to (it.endMs.toFloat() / durationMs).coerceIn(0f, 1f)
+        }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Slider(
@@ -916,20 +955,47 @@ private fun SeekSection(
                 val fraction = if (end > start) {
                     ((sliderState.value - start) / (end - start)).coerceIn(0f, 1f)
                 } else 0f
-                Box(
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(ink.copy(alpha = 0.18f)),
+                        .height(MIX_BUBBLE_SIZE),
                     contentAlignment = Alignment.CenterStart
                 ) {
+                    val trackWidth = maxWidth
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .fillMaxHeight()
-                            .background(ink)
-                    )
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(ink.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        mix?.let { (start, end) ->
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = trackWidth * start)
+                                    .width(trackWidth * (end - start))
+                                    .fillMaxHeight()
+                                    .background(accent.copy(alpha = 0.55f))
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction)
+                                .fillMaxHeight()
+                                .background(ink)
+                        )
+                    }
+                    mix?.let { (start, _) ->
+                        Box(
+                            modifier = Modifier
+                                .offset(x = trackWidth * start - MIX_BUBBLE_SIZE / 2)
+                                .size(MIX_BUBBLE_SIZE)
+                                .clip(CircleShape)
+                                .background(accent)
+                                .border(2.dp, ink, CircleShape)
+                        )
+                    }
                 }
             },
             modifier = Modifier

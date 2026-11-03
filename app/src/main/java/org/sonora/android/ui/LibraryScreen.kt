@@ -110,7 +110,7 @@ import org.sonora.android.ui.theme.LocalMotionPreferences
 import org.sonora.android.ui.theme.Radius
 import org.sonora.android.ui.theme.SonoraAmoledBlack
 import org.sonora.android.ui.theme.SonoraBackground
-import org.sonora.android.ui.theme.SonoraSurfaceCard
+import org.sonora.android.ui.theme.SonoraOpaqueSurfaceCard
 import org.sonora.android.ui.theme.SonoraTheme
 import org.sonora.android.ui.theme.Spacing
 import org.sonora.android.ui.theme.pressScale
@@ -420,7 +420,7 @@ fun LibraryScreen(
                     showCreateDialog = false
                     newPlaylistName = ""
                 },
-                containerColor = SonoraSurfaceCard,
+                containerColor = SonoraOpaqueSurfaceCard,
                 title = {
                     Text(
                         text = stringResource(R.string.library_new_playlist_dialog_title),

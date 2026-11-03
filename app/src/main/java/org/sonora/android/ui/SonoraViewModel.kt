@@ -100,6 +100,7 @@ import org.sonora.android.playback.RecommendationEngine
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.playback.SleepTimer
 import org.sonora.android.playback.TasteProfile
+import org.sonora.android.playback.automix.MixPoint
 import org.sonora.android.playback.automix.MixStyle
 import org.sonora.android.playback.dj.DjSession
 import org.sonora.android.playback.dj.DjState
@@ -1138,6 +1139,7 @@ class SonoraViewModel @JvmOverloads constructor(
     val automixEnabled: StateFlow<Boolean> = musicRepository.automixEnabled
     fun setAutomixEnabled(enabled: Boolean) = musicRepository.setAutomixEnabled(enabled)
     val automixStyle: StateFlow<MixStyle> = musicRepository.automixStyle
+    val mixPoint: StateFlow<MixPoint?> = playbackManager.mixPoint
     fun setAutomixStyle(style: MixStyle) = musicRepository.setAutomixStyle(style)
 
     private val djSession: DjSession = DjSession.getInstance(application)
