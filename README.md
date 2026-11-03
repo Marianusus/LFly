@@ -1,7 +1,7 @@
 # LFly — Listen & Fly
 
 **A native Android music player built with Kotlin and Jetpack Compose.**
-Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube Music**, with word‑level synced lyrics, background playback and a Liquid‑Glass UI.
+Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube Music**, with club-style DJ mixing between songs, a talking DJ, word‑level synced lyrics, background playback and a Liquid‑Glass UI.
 
 <p>
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-100%25-7F52FF?logo=kotlin&logoColor=white">
@@ -14,8 +14,8 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 > **Download:** grab the latest APK from the [**Releases**](https://github.com/Marianusus/LFly/releases/latest) page — or install directly:
 >
 > ```bash
-> adb install -r "LFly-v1.4.apk"          # universal
-> adb install -r "LFly-v1.4-arm64.apk"    # smaller, arm64 phones
+> adb install -r "LFly-v1.5.apk"          # universal
+> adb install -r "LFly-v1.5-arm64.apk"    # smaller, arm64 phones
 > ```
 >
 > **Upgrading from a previous debug-signed build (v1.0–v1.3)?** Uninstall the old app once (`adb uninstall org.sonora.android`) before installing; release builds use a separate signing key. Uninstalling removes app data.
@@ -40,6 +40,10 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 
 - **Lossless & high‑fidelity streaming** — resolves full‑length FLAC / high‑bitrate AAC from the **Monochrome HiFi** ecosystem with a rotating instance pool and health tracking (`ONLINE` / `DEGRADED` / `OFFLINE`) plus transparent failover.
 - **No truncated previews** — the app always targets the complete track; 30‑second previews are only an emergency last resort.
+- **Automix — DJ transitions between songs** — on-device beat, phrase, energy and key analysis lines up the bars of two songs and blends them like a club DJ: 16-bar mixes over the outro, the next song's intro played in full and its drop landing as the old song leaves, a three-band EQ and resonant filters, tempo matched up to 10% and eased back afterwards. Styles: Auto, Fade, Bass swap, EQ swap, Filter and Rise. Off the beat it falls back to a filtered crossfade.
+- **Playlist Mix** — turn on **Mix** in your own playlists to see every transition with both songs' BPM and Camelot key. **Smart reorder** suggests an order by tempo and key, and the transition editor shows both waveforms: drag the mix point onto any bar, pick a preset drawn as its curve (Auto, Fade, Rise, Blend, Wave, Melt, Slam or no transition), set the length and beatmatching, mix your own volume, EQ and filter, and preview it before saving.
+- **DJ** — a radio-style DJ that starts from your most played songs, flows from one song to the next by tempo and style in themed blocks, and introduces them in a Siri-style island that drops from the camera. Its voice can be a natural neural voice (Piper, downloaded on demand and then offline), a Google network voice or the phone's own.
+- **Sleep timer and playback speed** in the player menu, plus an optional crossfade.
 - **Fast queue transitions** — asynchronous prefetch and on‑disk pre‑cache (`SimpleCache`) of the next track (N+1), so skipping in the queue is instant.
 - **Personal Home shelf** — a swipeable 3×3 "quick access" grid mixing your most‑played tracks and playlists, plus an auto‑generated **On Repeat** playlist (deduplicated across providers, refreshed every 5 days).
 - **Queue, autoplay, shuffle & repeat** — autoplay appends style/genre recommendations to keep the music going.
@@ -66,6 +70,7 @@ Streams lossless / high‑fidelity audio from **Monochrome HiFi** and **YouTube 
 | Networking | OkHttp, Gson |
 | Async | Kotlin Coroutines & Flow |
 | Lyrics / translation | Custom lyrics engine, Kugou / LRCLIB providers, ML Kit Translate |
+| On-device audio AI | Beat This (ONNX Runtime) for beats and downbeats, sherpa-onnx with Piper voices for the DJ |
 
 ## Getting started
 
@@ -99,6 +104,8 @@ It requires `yt-dlp` and `adb` on your `PATH`.
 - The backdrop/Liquid Glass engine is **[Kyant0/backdrop](https://github.com/Kyant0/backdrop)** (Apache‑2.0), integrated following BitChord/EchoMusic's glass glue (GPL‑3.0).
 - Audio streaming uses the public **[Monochrome](https://monochrome.tf)** HiFi API endpoints — huge thanks to the Monochrome team.
 - YouTube Music metadata/streams are accessed through the public InnerTube endpoints.
+- Beat and downbeat tracking uses **[Beat This](https://github.com/CPJKU/beat_this)** (MIT) on **[ONNX Runtime](https://onnxruntime.ai)** (MIT).
+- The DJ's natural voices run on **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** (Apache‑2.0) with **[Piper](https://github.com/rhasspy/piper)** voice models (MIT), downloaded on demand; each voice keeps the license in its model card.
 
 ## Support
 
@@ -111,7 +118,7 @@ If you enjoy LFly and want to support its development:
 
 LFly is an **unofficial**, personal/educational project and is **not affiliated** with YouTube, Google, Spotify, Monochrome or sonorahq. It does **not host or distribute** any audio content; it only resolves streams from third‑party sources. Use it responsibly and at your own risk.
 
-**Permissions:** besides network access, the **Party** feature uses Bluetooth (scan/advertise/connect) and Wi‑Fi/nearby‑devices permissions — plus location on Android 11 and below — solely to discover and pair with nearby devices on your local network. No device location is collected or transmitted, and no audio is relayed between devices.
+**Permissions:** besides network access, the DJ downloads its voice models over the network only when you pick one (or on Wi‑Fi when the DJ starts), and stores them on the device. Besides that, the **Party** feature uses Bluetooth (scan/advertise/connect) and Wi‑Fi/nearby‑devices permissions — plus location on Android 11 and below — solely to discover and pair with nearby devices on your local network. No device location is collected or transmitted, and no audio is relayed between devices.
 
 ## License
 

@@ -4,6 +4,47 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.5] — 2026-11-03
+
+**DJ mixing, playlist Mix and a talking DJ.** Updates directly over v1.3.1–v1.4 and keeps your data.
+
+### Added
+
+- **Automix**: on-device beat tracking (Beat This) lines up the bars of two songs. A mix runs for 16 bars (8, 4 or 2 when there is no room), at most 35 seconds and a fifth of the song, over the outgoing song's outro. The next song's intro plays in full and its drop lands as the old song leaves. Tempos up to 10% apart are matched, then eased back at 0.5% per second.
+- **Transition styles**: Auto, Fade, Bass swap, EQ swap, Filter and Rise (Settings → Music → Playback & Queue). Bass swap and EQ swap keep both songs at full level and hand them over with a three-band EQ and resonant filters.
+- **Playlist Mix**: a **Mix** button in your own playlists, a row with both songs' BPM and Camelot key between every two songs, and **Smart reorder** by tempo and key.
+- **Transition editor**: both waveforms with the mix shaded, drag-to-bar mix points, presets drawn as their curves (Auto, Fade, Rise, Blend, Wave, Melt, Slam, No transition), length in bars, beatmatching, custom volume, EQ and filters, preview, undo and redo.
+- **DJ**: themed blocks that start from your most played songs and flow by tempo and style, introduced by a voice in a Siri-style island under the camera. The card sits under "For you" on Home.
+- **Natural DJ voices**: Piper neural voices in Italian, English and Romanian, downloaded on demand (about 60–70 MB each) and then used offline; Google network voices and the phone's voices as fallback. Settings → Music → Playback & Queue → DJ voice.
+- **Sleep timer** and **playback speed** in the player menu, and an optional crossfade.
+- The seek bar shows where the next mix will happen.
+
+### Changed
+
+- **Playlist screen**: artwork, title and owner, then one action row with download, Mix, shuffle and a round Play button; slimmer song rows, with favourites in the ⋯ menu.
+- **Media3** 1.5.0 → 1.8.0, which fixes a crash on speed changes.
+- Settings pickers (language, country, transition style) now have an opaque background.
+
+### Fixed
+
+- No gap any more when one song hands over to the next, and no flam when the next song comes in: the second player starts muted and lines itself up first, and tempo changes no longer drain the audio buffer.
+- A beat the tracker missed no longer shifts the bar count during a mix.
+
+### Assets
+
+- `LFly-v1.5.apk` — universal, **147,783,302 bytes**, SHA-256 `f916624609d2be734d5ac46728eab4d00bded7086042eae4bc65ed2743c6c08b`
+- `LFly-v1.5-arm64.apk` — arm64-v8a only, **73,165,108 bytes**, SHA-256 `d517c4f47f23f7cbd327a61d237c6419aa79a1ed1b8b2b7ab75f183c6844e7a5`
+- `versionCode 7` / `versionName 1.5`. **672 unit tests green**; release APKs verified with `apksigner` (v1/v2/v3) and `zipalign`. The APKs are larger than 1.4 because they carry the beat-tracking model and the on-device voice engine.
+
+### Install
+
+```bash
+adb install -r "LFly-v1.5.apk"          # universal
+adb install -r "LFly-v1.5-arm64.apk"    # smaller, arm64 phones
+```
+
+Debug builds (v1.0–v1.3, and the development builds) still need the one-time uninstall described under 1.3.1.
+
 ## [1.4] — 2026-11-01
 
 **Android Auto, ambient mode and new settings.** Updates directly over v1.3.1 and v1.3.2 and keeps your data.
