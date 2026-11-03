@@ -66,6 +66,13 @@ object DjScript {
             .replace(SONG, song.orEmpty())
     }
 
+    /** A short line to try a voice with in Settings. */
+    fun sample(language: String): String = when (languageOf(language)) {
+        "it" -> "Ciao, sono il tuo DJ. Questa è la mia voce: ti piace come suono?"
+        "ro" -> "Salut, sunt DJ-ul tău. Aceasta e vocea mea: îți place cum sună?"
+        else -> "Hey, I'm your DJ. This is my voice: do you like how I sound?"
+    }
+
     /** "it", "en" or "ro" from a tag like "it", "IT" or "ro-RO"; English when unknown. */
     internal fun languageOf(language: String): String {
         val code = language.trim().lowercase().substringBefore('-').substringBefore('_')

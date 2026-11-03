@@ -3,6 +3,8 @@ package org.sonora.android.data
 import android.content.Context
 import android.util.Log
 import org.sonora.android.playback.automix.MixStyle
+import org.sonora.android.playback.automix.MixTransition
+import org.sonora.android.playback.automix.PlaylistMix
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CompletableDeferred
@@ -48,6 +50,9 @@ class MusicRepository(
         private const val FILE_PLAYLISTS = "playlists.json"
         private const val FILE_DISLIKED = "disliked_tracks.json"
         private const val FILE_FOLLOWED_ARTISTS = "followed_artists.json"
+
+        /** Mix settings of the listener's playlists, apart from the playlists so their schema stays as it is. */
+        private const val FILE_PLAYLIST_MIXES = "playlist_mixes.json"
         private const val FILE_PLAY_STATS = "play_stats.json"
         private const val FILE_PLAYLIST_STATS = "playlist_stats.json"
         private const val FILE_MIXES = "mixes.json"
@@ -60,6 +65,7 @@ class MusicRepository(
         private const val KEY_CROSSFADE_SECONDS = "crossfade_seconds"
         private const val KEY_AUTOMIX = "automix"
         private const val KEY_AUTOMIX_STYLE = "automix_style"
+        private const val KEY_DJ_VOICE = "dj_voice"
         private const val KEY_LIQUID_GLASS = "liquid_glass"
         private const val KEY_ACCENT_COLOR = "accent_color"
         private const val KEY_TRANSLATE_LYRICS = "translate_lyrics"
@@ -224,6 +230,15 @@ class MusicRepository(
     fun setAutomixStyle(style: MixStyle) {
         _automixStyle.value = style
         prefs?.edit()?.putString(KEY_AUTOMIX_STYLE, style.name)?.apply()
+    }
+
+    /** The voice picked for the DJ in Settings, by the engine's name; null lets the DJ choose. */
+    private val _djVoiceName = MutableStateFlow(prefs?.getString(KEY_DJ_VOICE, null))
+    val djVoiceName: StateFlow<String?> = _djVoiceName.asStateFlow()
+
+    fun setDjVoiceName(name: String?) {
+        _djVoiceName.value = name
+        prefs?.edit()?.apply { if (name == null) remove(KEY_DJ_VOICE) else putString(KEY_DJ_VOICE, name) }?.apply()
     }
 
     private fun loadSavedCrossfadeSeconds(): Int =
@@ -414,6 +429,7 @@ class MusicRepository(
             loadMixes()
             migrateOnRepeatPlaylist()
             loadFollowedArtists()
+            loadPlaylistMixes()
             libraryLoaded.complete(Unit)
             syncLocalMusic()
             refreshMixes()
@@ -1785,6 +1801,86 @@ class MusicRepository(
                 }
             }
             return nowFollowing
+        }
+    }
+
+    // ==========================================
+    // Playlist Mix (transitions between the songs of a playlist)
+    // ==========================================
+
+    private val _playlistMixes = MutableStateFlow<Map<String, PlaylistMix>>(emptyMap())
+
+    /** Mix settings by playlist id; a playlist without an entry is not mixed. */
+    val playlistMixes: StateFlow<Map<String, PlaylistMix>> = _playlistMixes.asStateFlow()
+
+    fun playlistMix(playlistId: String): PlaylistMix = _playlistMixes.value[playlistId] ?: PlaylistMix()
+
+    fun setPlaylistMixEnabled(playlistId: String, enabled: Boolean) {
+        updatePlaylistMix(playlistId) { it.copy(enabled = enabled) }
+    }
+
+    /** Saves the listener's choice for one transition; [transition] null (or plain AUTO) goes back to automatic. */
+    fun setMixTransition(playlistId: String, fromId: String, toId: String, transition: MixTransition?) {
+        val key = PlaylistMix.pairKey(fromId, toId)
+        updatePlaylistMix(playlistId) { mix ->
+            val transitions = if (transition == null || transition == MixTransition.AUTO) {
+                mix.transitions - key
+            } else {
+                mix.transitions + (key to transition)
+            }
+            mix.copy(transitions = transitions)
+        }
+    }
+
+    /**
+     * The transition from [fromId] to [toId] when a mixed playlist has the two songs one after the
+     * other, else null. A transition belongs to the pair, so it plays wherever the pair is queued.
+     */
+    fun mixedTransition(fromId: String, toId: String): MixTransition? {
+        val mixes = _playlistMixes.value
+        if (mixes.isEmpty()) return null
+        for (playlist in _playlists.value) {
+            val mix = mixes[playlist.id] ?: continue
+            if (!mix.enabled) continue
+            val tracks = playlist.tracks
+            for (index in 0 until tracks.size - 1) {
+                if (tracks[index].id == fromId && tracks[index + 1].id == toId) return mix.transition(fromId, toId)
+            }
+        }
+        return null
+    }
+
+    private fun updatePlaylistMix(playlistId: String, change: (PlaylistMix) -> PlaylistMix) {
+        val updated = synchronized(this) {
+            val current = _playlistMixes.value
+            val next = change(current[playlistId] ?: PlaylistMix())
+            val map = if (!next.enabled && next.transitions.isEmpty()) current - playlistId else current + (playlistId to next)
+            _playlistMixes.value = map
+            map
+        }
+        repositoryScope.launch { saveToFile(FILE_PLAYLIST_MIXES, updated) }
+    }
+
+    private suspend fun loadPlaylistMixes() = withContext(Dispatchers.IO) {
+        val dir = baseFilesDir ?: return@withContext
+        try {
+            val file = File(dir, FILE_PLAYLIST_MIXES)
+            if (file.exists() || DurableJsonFile.backupOf(file).exists()) {
+                val type = object : TypeToken<Map<String, PlaylistMix>>() {}.type
+                val map: Map<String, PlaylistMix>? = readDurable(file, type)
+                // Gson leaves fields it did not find null even when Kotlin says they cannot be: repair them.
+                val clean = map.orEmpty().mapValues { (_, mix) ->
+                    @Suppress("SENSELESS_COMPARISON", "UNNECESSARY_SAFE_CALL")
+                    PlaylistMix(
+                        enabled = mix.enabled,
+                        transitions = (mix.transitions ?: emptyMap()).filterValues { it != null && it.preset != null }
+                    )
+                }
+                synchronized(this@MusicRepository) { _playlistMixes.value = clean }
+                Log.i(TAG, "Loaded Mix settings for ${clean.size} playlists")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading playlist mixes", e)
         }
     }
 

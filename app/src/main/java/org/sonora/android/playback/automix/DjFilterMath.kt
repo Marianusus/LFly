@@ -53,14 +53,18 @@ internal class BiquadState {
 }
 
 /**
- * What a DJ mixer does to one deck: a fader ([gain]), the low band of the EQ ([bassDb]) and a
- * sweeping filter ([highPassHz] / [lowPassHz]). Zero means the filter is open.
+ * What a DJ mixer does to one deck: a fader ([gain]), a three-band EQ ([bassDb], [midDb], [highDb])
+ * and a sweeping filter ([highPassHz] / [lowPassHz]) with its [resonance] (Q). Zero means the filter
+ * is open.
  */
 internal data class DjFilterSettings(
     val gain: Float = 1f,
     val bassDb: Float = 0f,
     val highPassHz: Float = 0f,
-    val lowPassHz: Float = 0f
+    val lowPassHz: Float = 0f,
+    val midDb: Float = 0f,
+    val highDb: Float = 0f,
+    val resonance: Float = DjFilterMath.FLAT_Q.toFloat()
 ) {
     companion object {
         val NEUTRAL = DjFilterSettings()
@@ -75,13 +79,23 @@ internal object DjFilterMath {
     /** A "kill": the low band all the way down. */
     const val BASS_KILL_DB = -30f
 
+    /** Centre of the mid band and corner of the high band, where a DJ mixer's other two knobs sit. */
+    const val MID_HZ = 1_000.0
+    const val HIGH_HZ = 4_000.0
+
+    /** The mid band is wide, about two octaves, so mid and high cuts together leave no hole. */
+    const val MID_Q = 0.5
+
+    /** A filter without resonance: Butterworth, flat up to the corner. */
+    const val FLAT_Q = 0.7071067811865476
+
     /** Below this a high-pass changes nothing audible; it is skipped. */
     const val OPEN_HIGH_PASS_HZ = 20.0
 
     /** A low-pass this close to Nyquist changes nothing audible; it is skipped. */
     const val OPEN_LOW_PASS_FRACTION = 0.45
 
-    private const val BUTTERWORTH_Q = 0.7071067811865476
+    private const val BUTTERWORTH_Q = FLAT_Q
 
     fun lowShelf(sampleRate: Double, freq: Double, gainDb: Double, q: Double = BUTTERWORTH_Q): Biquad {
         val a = 10.0.pow(gainDb / 40.0)
@@ -114,6 +128,22 @@ internal object DjFilterMath {
             b2 = a * ((a + 1) + (a - 1) * cosW - twoRootAAlpha),
             a1 = 2 * ((a - 1) - (a + 1) * cosW),
             a2 = (a + 1) - (a - 1) * cosW - twoRootAAlpha
+        )
+    }
+
+    /** A bell around [freq]: [gainDb] there, nothing far from it. */
+    fun peaking(sampleRate: Double, freq: Double, gainDb: Double, q: Double = MID_Q): Biquad {
+        val a = 10.0.pow(gainDb / 40.0)
+        val w = 2 * PI * freq / sampleRate
+        val cosW = cos(w)
+        val alpha = sin(w) / (2 * q)
+        return normalise(
+            a0 = 1 + alpha / a,
+            b0 = 1 + alpha * a,
+            b1 = -2 * cosW,
+            b2 = 1 - alpha * a,
+            a1 = -2 * cosW,
+            a2 = 1 - alpha / a
         )
     }
 

@@ -1,5 +1,10 @@
 package org.sonora.android.ui
 
+import org.sonora.android.ui.mix.TransitionEditorDialog
+import org.sonora.android.ui.mix.SmartReorderDialog
+import org.sonora.android.ui.mix.PlaylistMixUiState
+import org.sonora.android.playback.automix.MixTransition
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -321,6 +326,9 @@ fun MainScreen(
     val crossfadeSeconds by viewModel.crossfadeSeconds.collectAsState()
     val automixEnabled by viewModel.automixEnabled.collectAsState()
     val automixStyle by viewModel.automixStyle.collectAsState()
+    val djVoiceName by viewModel.djVoiceName.collectAsState()
+    val djVoices by viewModel.djVoices.collectAsState()
+    val piperStatus by viewModel.piperStatus.collectAsState()
     val djState by viewModel.djState.collectAsState()
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -931,6 +939,15 @@ fun MainScreen(
                                     automixEnabled = automixEnabled,
                                     onAutomixChange = { enabled -> viewModel.setAutomixEnabled(enabled) },
                                     automixStyle = automixStyle,
+                                    djVoiceName = djVoiceName,
+                                    djVoices = djVoices,
+                                    onDjVoiceChange = viewModel::setDjVoiceName,
+                                    onLoadDjVoices = viewModel::loadDjVoices,
+                                    onPreviewDjVoice = viewModel::previewDjVoice,
+                                    djLanguage = viewModel.djLanguage(),
+                                    piperStatus = piperStatus,
+                                    onDownloadPiperVoice = viewModel::downloadPiperVoice,
+                                    onDeletePiperVoice = viewModel::deletePiperVoice,
                                     onAutomixStyleChange = { style -> viewModel.setAutomixStyle(style) },
                                     liquidGlass = isLiquidGlassEnabled,
                                     onLiquidGlassChange = { enabled -> viewModel.setLiquidGlass(enabled) },
@@ -1094,6 +1111,64 @@ fun MainScreen(
                         val activePlaylistDownloadProgress = remember(activePlaylist?.tracks, downloadStates) {
                             aggregateDownloadProgress(activePlaylist?.tracks.orEmpty(), downloadStates)
                         }
+                        val mixModel = viewModel.playlistMix
+                        val playlistMixes by mixModel.mixes.collectAsState()
+                        val mixInfo by mixModel.trackInfo.collectAsState()
+                        val mixProgress by mixModel.progress.collectAsState()
+                        var editingTransition by remember { mutableStateOf(false) }
+                        var reorderSuggestion by remember { mutableStateOf<List<Track>?>(null) }
+                        LaunchedEffect(activePlaylist?.id, activePlaylist?.tracks) {
+                            activePlaylist?.let { mixModel.open(it) }
+                        }
+                        val mixUi = if (activePlaylist == null || isAutoPlaylist) null else {
+                            val mixed = playlistMixes[activePlaylist.id]?.enabled == true
+                            val progressHere = mixProgress?.takeIf { it.playlistId == activePlaylist.id }
+                            PlaylistMixUiState(
+                                mixed = mixed,
+                                progress = progressHere,
+                                info = mixInfo,
+                                transitionFor = { from, to ->
+                                    playlistMixes[activePlaylist.id]?.transition(from.id, to.id) ?: MixTransition.AUTO
+                                },
+                                onToggle = {
+                                    if (mixed || activePlaylist.tracks.size >= 2) mixModel.setMixed(activePlaylist, !mixed)
+                                },
+                                onSmartReorder = {
+                                    val suggestion = if (progressHere == null) mixModel.suggestOrder(activePlaylist) else null
+                                    when {
+                                        suggestion != null -> reorderSuggestion = suggestion
+                                        progressHere != null || !mixModel.knowsAll(activePlaylist) -> Toast.makeText(
+                                            activityContext, R.string.playlist_mixing_reorder_not_ready, Toast.LENGTH_SHORT
+                                        ).show()
+                                        else -> Toast.makeText(
+                                            activityContext, R.string.playlist_mixing_reorder_not_needed, Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                onEditTransition = { index ->
+                                    mixModel.openEditor(activePlaylist, index)
+                                    editingTransition = true
+                                },
+                            )
+                        }
+                        if (editingTransition) {
+                            TransitionEditorDialog(mixModel) {
+                                mixModel.closeEditor()
+                                editingTransition = false
+                            }
+                        }
+                        reorderSuggestion?.let { suggestion ->
+                            SmartReorderDialog(
+                                suggested = suggestion,
+                                info = mixInfo,
+                                onApply = {
+                                    activePlaylist?.let { mixModel.applyOrder(it, suggestion) }
+                                    reorderSuggestion = null
+                                    Toast.makeText(activityContext, R.string.playlist_mixing_reorder_done, Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = { reorderSuggestion = null },
+                            )
+                        }
                         PlaylistDetailScreen(
                             playlist = activePlaylist,
                             currentTrackId = collectionCurrentTrackId,
@@ -1177,7 +1252,8 @@ fun MainScreen(
                             onPlayNextTrack = { track ->
                                 viewModel.addToQueueNext(track)
                             },
-                            sourceActions = trackSourceActions
+                            sourceActions = trackSourceActions,
+                            mixUi = mixUi
                         )
                     }
 

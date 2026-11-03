@@ -35,6 +35,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material3.CircularProgressIndicator
+import org.sonora.android.playback.dj.piper.PiperCatalog
+import org.sonora.android.playback.dj.piper.PiperStatus
+import org.sonora.android.playback.dj.piper.PiperVoice
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.LaunchedEffect
+import org.sonora.android.playback.dj.DjVoiceChoice
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -201,6 +211,15 @@ fun SettingsScreen(
     onAutomixChange: (Boolean) -> Unit = {},
     automixStyle: MixStyle = MixStyle.AUTO,
     onAutomixStyleChange: (MixStyle) -> Unit = {},
+    djVoiceName: String? = null,
+    djVoices: List<DjVoiceChoice> = emptyList(),
+    onDjVoiceChange: (String?) -> Unit = {},
+    onLoadDjVoices: () -> Unit = {},
+    onPreviewDjVoice: (String?) -> Unit = {},
+    djLanguage: String = "it",
+    piperStatus: Map<String, PiperStatus> = emptyMap(),
+    onDownloadPiperVoice: (String) -> Unit = {},
+    onDeletePiperVoice: (String) -> Unit = {},
     liquidGlass: Boolean = false,
     onLiquidGlassChange: (Boolean) -> Unit = {},
     currentAudioQuality: AudioQuality,
@@ -403,7 +422,18 @@ fun SettingsScreen(
                             automixEnabled = automixEnabled,
                             onAutomixChange = onAutomixChange,
                             automixStyle = automixStyle,
-                            onAutomixStyleChange = onAutomixStyleChange
+                            onAutomixStyleChange = onAutomixStyleChange,
+                            djVoice = DjVoiceSettings(
+                                selected = djVoiceName,
+                                voices = djVoices,
+                                onSelect = onDjVoiceChange,
+                                onLoad = onLoadDjVoices,
+                                onPreview = onPreviewDjVoice,
+                                language = djLanguage,
+                                piperStatus = piperStatus,
+                                onDownload = onDownloadPiperVoice,
+                                onDelete = onDeletePiperVoice
+                            )
                         )
                     }
                     item {
@@ -1013,7 +1043,8 @@ private fun PlaybackSection(
     automixEnabled: Boolean,
     onAutomixChange: (Boolean) -> Unit,
     automixStyle: MixStyle,
-    onAutomixStyleChange: (MixStyle) -> Unit
+    onAutomixStyleChange: (MixStyle) -> Unit,
+    djVoice: DjVoiceSettings
 ) {
     SettingsGroup(
         header = stringResource(R.string.settings_playback_section_title),
@@ -1052,6 +1083,223 @@ private fun PlaybackSection(
             SettingsRowDivider(hasLeading = true)
             AutomixStyleRow(style = automixStyle, onStyleChange = onAutomixStyleChange)
         }
+        SettingsRowDivider(hasLeading = true)
+        DjVoiceRow(djVoice)
+    }
+}
+
+/** What the DJ voice row needs: the saved choice, the voices on offer and what to do with them. */
+private class DjVoiceSettings(
+    val selected: String?,
+    val voices: List<DjVoiceChoice>,
+    val onSelect: (String?) -> Unit,
+    val onLoad: () -> Unit,
+    val onPreview: (String?) -> Unit,
+    /** The language the DJ speaks, whose natural voices are offered. */
+    val language: String,
+    val piperStatus: Map<String, PiperStatus>,
+    val onDownload: (String) -> Unit,
+    val onDelete: (String) -> Unit
+)
+
+/** Engine names like "it-it-x-itb-network" mean nothing to a listener: voices are numbered instead. */
+@Composable
+private fun djVoiceLabel(voices: List<DjVoiceChoice>, name: String): String {
+    val index = voices.indexOfFirst { it.name == name }
+    if (index < 0) return stringResource(R.string.dj_voice_auto)
+    return stringResource(R.string.dj_voice_numbered, index + 1)
+}
+
+@Composable
+private fun djVoiceDetails(voice: DjVoiceChoice): String {
+    val quality = stringResource(
+        when {
+            voice.quality >= 400 -> R.string.dj_voice_quality_high
+            voice.quality >= 300 -> R.string.dj_voice_quality_normal
+            else -> R.string.dj_voice_quality_low
+        }
+    )
+    val where = stringResource(if (voice.online) R.string.dj_voice_online else R.string.dj_voice_offline)
+    return "$quality · $where"
+}
+
+@Composable
+private fun DjVoiceRow(settings: DjVoiceSettings) {
+    var pickerOpen by remember { mutableStateOf(false) }
+    // The list comes from the speech engine, so it is loaded once, the first time it is needed.
+    LaunchedEffect(Unit) { settings.onLoad() }
+    if (pickerOpen) {
+        DjVoiceDialog(
+            settings = settings,
+            onDismiss = { pickerOpen = false },
+            onSelect = { picked ->
+                pickerOpen = false
+                settings.onSelect(picked)
+            }
+        )
+    }
+    SettingsRow(
+        title = stringResource(R.string.dj_voice_title),
+        value = PiperCatalog.fromPreference(settings.selected)?.speaker
+            ?: settings.selected?.let { djVoiceLabel(settings.voices, it) }
+            ?: stringResource(R.string.dj_voice_auto),
+        icon = Icons.Default.RecordVoiceOver,
+        tile = SettingsTile.Teal,
+        showChevron = true,
+        onClick = {
+            settings.onLoad()
+            pickerOpen = true
+        }
+    )
+}
+
+@Composable
+private fun DjVoiceDialog(
+    settings: DjVoiceSettings,
+    onDismiss: () -> Unit,
+    onSelect: (String?) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SonoraOpaqueSurfaceCard,
+        title = {
+            Text(
+                text = stringResource(R.string.dj_voice_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = SonoraTextPrimary
+            )
+        },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 440.dp)) {
+                item(key = "auto") {
+                    SettingsChoiceRow(
+                        title = stringResource(R.string.dj_voice_auto),
+                        subtitle = stringResource(R.string.dj_voice_auto_desc),
+                        selected = settings.selected == null ||
+                            (PiperCatalog.fromPreference(settings.selected) == null && settings.voices.none { it.name == settings.selected }),
+                        onClick = { onSelect(null) },
+                        leading = { DjVoicePreviewButton { settings.onPreview(null) } }
+                    )
+                }
+                item(key = "neural_header") { DjVoiceHeader(stringResource(R.string.dj_voice_neural_header)) }
+                items(PiperCatalog.forLanguage(settings.language), key = { "piper_" + it.id }) { voice ->
+                    val key = PiperCatalog.preferenceKey(voice)
+                    PiperVoiceRow(
+                        voice = voice,
+                        status = settings.piperStatus[voice.id] ?: PiperStatus(),
+                        selected = settings.selected == key,
+                        onSelect = { onSelect(key) },
+                        onDownload = { settings.onDownload(voice.id) },
+                        onDelete = { settings.onDelete(voice.id) },
+                        onPreview = { settings.onPreview(key) }
+                    )
+                }
+                item(key = "phone_header") { DjVoiceHeader(stringResource(R.string.dj_voice_phone_header)) }
+                if (settings.voices.isEmpty()) {
+                    item(key = "none") {
+                        Text(
+                            text = stringResource(R.string.dj_voice_none),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = SonoraTextSecondary,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    }
+                }
+                itemsIndexed(settings.voices, key = { _, voice -> voice.name }) { index, voice ->
+                    SettingsRowDivider()
+                    SettingsChoiceRow(
+                        title = stringResource(R.string.dj_voice_numbered, index + 1),
+                        subtitle = djVoiceDetails(voice),
+                        selected = settings.selected == voice.name,
+                        onClick = { onSelect(voice.name) },
+                        leading = { DjVoicePreviewButton { settings.onPreview(voice.name) } }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.action_close), color = SonoraTextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+private fun DjVoiceHeader(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = SonoraTextSecondary,
+        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp, start = 4.dp)
+    )
+}
+
+/**
+ * A natural voice: download it, then try it, pick it or remove it. Picking one that is not
+ * downloaded yet starts the download.
+ */
+@Composable
+private fun PiperVoiceRow(
+    voice: PiperVoice,
+    status: PiperStatus,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
+    onPreview: () -> Unit
+) {
+    val downloading = status.progress != null
+    val subtitle = when {
+        downloading -> stringResource(R.string.dj_voice_downloading, ((status.progress ?: 0f) * 100).roundToInt())
+        status.failed -> stringResource(R.string.dj_voice_download_failed)
+        status.installed -> stringResource(if (voice.highQuality) R.string.dj_voice_quality_high else R.string.dj_voice_quality_normal) +
+            " · " + stringResource(R.string.dj_voice_offline)
+        else -> stringResource(if (voice.highQuality) R.string.dj_voice_quality_high else R.string.dj_voice_quality_normal) +
+            " · " + stringResource(R.string.dj_voice_size, voice.downloadMb)
+    }
+    SettingsChoiceRow(
+        title = voice.speaker,
+        subtitle = subtitle,
+        selected = selected && status.installed,
+        onClick = { if (status.installed) onSelect() else if (!downloading) { onDownload(); onSelect() } },
+        leading = {
+            when {
+                downloading -> Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { status.progress ?: 0f },
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp,
+                        color = SonoraTheme.colors.primaryAccent
+                    )
+                }
+                status.installed -> DjVoicePreviewButton(onPreview)
+                else -> IconButton(onClick = onDownload, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = stringResource(R.string.dj_voice_download),
+                        tint = SonoraTheme.colors.primaryAccent
+                    )
+                }
+            }
+        }
+    )
+    if (status.installed && !selected) {
+        TextButton(onClick = onDelete, modifier = Modifier.padding(start = 44.dp)) {
+            Text(text = stringResource(R.string.dj_voice_delete), color = SonoraTextSecondary)
+        }
+    }
+}
+
+/** Plays a short sample with the voice, without choosing it. */
+@Composable
+private fun DjVoicePreviewButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+        Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = stringResource(R.string.dj_voice_try),
+            tint = SonoraTheme.colors.primaryAccent
+        )
     }
 }
 
@@ -1063,6 +1311,7 @@ private val MixStyle.titleRes: Int
         MixStyle.AUTO -> R.string.automix_style_auto
         MixStyle.FADE -> R.string.automix_style_fade
         MixStyle.BASS_SWAP -> R.string.automix_style_bass_swap
+        MixStyle.EQ_SWAP -> R.string.automix_style_eq_swap
         MixStyle.FILTER -> R.string.automix_style_filter
         MixStyle.RISE -> R.string.automix_style_rise
     }
@@ -1073,6 +1322,7 @@ private val MixStyle.descriptionRes: Int
         MixStyle.AUTO -> R.string.automix_style_auto_desc
         MixStyle.FADE -> R.string.automix_style_fade_desc
         MixStyle.BASS_SWAP -> R.string.automix_style_bass_swap_desc
+        MixStyle.EQ_SWAP -> R.string.automix_style_eq_swap_desc
         MixStyle.FILTER -> R.string.automix_style_filter_desc
         MixStyle.RISE -> R.string.automix_style_rise_desc
     }

@@ -102,7 +102,13 @@ import org.sonora.android.playback.SleepTimer
 import org.sonora.android.playback.TasteProfile
 import org.sonora.android.playback.automix.MixPoint
 import org.sonora.android.playback.automix.MixStyle
+import org.sonora.android.playback.dj.DjScript
 import org.sonora.android.playback.dj.DjSession
+import org.sonora.android.playback.dj.DjVoice
+import org.sonora.android.playback.dj.DjVoiceChoice
+import org.sonora.android.playback.dj.piper.PiperCatalog
+import org.sonora.android.playback.dj.piper.PiperStatus
+import org.sonora.android.playback.dj.piper.PiperStore
 import org.sonora.android.playback.dj.DjState
 
 private const val RECOMMENDATION_REFRESH_DEBOUNCE_MS = 600L
@@ -1148,6 +1154,55 @@ class SonoraViewModel @JvmOverloads constructor(
     /** Stops the DJ when it is on, otherwise starts it. */
     fun toggleDj() {
         if (djSession.state.value.active) djSession.stop() else djSession.start()
+    }
+
+    /** Spotify-style mixing of the listener's playlists: Mix on/off, transitions, their editor and Smart Reorder. */
+    val playlistMix: org.sonora.android.ui.mix.PlaylistMixModel by lazy {
+        org.sonora.android.ui.mix.PlaylistMixModel(viewModelScope, musicRepository, playbackManager)
+    }
+
+    val djVoiceName: StateFlow<String?> = musicRepository.djVoiceName
+    fun setDjVoiceName(name: String?) = musicRepository.setDjVoiceName(name)
+
+    private val piperStore by lazy { PiperStore.getInstance(getApplication()) }
+    val piperStatus: StateFlow<Map<String, PiperStatus>> get() = piperStore.status
+
+    /** The language the DJ speaks now, for the voices Settings offers. */
+    fun djLanguage(): String = DjScript.languageOf(djSession.language())
+
+    fun downloadPiperVoice(id: String) = piperStore.download(id)
+
+    fun deletePiperVoice(id: String) {
+        piperStore.delete(id)
+        if (musicRepository.djVoiceName.value == PiperCatalog.PREFIX + id) musicRepository.setDjVoiceName(null)
+    }
+
+    /** A voice of its own for Settings, so trying voices never touches a DJ line being said. */
+    private val settingsVoiceHolder = lazy { DjVoice(getApplication()) }
+    private val settingsVoice by settingsVoiceHolder
+    private val _djVoices = MutableStateFlow<List<DjVoiceChoice>>(emptyList())
+    val djVoices: StateFlow<List<DjVoiceChoice>> = _djVoices.asStateFlow()
+    private var previewJob: Job? = null
+
+    fun loadDjVoices() {
+        viewModelScope.launch(Dispatchers.Main) {
+            _djVoices.value = settingsVoice.voicesFor(djSession.language())
+        }
+    }
+
+    /** Says a short sample with [name] (null: the voice the DJ would pick), ducking the music under it. */
+    fun previewDjVoice(name: String?) {
+        previewJob?.cancel()
+        settingsVoice.stop()
+        val language = djSession.language()
+        previewJob = viewModelScope.launch(Dispatchers.Main) {
+            settingsVoice.speak(
+                text = DjScript.sample(language),
+                language = language,
+                onDuck = playbackManager::setVoiceDuck,
+                preferredVoice = name
+            )
+        }
     }
 
     fun openAmbient() {
@@ -2198,6 +2253,8 @@ class SonoraViewModel @JvmOverloads constructor(
 
     override fun onCleared() {
         super.onCleared()
+        previewJob?.cancel()
+        if (settingsVoiceHolder.isInitialized()) settingsVoice.release()
         translationManager.close()
     }
 }

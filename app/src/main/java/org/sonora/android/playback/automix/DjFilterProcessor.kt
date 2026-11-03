@@ -16,7 +16,8 @@ import kotlin.math.exp
 import kotlin.math.ln
 
 /**
- * One deck of a DJ mixer inside ExoPlayer's audio chain: gain, bass EQ, high-pass and low-pass.
+ * One deck of a DJ mixer inside ExoPlayer's audio chain: gain, a three-band EQ, and a high-pass and a
+ * low-pass with resonance.
  * Settings come from any thread through [set] and are glided to over a few tens of milliseconds,
  * so moving them never clicks. At rest it copies the audio through untouched.
  */
@@ -28,6 +29,7 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
         const val BLOCK_FRAMES = 32
         const val GLIDE_SECONDS = 0.03
         const val SNAP = 1e-3
+        const val MAX_Q = 4.0
     }
 
     @Volatile
@@ -42,12 +44,17 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
     // Current (glided) values. High-pass and low-pass are kept in log frequency so sweeps sound even.
     private var gain = 1.0
     private var bassDb = 0.0
+    private var midDb = 0.0
+    private var highDb = 0.0
+    private var q = DjFilterMath.FLAT_Q
     private var logHighPass = 0.0
     private var logLowPass = 0.0
 
     private var sampleRate = 0.0
     private var channels = 0
     private var shelf = emptyArray<BiquadState>()
+    private var mid = emptyArray<BiquadState>()
+    private var high = emptyArray<BiquadState>()
     private var highPass = emptyArray<BiquadState>()
     private var lowPass = emptyArray<BiquadState>()
 
@@ -63,13 +70,18 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
         channels = inputAudioFormat.channelCount
         if (shelf.size != channels) {
             shelf = Array(channels) { BiquadState() }
+            mid = Array(channels) { BiquadState() }
+            high = Array(channels) { BiquadState() }
             highPass = Array(channels) { BiquadState() }
             lowPass = Array(channels) { BiquadState() }
         }
-        (shelf + highPass + lowPass).forEach(BiquadState::clear)
+        (shelf + mid + high + highPass + lowPass).forEach(BiquadState::clear)
         val settled = target
         gain = settled.gain.toDouble()
         bassDb = settled.bassDb.toDouble()
+        midDb = settled.midDb.toDouble()
+        highDb = settled.highDb.toDouble()
+        q = qOf(settled)
         logHighPass = ln(highPassOf(settled))
         logLowPass = ln(lowPassOf(settled))
     }
@@ -77,6 +89,8 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
     override fun onReset() {
         target = DjFilterSettings.NEUTRAL
         shelf = emptyArray()
+        mid = emptyArray()
+        high = emptyArray()
         highPass = emptyArray()
         lowPass = emptyArray()
     }
@@ -96,6 +110,8 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
                 for (ch in 0 until channels) {
                     val x = read(inputBuffer, float)
                     shelf[ch].pass(x)
+                    mid[ch].pass(x)
+                    high[ch].pass(x)
                     highPass[ch].pass(x)
                     lowPass[ch].pass(x)
                     write(output, float, x)
@@ -121,21 +137,30 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
             val startGain = gain
             gain = glide(gain, want.gain.toDouble(), step)
             bassDb = glide(bassDb, want.bassDb.toDouble(), step)
+            midDb = glide(midDb, want.midDb.toDouble(), step)
+            highDb = glide(highDb, want.highDb.toDouble(), step)
+            q = glide(q, qOf(want), step)
             logHighPass = glide(logHighPass, wantHighPass, step)
             logLowPass = glide(logLowPass, wantLowPass, step)
 
             val shelfOn = abs(bassDb) > SNAP
+            val midOn = abs(midDb) > SNAP
+            val highOn = abs(highDb) > SNAP
             val highPassOn = logHighPass > openHighPass + SNAP
             val lowPassOn = logLowPass < openLowPass - SNAP
             val shelfC = if (shelfOn) DjFilterMath.lowShelf(sampleRate, DjFilterMath.BASS_HZ, bassDb) else Biquad.IDENTITY
-            val highPassC = if (highPassOn) DjFilterMath.highPass(sampleRate, exp(logHighPass)) else Biquad.IDENTITY
-            val lowPassC = if (lowPassOn) DjFilterMath.lowPass(sampleRate, exp(logLowPass)) else Biquad.IDENTITY
+            val midC = if (midOn) DjFilterMath.peaking(sampleRate, DjFilterMath.MID_HZ, midDb) else Biquad.IDENTITY
+            val highC = if (highOn) DjFilterMath.highShelf(sampleRate, DjFilterMath.HIGH_HZ, highDb) else Biquad.IDENTITY
+            val highPassC = if (highPassOn) DjFilterMath.highPass(sampleRate, exp(logHighPass), q) else Biquad.IDENTITY
+            val lowPassC = if (lowPassOn) DjFilterMath.lowPass(sampleRate, exp(logLowPass), q) else Biquad.IDENTITY
 
             for (i in 0 until count) {
                 val g = startGain + (gain - startGain) * (i + 1) / count
                 for (ch in 0 until channels) {
                     var x = read(input, float)
                     if (shelfOn) x = shelf[ch].run(shelfC, x) else shelf[ch].pass(x)
+                    if (midOn) x = mid[ch].run(midC, x) else mid[ch].pass(x)
+                    if (highOn) x = high[ch].run(highC, x) else high[ch].pass(x)
                     if (highPassOn) x = highPass[ch].run(highPassC, x) else highPass[ch].pass(x)
                     if (lowPassOn) x = lowPass[ch].run(lowPassC, x) else lowPass[ch].pass(x)
                     write(output, float, x * g)
@@ -147,11 +172,14 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
 
     private fun isSettled(want: DjFilterSettings): Boolean {
         if (want != DjFilterSettings.NEUTRAL) return false
-        if (abs(gain - 1.0) > SNAP || abs(bassDb) > SNAP) return false
+        if (abs(gain - 1.0) > SNAP || abs(bassDb) > SNAP || abs(midDb) > SNAP || abs(highDb) > SNAP) return false
         if (logHighPass > ln(DjFilterMath.OPEN_HIGH_PASS_HZ) + SNAP) return false
         if (logLowPass < ln(DjFilterMath.OPEN_LOW_PASS_FRACTION * sampleRate) - SNAP) return false
         gain = 1.0
         bassDb = 0.0
+        midDb = 0.0
+        highDb = 0.0
+        q = DjFilterMath.FLAT_Q
         return true
     }
 
@@ -159,6 +187,9 @@ internal class DjFilterProcessor : BaseAudioProcessor() {
         val next = current + (wanted - current) * step
         return if (abs(wanted - next) < SNAP) wanted else next
     }
+
+    /** Resonance stays where a sweep can sing without whistling or going unstable. */
+    private fun qOf(s: DjFilterSettings): Double = s.resonance.toDouble().coerceIn(DjFilterMath.FLAT_Q, MAX_Q)
 
     /** An open high-pass sits at its open frequency, so a sweep starts from where it is inaudible. */
     private fun highPassOf(s: DjFilterSettings): Double =
@@ -188,8 +219,13 @@ internal object DjAudio {
     @Volatile
     var main: DjFilterProcessor? = null
 
+    /**
+     * Tempo changes go to the platform's AudioTrack, which stretches time as it plays: ExoPlayer's own
+     * stretcher would drain its buffer on every change and leave a tiny gap, audible when Automix
+     * nudges the tempo during a mix or eases a song back to its own tempo.
+     */
     fun renderersFactory(context: Context, processor: DjFilterProcessor): RenderersFactory =
-        object : DefaultRenderersFactory(context) {
+        (object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(
                 context: Context,
                 enableFloatOutput: Boolean,
@@ -199,5 +235,5 @@ internal object DjAudio {
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessors(arrayOf<AudioProcessor>(processor))
                 .build()
-        }
+        }).setEnableAudioTrackPlaybackParams(true)
 }

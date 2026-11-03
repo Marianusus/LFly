@@ -20,9 +20,11 @@
     <string name="automix_style_fade">Estompare</string>
     <string name="automix_style_fade_desc">Volumele se întrepătrund</string>
     <string name="automix_style_bass_swap">Bass swap</string>
-    <string name="automix_style_bass_swap_desc">Basul trece de la o piesă la alta pe bătaie</string>
+    <string name="automix_style_bass_swap_desc">Ambele piese cântă împreună; cea nouă intră fără bas și explodează pe ultima bătaie</string>
+    <string name="automix_style_eq_swap">EQ swap</string>
+    <string name="automix_style_eq_swap_desc">Ambele piese cântă împreună, iar egalizatorul trece întâi înaltele, apoi mediile și basul</string>
     <string name="automix_style_filter">Filtru</string>
-    <string name="automix_style_filter_desc">Un filtru închide piesa care se termină și o deschide pe cea nouă</string>
+    <string name="automix_style_filter_desc">Piesa nouă intră subțire sub un filtru, apoi un filtru rezonant o ia pe cea veche</string>
     <string name="automix_style_rise">Urcare</string>
     <string name="automix_style_rise_desc">Piesa urcă și taie brusc în cea nouă</string>
 </resources>

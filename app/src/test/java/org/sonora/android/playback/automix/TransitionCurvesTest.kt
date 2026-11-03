@@ -38,16 +38,22 @@ class TransitionCurvesTest {
     }
 
     @Test
-    fun curvesAreContinuousApartFromTheRiseCut() {
+    fun curvesAreContinuousApartFromTheCuts() {
         val step = 0.002f
         for (style in TransitionStyle.entries) {
             var previous = TransitionCurves.frame(style, 0f)
             var p = step
             while (p <= 1f) {
                 val now = TransitionCurves.frame(style, p)
-                val inCut = style == TransitionStyle.RISE &&
-                    p > TransitionCurves.SWAP_AT - step && p < TransitionCurves.SWAP_AT + TransitionCurves.SWAP_WIDTH + step
-                val maxVolumeStep = if (inCut) 0.1f else 0.02f
+                // RISE cuts on the middle downbeat; the full-level styles take the outgoing song out on the last beat.
+                val inCut = when (style) {
+                    TransitionStyle.RISE, TransitionStyle.SLAM ->
+                        p > TransitionCurves.SWAP_AT - step && p < TransitionCurves.SWAP_AT + TransitionCurves.SWAP_WIDTH + step
+                    TransitionStyle.BASS_SWAP, TransitionStyle.EQ_SWAP, TransitionStyle.WAVE ->
+                        p > 1f - TransitionCurves.SWAP_WIDTH - step
+                    else -> false
+                }
+                val maxVolumeStep = if (inCut) 0.25f else 0.02f
                 assertTrue("$style outgoing at $p", abs(now.outgoing.volume - previous.outgoing.volume) < maxVolumeStep)
                 assertTrue("$style incoming at $p", abs(now.incoming.volume - previous.incoming.volume) < maxVolumeStep)
                 assertTrue("$style gain at $p", abs(now.outgoing.filter.gain - previous.outgoing.filter.gain) < 0.01f)
@@ -61,25 +67,23 @@ class TransitionCurvesTest {
 
     @Test
     fun filterSweepsOnlyEverCloseOnTheOutgoingSongAndOpenOnTheIncomingOne() {
-        var lastHighPass = 0f
-        var lastLowPass = 0f
+        var lastOutgoing = 0f
+        var lastIncoming = Float.MAX_VALUE
         for (i in 0..100) {
             val frame = TransitionCurves.frame(TransitionStyle.FILTER, i / 100f)
-            val highPass = frame.outgoing.filter.highPassHz
-            val lowPass = lowPassOf(frame.incoming)
-            assertTrue("high-pass at $i", highPass >= lastHighPass)
-            assertTrue("low-pass at $i", lowPass >= lastLowPass)
-            lastHighPass = highPass
-            lastLowPass = lowPass
+            val outgoing = frame.outgoing.filter.highPassHz
+            val incoming = frame.incoming.filter.highPassHz
+            assertTrue("outgoing high-pass at $i", outgoing >= lastOutgoing)
+            assertTrue("incoming high-pass at $i", incoming <= lastIncoming)
+            lastOutgoing = outgoing
+            lastIncoming = incoming
         }
-        assertTrue(lastHighPass in 2_000f..3_000f)
+        assertTrue(lastOutgoing in 8_000f..10_000f)
+        assertEquals(0f, lastIncoming)
 
-        val start = TransitionCurves.frame(TransitionStyle.FILTER, 0.01f).incoming.filter.lowPassHz
-        assertTrue(start in 250f..320f)
-        assertEquals(0f, TransitionCurves.frame(TransitionStyle.FILTER, 0.7f).incoming.filter.lowPassHz)
-        // Most of the high-pass sweep happens in the second half.
-        val half = TransitionCurves.frame(TransitionStyle.FILTER, 0.5f).outgoing.filter.highPassHz
-        assertTrue(ln(half / open) < ln(lastHighPass / open) / 2)
+        // The incoming song starts thin, only its hats, and is open by the middle.
+        assertTrue(TransitionCurves.frame(TransitionStyle.FILTER, 0.01f).incoming.filter.highPassHz > 5_000f)
+        assertEquals(0f, TransitionCurves.frame(TransitionStyle.FILTER, 0.55f).incoming.filter.highPassHz)
         // The outgoing fader holds until the middle, then goes down.
         assertEquals(1f, TransitionCurves.frame(TransitionStyle.FILTER, 0.45f).outgoing.volume)
         assertTrue(TransitionCurves.frame(TransitionStyle.FILTER, 0.75f).outgoing.volume < 1f)
@@ -87,12 +91,13 @@ class TransitionCurvesTest {
 
     @Test
     fun theSumNeitherDipsNorPeaks() {
-        for (style in listOf(TransitionStyle.FADE, TransitionStyle.FILTER)) {
+        // The filter peaks at +3 dB in the middle, where both songs are briefly open.
+        for ((style, top) in listOf(TransitionStyle.FADE to 3f, TransitionStyle.FILTER to 3.1f)) {
             for (swapAt in listOf(0.4f, 0.5f, 0.6f)) {
                 for (i in 0..20) {
                     val p = i / 20f
                     val db = perceivedDb(TransitionCurves.frame(style, p, swapAt = swapAt))
-                    assertTrue("$style at $p: $db dB", db in -3f..3f)
+                    assertTrue("$style at $p: $db dB", db in -3f..top)
                 }
             }
         }
@@ -143,16 +148,24 @@ class TransitionCurvesTest {
     fun resolveFollowsTheListenerAndAutoReadsTheSongs() {
         for (beatMatched in listOf(false, true)) {
             for (calm in listOf(false, true)) {
-                assertEquals(TransitionStyle.FADE, TransitionCurves.resolve(MixStyle.FADE, beatMatched, calm))
-                assertEquals(TransitionStyle.BASS_SWAP, TransitionCurves.resolve(MixStyle.BASS_SWAP, beatMatched, calm))
-                assertEquals(TransitionStyle.FILTER, TransitionCurves.resolve(MixStyle.FILTER, beatMatched, calm))
-                assertEquals(TransitionStyle.RISE, TransitionCurves.resolve(MixStyle.RISE, beatMatched, calm))
-                val auto = when {
-                    calm -> TransitionStyle.FADE
-                    beatMatched -> TransitionStyle.BASS_SWAP
-                    else -> TransitionStyle.FILTER
+                for (landsRise in listOf(false, true)) {
+                    assertEquals(TransitionStyle.FADE, TransitionCurves.resolve(MixStyle.FADE, beatMatched, calm, landsRise))
+                    assertEquals(TransitionStyle.FILTER, TransitionCurves.resolve(MixStyle.FILTER, beatMatched, calm, landsRise))
+                    assertEquals(TransitionStyle.RISE, TransitionCurves.resolve(MixStyle.RISE, beatMatched, calm, landsRise))
+                    val full = if (beatMatched) TransitionStyle.BASS_SWAP else TransitionStyle.FILTER
+                    assertEquals(full, TransitionCurves.resolve(MixStyle.BASS_SWAP, beatMatched, calm, landsRise))
+                    val auto = when {
+                        calm -> TransitionStyle.FADE
+                        beatMatched && landsRise -> TransitionStyle.BASS_SWAP
+                        beatMatched -> TransitionStyle.EQ_SWAP
+                        else -> TransitionStyle.FILTER
+                    }
+                    assertEquals(
+                        "AUTO beat=$beatMatched calm=$calm rise=$landsRise",
+                        auto,
+                        TransitionCurves.resolve(MixStyle.AUTO, beatMatched, calm, landsRise)
+                    )
                 }
-                assertEquals("AUTO beat=$beatMatched calm=$calm", auto, TransitionCurves.resolve(MixStyle.AUTO, beatMatched, calm))
             }
         }
     }

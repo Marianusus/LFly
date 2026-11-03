@@ -571,6 +571,8 @@ fun CollectionTrackRow(
     reorderMode: Boolean = false,
     isDragging: Boolean = false,
     dragHandleModifier: Modifier = Modifier,
+    /** The compact row of a playlist: artwork, title, artist and the menu only; the rest is in the menu. */
+    compact: Boolean = false,
 ) {
     val scheme = LocalBackgroundScheme.current
     val motion = LocalMotionPreferences.current
@@ -681,7 +683,7 @@ fun CollectionTrackRow(
                 }
             }
 
-            if (density.fontScale < 1.25f) {
+            if (density.fontScale < 1.25f && !compact) {
                 Spacer(Modifier.width(Spacing.sm))
                 Text(
                     text = track.formattedDuration,
@@ -706,7 +708,7 @@ fun CollectionTrackRow(
                     )
                 }
             } else {
-                IconButton(
+                if (!compact) IconButton(
                     onClick = onFavoriteClick,
                     modifier = Modifier.size(CollectionMetrics.ActionSize),
                 ) {
@@ -744,7 +746,7 @@ fun CollectionTrackRow(
                 }
             }
         }
-        HorizontalDivider(
+        if (!compact) HorizontalDivider(
             modifier = Modifier.padding(
                 start = Spacing.gutter + when {
                     trackNumber != null && showArtwork -> 24.dp + Spacing.xs + 40.dp + Spacing.sm

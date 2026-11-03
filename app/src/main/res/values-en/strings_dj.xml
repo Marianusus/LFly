@@ -14,4 +14,22 @@
     <string name="dj_block_throwback">Favourites you haven\'t heard in a while</string>
     <string name="dj_block_mix">From the %1$s mix</string>
     <string name="dj_block_mix_generic">From your mixes</string>
+    <string name="dj_voice_title">DJ voice</string>
+    <string name="dj_voice_auto">Automatic</string>
+    <string name="dj_voice_auto_desc">A downloaded natural voice, otherwise the phone\'s best</string>
+    <string name="dj_voice_numbered">Voice %1$d</string>
+    <string name="dj_voice_quality_high">High quality</string>
+    <string name="dj_voice_quality_normal">Good quality</string>
+    <string name="dj_voice_quality_low">Basic quality</string>
+    <string name="dj_voice_online">Online</string>
+    <string name="dj_voice_offline">Offline</string>
+    <string name="dj_voice_none">No voice found for this language. Install Google voice data from the phone\'s settings.</string>
+    <string name="dj_voice_try">Listen to the voice</string>
+    <string name="dj_voice_neural_header">Natural voices</string>
+    <string name="dj_voice_phone_header">Phone voices</string>
+    <string name="dj_voice_download">Download the voice</string>
+    <string name="dj_voice_downloading">Downloading %1$d%%</string>
+    <string name="dj_voice_download_failed">Download failed: tap to try again</string>
+    <string name="dj_voice_delete">Delete</string>
+    <string name="dj_voice_size">%1$d MB</string>
 </resources>

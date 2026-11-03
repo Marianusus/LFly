@@ -17,8 +17,8 @@ internal object DjFlow {
     /** Most played songs a block may start from. */
     const val ANCHOR_POOL = 12
 
-    /** Tempos further apart than this (8%) no longer mix on the beat. */
-    private const val TEMPO_TOLERANCE = 0.08
+    /** Tempos further apart than this (10%, Automix's own limit) no longer mix on the beat. */
+    private const val TEMPO_TOLERANCE = 0.10
 
     /** Too short for Automix to blend: such songs just end. */
     private const val MIN_MIX_MS = 60_000L

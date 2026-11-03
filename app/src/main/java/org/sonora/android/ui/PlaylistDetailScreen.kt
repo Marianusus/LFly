@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
@@ -87,6 +89,10 @@ import org.sonora.android.ui.components.SourceSwitchMenuItems
 import org.sonora.android.ui.components.TrackSourceActions
 import org.sonora.android.ui.components.mapQueueReorderByKey
 import org.sonora.android.ui.components.stableTrackKeys
+import org.sonora.android.ui.mix.MixTransitionRow
+import org.sonora.android.ui.mix.PlaylistMixButton
+import org.sonora.android.ui.mix.PlaylistMixStatus
+import org.sonora.android.ui.mix.PlaylistMixUiState
 import org.sonora.android.ui.theme.LocalBackgroundScheme
 import org.sonora.android.ui.theme.LocalMotionPreferences
 import org.sonora.android.ui.theme.Radius
@@ -132,6 +138,8 @@ fun PlaylistDetailScreen(
     mixSavedAt: Long? = null,
     onSaveMix: (() -> Unit)? = null,
     onRemoveMix: (() -> Unit)? = null,
+    /** Spotify-style Mix for the listener's own playlists; null where it does not apply. */
+    mixUi: PlaylistMixUiState? = null,
     modifier: Modifier = Modifier,
 ) {
     if (playlist == null) {
@@ -294,11 +302,31 @@ fun PlaylistDetailScreen(
                 contentPadding = PaddingValues(bottom = LocalBottomChromeInset.current + Spacing.xl),
             ) {
                 item(key = "hero", contentType = "hero") {
-                    CollectionHero(
+                    val status: (@Composable () -> Unit)? = when {
+                        isMix -> {
+                            {
+                                MixStatusContent(
+                                    mixSaved = mixSaved,
+                                    mixFromLibrary = mixFromLibrary,
+                                    mixSavedAt = mixSavedAt,
+                                    onSaveMix = onSaveMix,
+                                    onRemoveMix = onRemoveMix,
+                                )
+                            }
+                        }
+                        readOnly -> {
+                            { AutoUpdatedStatus() }
+                        }
+                        mixUi != null -> {
+                            { PlaylistMixStatus(mixUi.mixed, playlist.tracks.size >= 2, mixUi.progress) }
+                        }
+                        else -> null
+                    }
+                    PlaylistHero(
                         title = playlist.name,
-                        subtitle = if (!readOnly) stringResource(R.string.playlist_creator_label) else null,
-                        metadata = playlistMetadata(playlist),
                         description = playlist.description,
+                        owner = if (!readOnly) stringResource(R.string.playlist_creator_label) else null,
+                        metadata = playlistMetadata(playlist),
                         descriptionExpanded = descriptionExpanded,
                         onToggleDescription = { descriptionExpanded = !descriptionExpanded },
                         hasTracks = playlist.tracks.isNotEmpty(),
@@ -306,23 +334,17 @@ fun PlaylistDetailScreen(
                         onShuffle = onShufflePlaylist,
                         downloadProgress = playlistDownloadProgress,
                         onToggleDownload = onTogglePlaylistDownload,
-                        statusContent = when {
-                            isMix -> {
-                                {
-                                    MixStatusContent(
-                                        mixSaved = mixSaved,
-                                        mixFromLibrary = mixFromLibrary,
-                                        mixSavedAt = mixSavedAt,
-                                        onSaveMix = onSaveMix,
-                                        onRemoveMix = onRemoveMix,
-                                    )
-                                }
+                        actions = mixUi?.let { ui ->
+                            {
+                                PlaylistMixButton(
+                                    mixed = ui.mixed,
+                                    canMix = playlist.tracks.size >= 2,
+                                    onToggle = ui.onToggle,
+                                    onSmartReorder = ui.onSmartReorder,
+                                )
                             }
-                            readOnly -> {
-                                { AutoUpdatedStatus() }
-                            }
-                            else -> null
                         },
+                        status = status,
                         modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.sm),
                         artwork = {
                             PlaylistCoverMosaic(
@@ -346,11 +368,8 @@ fun PlaylistDetailScreen(
                         )
                     }
                 } else {
-                    item(key = "tracklist-header", contentType = "header") {
-                        CollectionSectionHeader(
-                            title = stringResource(R.string.playlist_tracks_count, playlist.tracks.size),
-                            detail = formatCollectionDuration(playlist.totalDurationMs),
-                        )
+                    item(key = "tracklist-gap", contentType = "gap") {
+                        Spacer(Modifier.height(Spacing.md))
                     }
 
                     if (hasCurrent) {
@@ -418,6 +437,7 @@ fun PlaylistDetailScreen(
                                 contextMenuExtras = extras,
                                 reorderMode = reorderEnabled,
                                 isDragging = isDragging,
+                                compact = true,
                                 dragHandleModifier = if (reorderEnabled) {
                                     Modifier.longPressDraggableHandle()
                                 } else {
@@ -436,6 +456,28 @@ fun PlaylistDetailScreen(
                                             },
                                         )
                                     }
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                stringResource(
+                                                    if (isFavorite(track.id)) R.string.track_item_favorite_remove_content_description
+                                                    else R.string.track_item_favorite_add_content_description
+                                                ),
+                                                color = scheme.onBackground,
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                if (isFavorite(track.id)) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                contentDescription = null,
+                                                tint = if (isFavorite(track.id)) scheme.accent else scheme.onBackgroundSecondary,
+                                            )
+                                        },
+                                        onClick = {
+                                            dismiss()
+                                            onFavoriteToggle(track)
+                                        },
+                                    )
                                     DownloadMenuEntry(
                                         track = track,
                                         onDismiss = dismiss,
@@ -496,6 +538,24 @@ fun PlaylistDetailScreen(
                                         )
                                     }
                                 },
+                            )
+                        }
+                        // In a mixed playlist, the transition into the next song sits right under each song.
+                        if (mixUi != null && mixUi.mixed && !isReorderMode && index < playlist.tracks.lastIndex) {
+                            val next = playlist.tracks[index + 1]
+                            MixTransitionRow(
+                                transition = mixUi.transitionFor(track, next),
+                                from = mixUi.info[track.id],
+                                to = mixUi.info[next.id],
+                                onClick = { mixUi.onEditTransition(index) },
+                            )
+                        }
+                        if (index == playlist.tracks.lastIndex) {
+                            PlaylistFooter(
+                                joinCollectionMeta(
+                                    pluralStringResource(R.plurals.collection_track_count, playlist.tracks.size, playlist.tracks.size),
+                                    formatCollectionDuration(playlist.totalDurationMs),
+                                ).orEmpty()
                             )
                         }
                     }

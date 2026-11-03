@@ -17,8 +17,9 @@ class CrossfadeMathTest {
 
     @Test
     fun `it waits until the fade and the preparation fit in what is left`() {
-        assertNull(CrossfadeMath.handoffPositionMs(190_000L, song, 6_000L))
-        assertEquals(194_000L, CrossfadeMath.handoffPositionMs(192_500L, song, 6_000L))
+        // The second player needs the preparation lead to load and line itself up before the hand-off.
+        assertNull(CrossfadeMath.handoffPositionMs(189_000L, song, 6_000L))
+        assertEquals(194_000L, CrossfadeMath.handoffPositionMs(190_000L, song, 6_000L))
     }
 
     @Test

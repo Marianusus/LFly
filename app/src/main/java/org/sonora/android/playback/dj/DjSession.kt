@@ -1,5 +1,8 @@
 package org.sonora.android.playback.dj
 
+import org.sonora.android.data.NetworkMonitor
+import org.sonora.android.playback.dj.piper.PiperCatalog
+import org.sonora.android.playback.dj.piper.PiperStore
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
@@ -104,6 +107,7 @@ class DjSession private constructor(private val context: Context) {
         val job = SupervisorJob(scope.coroutineContext[Job])
         sessionJob = job
         _state.value = DjState(active = true, loading = true)
+        fetchNeuralVoice()
         scope.launch(job) {
             val block = nextBlock(seed = null)
             if (block == null || playbackManager.partyGuestMode) {
@@ -378,7 +382,7 @@ class DjSession private constructor(private val context: Context) {
                     _state.update { it.copy(voiceStartedAtMs = SystemClock.uptimeMillis()) }
                 }
             }
-            if (!voiceForSession().speak(line, language, duck)) {
+            if (!voiceForSession().speak(line, language, duck, preferredVoice = repository.djVoiceName.value)) {
                 Log.i(TAG, "No voice available; the line is only shown")
             }
         } catch (e: CancellationException) {
@@ -401,7 +405,21 @@ class DjSession private constructor(private val context: Context) {
 
     private fun voiceForSession(): DjVoice = voice ?: DjVoice(context).also { voice = it }
 
-    private fun language(): String {
+    /**
+     * The first time the DJ starts on Wi-Fi it fetches its natural voice for the language; until it
+     * is in, the phone's voice speaks. Skipped when the listener chose a phone voice.
+     */
+    private fun fetchNeuralVoice() {
+        val picked = repository.djVoiceName.value
+        if (picked != null && !picked.startsWith(PiperCatalog.PREFIX)) return
+        val store = PiperStore.getInstance(context)
+        val lang = language()
+        if (store.installed(lang).isNotEmpty() || !NetworkMonitor.isWifiOrEthernet.value) return
+        PiperCatalog.default(lang)?.let { store.download(it.id) }
+    }
+
+    /** The language the DJ speaks: the app's, or the phone's when the app follows the system. */
+    fun language(): String {
         val tag = AppLanguage.preferredTag(context)
         val language = if (tag == AppLanguage.SYSTEM) Locale.getDefault().language else tag
         return language.takeIf { it in DjScript.LANGUAGES } ?: AppLanguage.ENGLISH

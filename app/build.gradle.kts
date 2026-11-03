@@ -109,6 +109,11 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     // Automix: on-device inference of the Beat This! beat tracker (CPJKU, MIT).
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
+    // DJ voice: Piper neural voices through sherpa-onnx (k2-fsa, Apache-2.0), the build that links
+    // its own ONNX Runtime statically, repacked without x86 where it would clash with the one above.
+    implementation(files("libs/sherpa-onnx-2.0.1-static.aar"))
+    // Unpacks the voice downloads (.tar.bz2).
+    implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("androidx.media3:media3-session:1.8.0")
     implementation("androidx.media3:media3-ui:1.8.0")
     implementation("androidx.media3:media3-datasource-okhttp:1.8.0")

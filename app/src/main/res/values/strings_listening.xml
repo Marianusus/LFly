@@ -20,9 +20,11 @@
     <string name="automix_style_fade">Dissolvenza</string>
     <string name="automix_style_fade_desc">I volumi si incrociano</string>
     <string name="automix_style_bass_swap">Bass swap</string>
-    <string name="automix_style_bass_swap_desc">I bassi passano da un brano all\'altro sul battere</string>
+    <string name="automix_style_bass_swap_desc">I due brani suonano insieme; il nuovo entra senza bassi e sull\'ultimo battere arriva il drop</string>
+    <string name="automix_style_eq_swap">EQ swap</string>
+    <string name="automix_style_eq_swap_desc">I due brani suonano insieme e l\'equalizzatore passa prima gli alti, poi medi e bassi</string>
     <string name="automix_style_filter">Filtro</string>
-    <string name="automix_style_filter_desc">Un filtro chiude il brano che finisce e apre il nuovo</string>
+    <string name="automix_style_filter_desc">Il nuovo entra sottile sotto un filtro, poi un filtro risonante porta via il vecchio</string>
     <string name="automix_style_rise">Salita</string>
     <string name="automix_style_rise_desc">Il brano sale e taglia di netto sul nuovo</string>
 </resources>

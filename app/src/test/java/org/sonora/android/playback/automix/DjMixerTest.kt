@@ -76,39 +76,76 @@ class DjMixerTest {
     // ── Transition curves ───────────────────────────────────────────────────
 
     @Test
-    fun `bass swap starts with the incoming bass cut and ends with the outgoing song gone`() {
+    fun `bass swap keeps both songs up, the incoming one without bass until the last downbeat`() {
         val start = TransitionCurves.frame(TransitionStyle.BASS_SWAP, 0f, outgoingGain = 0.5f)
         assertEquals(0f, start.incoming.volume, 1e-6f)
-        assertEquals(DjFilterMath.BASS_KILL_DB, start.incoming.filter.bassDb, 1e-6f)
+        assertEquals(TransitionCurves.LOW_CUT_DB, start.incoming.filter.bassDb, 1e-6f)
         assertEquals(0f, start.outgoing.filter.bassDb, 1e-6f)
         // The hand-off itself never jumps in level.
         assertEquals(1f, start.outgoing.filter.gain, 1e-6f)
 
-        val end = TransitionCurves.frame(TransitionStyle.BASS_SWAP, 1f, outgoingGain = 0.5f)
-        assertEquals(0f, end.outgoing.volume, 1e-6f)
-        assertEquals(1f, end.incoming.volume, 1e-6f)
-        assertEquals(0f, end.incoming.filter.bassDb, 1e-6f)
-        assertEquals(0.5f, end.outgoing.filter.gain, 1e-6f)
-    }
+        val width = 1f / 64
+        for (p in listOf(0.3f, 0.6f, 0.9f, 1f - width - 0.001f)) {
+            val frame = TransitionCurves.frame(TransitionStyle.BASS_SWAP, p, swapWidth = width)
+            assertEquals("outgoing at $p", 1f, frame.outgoing.volume, 1e-6f)
+            assertEquals("outgoing bass at $p", 0f, frame.outgoing.filter.bassDb, 1e-6f)
+            assertEquals("incoming bass at $p", TransitionCurves.LOW_CUT_DB, frame.incoming.filter.bassDb, 1e-6f)
+        }
+        assertEquals(1f, TransitionCurves.frame(TransitionStyle.BASS_SWAP, 0.6f).incoming.volume, 1e-6f)
 
-    @Test
-    fun `bass lines change places only across the swap and keep their sum`() {
-        val swapAt = 0.5f
-        val width = 0.0625f
-        val before = TransitionCurves.frame(TransitionStyle.BASS_SWAP, swapAt - 0.01f, swapAt = swapAt, swapWidth = width)
-        assertEquals(0f, before.outgoing.filter.bassDb, 1e-6f)
-        assertEquals(DjFilterMath.BASS_KILL_DB, before.incoming.filter.bassDb, 1e-6f)
-        assertEquals(1f, before.outgoing.volume, 1e-6f)
-
-        val middle = TransitionCurves.frame(TransitionStyle.BASS_SWAP, swapAt + width / 2, swapAt = swapAt, swapWidth = width)
+        val middle = TransitionCurves.frame(TransitionStyle.BASS_SWAP, 1f - width / 2, swapWidth = width)
         val power = gain(middle.outgoing.filter.bassDb) * gain(middle.outgoing.filter.bassDb) +
             gain(middle.incoming.filter.bassDb) * gain(middle.incoming.filter.bassDb)
         assertEquals(1.0, power, 0.01)
 
-        val after = TransitionCurves.frame(TransitionStyle.BASS_SWAP, swapAt + width + 0.01f, swapAt = swapAt, swapWidth = width)
-        assertEquals(DjFilterMath.BASS_KILL_DB, after.outgoing.filter.bassDb, 1e-6f)
-        assertEquals(0f, after.incoming.filter.bassDb, 1e-6f)
-        assertTrue(after.outgoing.volume < 1f)
+        val end = TransitionCurves.frame(TransitionStyle.BASS_SWAP, 1f, outgoingGain = 0.5f)
+        assertEquals(0f, end.outgoing.volume, 1e-6f)
+        assertEquals(1f, end.incoming.volume, 1e-6f)
+        assertEquals(DjFilterSettings.NEUTRAL, end.incoming.filter)
+        assertEquals(0.5f, end.outgoing.filter.gain, 1e-6f)
+    }
+
+    @Test
+    fun `eq swap hands over the highs on the quarter, then mids and bass in the middle`() {
+        val width = 1f / 64
+        val early = TransitionCurves.frame(TransitionStyle.EQ_SWAP, 0.2f, swapWidth = width)
+        assertEquals(TransitionCurves.LOW_CUT_DB, early.incoming.filter.bassDb, 1e-6f)
+        assertEquals(TransitionCurves.MID_HIGH_CUT_DB, early.incoming.filter.midDb, 1e-6f)
+        assertEquals(TransitionCurves.MID_HIGH_CUT_DB, early.incoming.filter.highDb, 1e-6f)
+        assertEquals(0f, early.outgoing.filter.highDb, 1e-6f)
+
+        val quarter = TransitionCurves.frame(TransitionStyle.EQ_SWAP, 0.25f + width + 0.001f, swapWidth = width)
+        assertEquals(0f, quarter.incoming.filter.highDb, 1e-6f)
+        assertEquals(TransitionCurves.MID_HIGH_CUT_DB, quarter.outgoing.filter.highDb, 1e-6f)
+        assertEquals(TransitionCurves.MID_HIGH_CUT_DB, quarter.incoming.filter.midDb, 1e-6f)
+        assertEquals(0f, quarter.outgoing.filter.bassDb, 1e-6f)
+
+        val late = TransitionCurves.frame(TransitionStyle.EQ_SWAP, 0.75f, swapWidth = width)
+        assertEquals(0f, late.incoming.filter.bassDb, 1e-6f)
+        assertEquals(0f, late.incoming.filter.midDb, 1e-6f)
+        assertEquals(TransitionCurves.LOW_CUT_DB, late.outgoing.filter.bassDb, 1e-6f)
+        assertEquals(TransitionCurves.MID_HIGH_CUT_DB, late.outgoing.filter.midDb, 1e-6f)
+        // Both faders stay up through the mix; the outgoing one goes on the last beat.
+        assertEquals(1f, late.outgoing.volume, 1e-6f)
+        assertEquals(1f, late.incoming.volume, 1e-6f)
+    }
+
+    @Test
+    fun `filter sweeps resonate while they move and are flat at rest`() {
+        val flat = DjFilterMath.FLAT_Q.toFloat()
+        val sweeping = TransitionCurves.frame(TransitionStyle.BASS_SWAP, 0.4f).incoming.filter
+        assertTrue(sweeping.resonance > 2f)
+        assertTrue(sweeping.lowPassHz in 1_000f..20_000f)
+        assertEquals(flat, TransitionCurves.frame(TransitionStyle.BASS_SWAP, 0.6f).incoming.filter.resonance, 1e-6f)
+        assertTrue(TransitionCurves.frame(TransitionStyle.BASS_SWAP, 0.9f).outgoing.filter.resonance > 2f)
+        assertEquals(flat, TransitionCurves.frame(TransitionStyle.BASS_SWAP, 0.3f).outgoing.filter.resonance, 1e-6f)
+    }
+
+    @Test
+    fun `beat-matched styles fall back to the filter when the beats do not line up`() {
+        assertEquals(TransitionStyle.FILTER, TransitionCurves.resolve(MixStyle.BASS_SWAP, beatMatched = false, calm = false))
+        assertEquals(TransitionStyle.FILTER, TransitionCurves.resolve(MixStyle.EQ_SWAP, beatMatched = false, calm = false))
+        assertEquals(TransitionStyle.EQ_SWAP, TransitionCurves.resolve(MixStyle.EQ_SWAP, beatMatched = true, calm = true))
     }
 
     @Test
@@ -138,6 +175,29 @@ class DjMixerTest {
 
         val high = run(deck, pcm16(sine(3_000.0, rate.toInt(), 1.0, 0.5)))
         assertEquals(0.5 / sqrt(2.0), rms(high.copyOfRange(high.size / 2, high.size)), 0.02)
+    }
+
+    @Test
+    fun `mid and high cuts leave the other bands alone`() {
+        val deck = configured()
+        deck.set(DjFilterSettings(midDb = -12f, highDb = -12f))
+        val low = run(deck, pcm16(sine(60.0, rate.toInt(), 1.0, 0.5)))
+        assertEquals(0.5 / sqrt(2.0), rms(low.copyOfRange(low.size / 2, low.size)), 0.03)
+
+        val deckHigh = configured()
+        deckHigh.set(DjFilterSettings(highDb = -12f))
+        val high = run(deckHigh, pcm16(sine(10_000.0, rate.toInt(), 1.0, 0.5)))
+        assertTrue(rms(high.copyOfRange(high.size / 2, high.size)) < 0.5 / sqrt(2.0) * 0.35)
+    }
+
+    @Test
+    fun `a resonant high-pass peaks at its corner and stays stable`() {
+        val resonant = DjFilterMath.highPass(rate, 1_000.0, 2.5)
+        assertTrue(DjFilterMath.magnitudeDb(resonant, 1_000.0, rate) > 6)
+        val deck = configured()
+        deck.set(DjFilterSettings(highPassHz = 2_000f, resonance = 2.5f))
+        val out = run(deck, pcm16(sine(2_000.0, rate.toInt(), 1.0, 0.2)))
+        assertTrue(out.all { it.isFinite() && abs(it) <= 1.0 })
     }
 
     @Test

@@ -20,9 +20,11 @@
     <string name="automix_style_fade">Fade</string>
     <string name="automix_style_fade_desc">The volumes cross over</string>
     <string name="automix_style_bass_swap">Bass swap</string>
-    <string name="automix_style_bass_swap_desc">The bass moves from one song to the next on the beat</string>
+    <string name="automix_style_bass_swap_desc">Both songs play together; the new one comes in without bass and drops on the last downbeat</string>
+    <string name="automix_style_eq_swap">EQ swap</string>
+    <string name="automix_style_eq_swap_desc">Both songs play together and the EQ hands over the highs first, then mids and bass</string>
     <string name="automix_style_filter">Filter</string>
-    <string name="automix_style_filter_desc">A filter closes the ending song and opens the new one</string>
+    <string name="automix_style_filter_desc">The new song comes in thin under a filter, then a resonant filter takes the old one away</string>
     <string name="automix_style_rise">Rise</string>
     <string name="automix_style_rise_desc">The song builds up and cuts sharply into the new one</string>
 </resources>

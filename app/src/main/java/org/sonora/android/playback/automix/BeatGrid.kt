@@ -22,19 +22,36 @@ internal class BeatGrid(
     /** Beats are counted in 4/4 when the model found downbeats; otherwise only the beat lines up. */
     val beatsPerBar: Int get() = if (downbeats.size >= 2) 4 else 1
 
+    /**
+     * The number of each tracked beat, counted gap by gap at the grid's tempo: a beat the model
+     * missed (a gap of two beats, common in a quiet intro) still counts, and a stray one between two
+     * beats (a gap of nearly nothing) does not, so the count never slips against the music.
+     */
+    private val numbers: DoubleArray by lazy {
+        val out = DoubleArray(beats.size)
+        for (index in 1 until beats.size) {
+            out[index] = out[index - 1] + Math.round((beats[index] - beats[index - 1]) / beatSeconds)
+        }
+        out
+    }
+
+    /** The count of the last tracked beat: the number of beats the grid covers, missed ones included. */
+    val lastBeatNumber: Double get() = numbers.last()
+
     /** A continuous beat count: whole at every tracked beat, linear between beats. */
     fun beatPosition(time: Double): Double {
         val first = beats.first()
         val last = beats.last()
         if (time <= first) return (time - first) / beatSeconds
-        if (time >= last) return (beats.size - 1) + (time - last) / beatSeconds
+        if (time >= last) return numbers.last() + (time - last) / beatSeconds
         var low = 0
         var high = beats.size - 1
         while (high - low > 1) {
             val middle = (low + high) ushr 1
             if (beats[middle] <= time) low = middle else high = middle
         }
-        return low + (time - beats[low]) / (beats[high] - beats[low])
+        val span = numbers[high] - numbers[low]
+        return numbers[low] + span * (time - beats[low]) / (beats[high] - beats[low])
     }
 
     /** Where [time] falls inside its bar, in beats: 0 on a downbeat, up to [beatsPerBar]. */

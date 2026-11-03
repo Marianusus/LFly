@@ -5,6 +5,7 @@ enum class MixStyle {
     AUTO,
     FADE,
     BASS_SWAP,
+    EQ_SWAP,
     FILTER,
     RISE;
 

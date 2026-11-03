@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -20,6 +21,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.sonora.android.data.NetworkMonitor
+import org.sonora.android.playback.dj.piper.PiperCatalog
+import org.sonora.android.playback.dj.piper.PiperSpeaker
+import org.sonora.android.playback.dj.piper.PiperStore
 import org.sonora.android.playback.AudioRouting
 import java.io.File
 import java.util.Locale
@@ -28,6 +33,8 @@ import java.util.concurrent.ConcurrentHashMap
 /** The DJ's voice: the phone's text-to-speech, played over the music. Main thread only. */
 class DjVoice(private val context: Context) {
 
+    private val piperStore = PiperStore.getInstance(context)
+    private val piper = PiperSpeaker(piperStore)
     private var tts: TextToSpeech? = null
     private var init: CompletableDeferred<Boolean>? = null
     private var ready = false
@@ -64,14 +71,23 @@ class DjVoice(private val context: Context) {
      * back up, always ending with 1f (also when cancelled). False when no voice is available, in which
      * case [onDuck] is never called below 1f.
      */
-    suspend fun speak(text: String, language: String, onDuck: (Float) -> Unit): Boolean {
+    suspend fun speak(
+        text: String,
+        language: String,
+        onDuck: (Float) -> Unit,
+        /** The voice picked in Settings, by name; null lets the DJ choose the best one. */
+        preferredVoice: String? = null
+    ): Boolean {
         var level = 1f
         var file: File? = null
         try {
             if (text.isBlank()) return false
-            val engine = engine() ?: return false
-            if (!useLanguage(engine, localeFor(language))) return false
-            file = synthesize(engine, text) ?: return false
+            // A downloaded neural voice first; the phone's own speech engine when there is none.
+            file = piperLine(text, language, preferredVoice) ?: systemLine(
+                text = text,
+                language = language,
+                preferredVoice = preferredVoice?.takeUnless { it.startsWith(PiperCatalog.PREFIX) }
+            ) ?: return false
 
             val voice = buildPlayer()
             player = voice
@@ -105,6 +121,41 @@ class DjVoice(private val context: Context) {
         }
     }
 
+    /**
+     * The line rendered by a Piper voice: the one picked in Settings when it is downloaded, else the
+     * best downloaded one for the language. Null when the listener picked a phone voice, none is
+     * downloaded, or Piper fails.
+     */
+    private suspend fun piperLine(text: String, language: String, preferredVoice: String?): File? {
+        val lang = DjScript.languageOf(language)
+        val picked = PiperCatalog.fromPreference(preferredVoice)
+        if (preferredVoice != null && picked == null) return null
+        val voice = picked?.takeIf { it.language == lang && piperStore.isInstalled(it.id) }
+            ?: piperStore.installed(lang).firstOrNull()
+            ?: return null
+        val file = newLineFile()
+        if (piper.synthesize(voice.id, text, file, PIPER_SPEED)) {
+            Log.i(TAG, "Speaking with Piper ${voice.id}")
+            return file
+        }
+        file.delete()
+        return null
+    }
+
+    /** The line rendered by the phone's speech engine: a network voice when online, else an offline one. */
+    private suspend fun systemLine(text: String, language: String, preferredVoice: String?): File? {
+        val engine = engine() ?: return null
+        val locale = localeFor(language)
+        val online = NetworkMonitor.isOnline.value
+        val chosen = useLanguage(engine, locale, online, preferredVoice) ?: return null
+        val file = synthesize(engine, text, if (chosen.networkOnly) NETWORK_SYNTH_TIMEOUT_MS else SYNTH_TIMEOUT_MS)
+        if (file != null || !chosen.networkOnly) return file
+        // The connection dropped or the server did not answer: the line is said offline instead.
+        Log.i(TAG, "Network voice ${chosen.name} failed; falling back to an offline voice")
+        if (useLanguage(engine, locale, online = false, preferred = null) == null) return null
+        return synthesize(engine, text, SYNTH_TIMEOUT_MS)
+    }
+
     /** Stops the current line at once; the next [speak] still works. */
     fun stop() {
         tts?.stop()
@@ -113,9 +164,10 @@ class DjVoice(private val context: Context) {
         pending.clear()
     }
 
-    /** Frees the speech engine for good. */
+    /** Frees the speech engines for good. */
     fun release() {
         stop()
+        piper.release()
         tts?.shutdown()
         tts = null
         init = null
@@ -127,8 +179,12 @@ class DjVoice(private val context: Context) {
         tts?.takeIf { ready }?.let { return it }
         val started = init ?: CompletableDeferred<Boolean>().also { deferred ->
             init = deferred
-            tts = TextToSpeech(context.applicationContext) { status ->
-                deferred.complete(status == TextToSpeech.SUCCESS)
+            val onInit = TextToSpeech.OnInitListener { status -> deferred.complete(status == TextToSpeech.SUCCESS) }
+            // Google's engine has the natural network voices; Samsung phones default to their own.
+            tts = if (isInstalled(GOOGLE_TTS)) {
+                TextToSpeech(context.applicationContext, onInit, GOOGLE_TTS)
+            } else {
+                TextToSpeech(context.applicationContext, onInit)
             }
         }
         val ok = withTimeoutOrNull(INIT_TIMEOUT_MS) { started.await() } ?: false
@@ -147,43 +203,69 @@ class DjVoice(private val context: Context) {
         return engine
     }
 
-    /** Picks the best on-device voice for [locale]; false when the phone cannot speak it offline. */
-    private fun useLanguage(engine: TextToSpeech, locale: Locale): Boolean {
-        val availability = engine.isLanguageAvailable(locale)
-        if (availability == TextToSpeech.LANG_MISSING_DATA || availability == TextToSpeech.LANG_NOT_SUPPORTED) {
-            return false
-        }
+    /**
+     * Sets the voice for [locale]: the listener's [preferred] one when it can speak now, otherwise the
+     * most natural one ([online] allows the engine's network voices). Null when nothing speaks it.
+     */
+    private fun useLanguage(engine: TextToSpeech, locale: Locale, online: Boolean, preferred: String?): VoiceOption<Voice>? {
         val voices = runCatching { engine.voices }.getOrNull()
         if (voices.isNullOrEmpty()) {
             // Some engines list no voices at all but still speak the language.
-            return engine.setLanguage(locale) >= TextToSpeech.LANG_AVAILABLE
+            val availability = engine.isLanguageAvailable(locale)
+            if (availability == TextToSpeech.LANG_MISSING_DATA || availability == TextToSpeech.LANG_NOT_SUPPORTED) return null
+            if (engine.setLanguage(locale) < TextToSpeech.LANG_AVAILABLE) return null
+            val voice = engine.voice ?: return null
+            return VoiceOption(voice = voice, locale = locale, quality = voice.quality, latency = voice.latency, offline = true)
         }
-        val best = chooseVoice(voices.map { it.option() }, locale) ?: return false
-        return engine.setVoice(best) == TextToSpeech.SUCCESS
+        val options = voices.map { it.option() }
+        val best = chooseOption(options, locale, online, preferred) ?: return null
+        if (engine.setVoice(best.voice) != TextToSpeech.SUCCESS) return null
+        Log.i(TAG, "Speaking with ${best.name} (quality ${best.quality}, ${if (best.networkOnly) "network" else "offline"})")
+        return best
+    }
+
+    /** The voices that can speak [language], most natural first, for the Settings picker. */
+    suspend fun voicesFor(language: String): List<DjVoiceChoice> {
+        val engine = engine() ?: return emptyList()
+        val locale = localeFor(language)
+        val voices = runCatching { engine.voices }.getOrNull().orEmpty()
+        return voices.map { it.option() }
+            .filter { (it.offline || it.networkOnly) && sameLanguage(it.locale, locale) }
+            .sortedWith(
+                compareByDescending<VoiceOption<Voice>> { it.locale.country.equals(locale.country, ignoreCase = true) }
+                    .thenByDescending { it.quality }
+                    .thenBy { it.networkOnly }
+                    .thenBy { it.name }
+            )
+            .map { DjVoiceChoice(name = it.name, quality = it.quality, online = it.networkOnly) }
     }
 
     /** Renders [text] to a file in the cache and waits for the engine to finish it. */
-    private suspend fun synthesize(engine: TextToSpeech, text: String): File? {
-        val dir = File(context.cacheDir, "dj")
-        withContext(Dispatchers.IO) {
-            dir.mkdirs()
-            // Lines from earlier sessions or a crash are never played again.
-            dir.listFiles()?.forEach { it.delete() }
-        }
-        val id = "dj-${System.currentTimeMillis()}-${counter++}"
-        val file = File(dir, "$id.wav")
+    private suspend fun synthesize(engine: TextToSpeech, text: String, timeoutMs: Long): File? {
+        val file = newLineFile()
+        val id = file.nameWithoutExtension
         val done = CompletableDeferred<Boolean>()
         pending[id] = done
         if (engine.synthesizeToFile(text, Bundle(), file, id) != TextToSpeech.SUCCESS) {
             pending.remove(id)
             return null
         }
-        val ok = withTimeoutOrNull(SYNTH_TIMEOUT_MS) { done.await() } ?: false
+        val ok = withTimeoutOrNull(timeoutMs) { done.await() } ?: false
         pending.remove(id)
         return file.takeIf { ok && it.length() > 0 } ?: run {
             file.delete()
             null
         }
+    }
+
+    /** A fresh file for one line; lines from earlier sessions or a crash are never played again. */
+    private suspend fun newLineFile(): File {
+        val dir = File(context.cacheDir, "dj")
+        withContext(Dispatchers.IO) {
+            dir.mkdirs()
+            dir.listFiles()?.forEach { it.delete() }
+        }
+        return File(dir, "dj-${System.currentTimeMillis()}-${counter++}.wav")
     }
 
     /** A small player for one line, on the same output as the music. */
@@ -218,18 +300,30 @@ class DjVoice(private val context: Context) {
         quality = quality,
         latency = latency,
         offline = !isNetworkConnectionRequired &&
-            features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
+            features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true,
+        name = name,
+        networkOnly = isNetworkConnectionRequired
     )
 
+    private fun isInstalled(packageName: String): Boolean =
+        runCatching { context.packageManager.getPackageInfo(packageName, 0) }.isSuccess
+
     private companion object {
+        const val TAG = "DjVoice"
+        const val GOOGLE_TTS = "com.google.android.tts"
         const val INIT_TIMEOUT_MS = 3_000L
         const val SYNTH_TIMEOUT_MS = 10_000L
+        /** Network voices are made on Google's servers: a line takes a little longer to come back. */
+        const val NETWORK_SYNTH_TIMEOUT_MS = 15_000L
         const val MAX_LINE_MS = 30_000L
         const val DUCK_LEVEL = 0.3f
         const val DUCK_DOWN_MS = 300L
         const val DUCK_UP_MS = 600L
         const val RAMP_STEP_MS = 20L
-        const val SPEECH_RATE = 1.0f
+        /** A touch quicker than the engine's default, closer to a radio host than to a reader. */
+        const val SPEECH_RATE = 1.05f
+        /** Piper reads a little slowly for a radio host. */
+        const val PIPER_SPEED = 1.08f
         const val SPEECH_PITCH = 1.0f
     }
 }
@@ -247,23 +341,46 @@ internal data class VoiceOption<T>(
     val locale: Locale,
     val quality: Int,
     val latency: Int,
-    val offline: Boolean
+    val offline: Boolean,
+    val name: String = "",
+    /** Spoken by the engine's servers: natural, but only with a connection. */
+    val networkOnly: Boolean = false
 )
+
+/** A voice the listener can pick for the DJ in Settings. */
+data class DjVoiceChoice(val name: String, val quality: Int, val online: Boolean)
 
 /**
  * The best voice for [locale] that works without network: same country first, then highest quality,
  * then lowest latency. Null when no offline voice speaks the language.
  */
-internal fun <T> chooseVoice(options: List<VoiceOption<T>>, locale: Locale): T? =
-    options
-        .filter { it.offline && sameLanguage(it.locale, locale) }
-        .sortedWith(
-            compareByDescending<VoiceOption<T>> { it.locale.country.equals(locale.country, ignoreCase = true) }
-                .thenByDescending { it.quality }
-                .thenBy { it.latency }
-        )
-        .firstOrNull()
-        ?.voice
+internal fun <T> chooseVoice(
+    options: List<VoiceOption<T>>,
+    locale: Locale,
+    online: Boolean = false,
+    preferred: String? = null
+): T? = chooseOption(options, locale, online, preferred)?.voice
+
+/**
+ * The voice to speak [locale] with. The listener's [preferred] voice wins when it speaks the
+ * language and can speak now; otherwise the most natural voice that can: with a connection that
+ * includes the engine's network voices, offline only the installed ones. Same country first, then
+ * highest quality, then lowest latency.
+ */
+internal fun <T> chooseOption(
+    options: List<VoiceOption<T>>,
+    locale: Locale,
+    online: Boolean,
+    preferred: String?
+): VoiceOption<T>? {
+    val usable = options.filter { (it.offline || (online && it.networkOnly)) && sameLanguage(it.locale, locale) }
+    preferred?.let { name -> usable.firstOrNull { it.name == name }?.let { return it } }
+    return usable.sortedWith(
+        compareByDescending<VoiceOption<T>> { it.locale.country.equals(locale.country, ignoreCase = true) }
+            .thenByDescending { it.quality }
+            .thenBy { it.latency }
+    ).firstOrNull()
+}
 
 /** Engines report languages as "it" or "ita"; both mean Italian. */
 private fun sameLanguage(a: Locale, b: Locale): Boolean {

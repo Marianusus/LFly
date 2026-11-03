@@ -1,6 +1,7 @@
 package org.sonora.android.playback.automix
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -92,6 +93,16 @@ class AutomixTest {
     }
 
     @Test
+    fun `a missed beat does not slip the count`() {
+        // 120 BPM from 0 s with beat 10 missing, as in a quiet intro.
+        val beats = DoubleArray(40) { it * 0.5 }.filterIndexed { index, _ -> index != 10 }.toDoubleArray()
+        val grid = BeatGrid(beats, doubleArrayOf(0.0, 2.0, 4.0), 120.0, 0.9)
+        assertEquals(20.0, grid.beatPosition(10.0), 1e-9)
+        assertEquals(39.0, grid.lastBeatNumber, 1e-9)
+        assertEquals(0.0, grid.barPhase(16.0), 1e-9)
+    }
+
+    @Test
     fun `the fitted tempo sees through jitter and a dropped beat`() {
         val jitter = doubleArrayOf(0.012, -0.009, 0.004, -0.015, 0.008, 0.0, -0.006, 0.011)
         val beats = (0 until 60)
@@ -141,7 +152,9 @@ class AutomixTest {
         assertTrue(outgoing.downbeats.any { abs(it * 1_000 - plan.exitMs) < 1 })
         assertEquals(800L, plan.entryMs)
         assertEquals(120f / 123f, plan.incomingRate, 1e-4f)
-        assertEquals(8_000L, plan.mixMs)
+        // 29 seconds of analysed tail leave no room for 16 bars: 8 bars, 16 seconds.
+        assertEquals(8, plan.mixBars)
+        assertEquals(16_000L, plan.mixMs)
         assertTrue(plan.exitMs + plan.mixMs <= 180_000L)
     }
 
@@ -153,10 +166,25 @@ class AutomixTest {
     }
 
     @Test
-    fun `slow songs get a shorter mix so it stays under twenty seconds`() {
+    fun `tempos up to ten percent apart still mix on the beat`() {
+        val plan = AutomixPlanner.plan(grid(120.0, 120.5, 59.0), 180_000L, grid(132.0, 0.5, 59.0))
+        assertNotNull(plan)
+        assertEquals(120f / 132f, plan!!.incomingRate, 1e-4f)
+    }
+
+    @Test
+    fun `slow songs get fewer bars so the mix stays under thirty-five seconds`() {
         val plan = AutomixPlanner.plan(grid(45.0, 150.0, 29.0), 180_000L, grid(46.0, 0.0, 29.0))
         assertNotNull(plan)
-        assertEquals(10_667L, plan!!.mixMs)
+        assertEquals(4, plan!!.mixBars)
+        assertEquals(21_333L, plan.mixMs)
+    }
+
+    @Test
+    fun `a mix never takes more than a fifth of the outgoing song`() {
+        val plan = AutomixPlanner.plan(grid(120.0, 61.0, 59.0), 120_000L, grid(120.0, 0.5, 59.0))!!
+        assertEquals(8, plan.mixBars)
+        assertEquals(93_000L, plan.exitMs)
     }
 
     private fun energy(outroStart: Double? = null, firstRise: Double? = null) =
@@ -171,13 +199,15 @@ class AutomixTest {
     private fun headBeat(index: Int) = head.beats[index]
 
     @Test
-    fun `without energy the exit snaps to the last phrase that leaves room`() {
+    fun `without energy sixteen bars start on the last phrase that leaves room`() {
         val plan = AutomixPlanner.plan(tail, 180_000L, head)!!
 
-        assertEquals(168_500L, plan.exitMs)
+        assertEquals(136_500L, plan.exitMs)
         assertEquals(800L, plan.entryMs)
-        assertEquals(16, plan.mixBeats)
-        assertEquals(8_000L, plan.mixMs)
+        assertEquals(16, plan.mixBars)
+        assertEquals(64, plan.mixBeats)
+        assertEquals(32_000L, plan.mixMs)
+        assertFalse(plan.landsRise)
     }
 
     @Test
@@ -190,74 +220,45 @@ class AutomixTest {
 
     @Test
     fun `the mix starts where a long outro starts, even off the phrase`() {
-        val plan = AutomixPlanner.plan(tail, 180_000L, head, outgoingEnergy = energy(outroStart = 164.6))!!
+        val plan = AutomixPlanner.plan(tail, 180_000L, head, outgoingEnergy = energy(outroStart = 140.6))!!
 
-        assertEquals(164_500L, plan.exitMs)
-        assertEquals(16, plan.mixBeats)
+        assertEquals(140_500L, plan.exitMs)
+        assertEquals(16, plan.mixBars)
     }
 
     @Test
     fun `a short outro ends the mix with the music`() {
-        val plan = AutomixPlanner.plan(tail, 180_000L, head, outgoingEnergy = energy(outroStart = 176.5))!!
+        val plan = AutomixPlanner.plan(tail, 180_000L, head, outgoingEnergy = energy(outroStart = 170.5))!!
 
-        assertEquals(170_500L, plan.exitMs)
+        assertEquals(146_500L, plan.exitMs)
         assertTrue(plan.exitMs + plan.mixMs <= 179_500L)
         assertTrue(plan.exitMs + plan.mixMs >= 179_500L - 2_000L)
     }
 
     @Test
     fun `the first rise lands as the outgoing song leaves`() {
-        val rise = headBeat(48)
+        val rise = headBeat(80)
         val plan = AutomixPlanner.plan(tail, 180_000L, head, incomingEnergy = energy(firstRise = rise))!!
 
-        assertEquals(16, plan.mixBeats)
-        assertTrue(head.downbeats.any { abs(it * 1_000 - plan.entryMs) < 1 })
+        assertEquals(16, plan.mixBars)
+        assertTrue(plan.landsRise)
+        assertEquals(headBeat(16) * 1_000, plan.entryMs.toDouble(), 1.0)
         val mixEnd = plan.entryMs / 1_000.0 + plan.mixBeats * head.beatSeconds
         assertEquals(rise, mixEnd, head.beatSeconds)
     }
 
     @Test
-    fun `an early rise shortens the mix, then gives up on landing it`() {
-        val shorter = AutomixPlanner.plan(tail, 180_000L, head, incomingEnergy = energy(firstRise = headBeat(12)))!!
-        assertEquals(8, shorter.mixBeats)
-        assertEquals(headBeat(4) * 1_000, shorter.entryMs.toDouble(), 1.0)
+    fun `an intro shorter than the mix lands on eight bars, else plays in full`() {
+        val shorter = AutomixPlanner.plan(tail, 180_000L, head, incomingEnergy = energy(firstRise = headBeat(40)))!!
+        assertEquals(8, shorter.mixBars)
+        assertTrue(shorter.landsRise)
+        assertEquals(headBeat(8) * 1_000, shorter.entryMs.toDouble(), 1.0)
 
-        val fallback = AutomixPlanner.plan(tail, 180_000L, head, incomingEnergy = energy(firstRise = headBeat(4)))!!
-        assertEquals(16, fallback.mixBeats)
-        assertEquals(800L, fallback.entryMs)
-    }
-
-    @Test
-    fun `a whole phrase is mixed when both songs have room`() {
-        val plan = AutomixPlanner.plan(
-            tail, 180_000L, head,
-            outgoingEnergy = energy(outroStart = 152.5),
-            incomingEnergy = energy(firstRise = headBeat(64))
-        )!!
-
-        assertEquals(32, plan.mixBeats)
-        assertEquals(16_000L, plan.mixMs)
-        assertEquals(152_500L, plan.exitMs)
-        assertEquals(headBeat(32) * 1_000, plan.entryMs.toDouble(), 1.0)
-    }
-
-    @Test
-    fun `a short outro or intro keeps the mix to half a phrase`() {
-        val shortOutro = AutomixPlanner.plan(
-            tail, 180_000L, head,
-            outgoingEnergy = energy(outroStart = 170.5),
-            incomingEnergy = energy(firstRise = headBeat(64))
-        )!!
-        assertEquals(16, shortOutro.mixBeats)
-        assertEquals(170_500L, shortOutro.exitMs)
-
-        val shortIntro = AutomixPlanner.plan(
-            tail, 180_000L, head,
-            outgoingEnergy = energy(outroStart = 152.5),
-            incomingEnergy = energy(firstRise = headBeat(24))
-        )!!
-        assertEquals(16, shortIntro.mixBeats)
-        assertEquals(152_500L, shortIntro.exitMs)
+        // Landing a rise four bars in would take a four-bar mix: the intro plays in full instead.
+        val full = AutomixPlanner.plan(tail, 180_000L, head, incomingEnergy = energy(firstRise = headBeat(16)))!!
+        assertEquals(16, full.mixBars)
+        assertFalse(full.landsRise)
+        assertEquals(800L, full.entryMs)
     }
 
     @Test

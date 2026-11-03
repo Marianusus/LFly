@@ -14,4 +14,22 @@
     <string name="dj_block_throwback">Preferiti che non senti da un po\'</string>
     <string name="dj_block_mix">Dal mix %1$s</string>
     <string name="dj_block_mix_generic">Dai tuoi mix</string>
+    <string name="dj_voice_title">Voce del DJ</string>
+    <string name="dj_voice_auto">Automatica</string>
+    <string name="dj_voice_auto_desc">Una voce naturale scaricata, altrimenti la migliore del telefono</string>
+    <string name="dj_voice_numbered">Voce %1$d</string>
+    <string name="dj_voice_quality_high">Alta qualità</string>
+    <string name="dj_voice_quality_normal">Buona qualità</string>
+    <string name="dj_voice_quality_low">Qualità base</string>
+    <string name="dj_voice_online">Online</string>
+    <string name="dj_voice_offline">Offline</string>
+    <string name="dj_voice_none">Nessuna voce trovata per questa lingua. Installa i dati vocali di Google dalle impostazioni del telefono.</string>
+    <string name="dj_voice_try">Ascolta la voce</string>
+    <string name="dj_voice_neural_header">Voci naturali</string>
+    <string name="dj_voice_phone_header">Voci del telefono</string>
+    <string name="dj_voice_download">Scarica la voce</string>
+    <string name="dj_voice_downloading">Download %1$d%%</string>
+    <string name="dj_voice_download_failed">Download non riuscito: tocca per riprovare</string>
+    <string name="dj_voice_delete">Elimina</string>
+    <string name="dj_voice_size">%1$d MB</string>
 </resources>

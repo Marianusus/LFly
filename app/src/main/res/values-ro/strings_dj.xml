@@ -14,4 +14,22 @@
     <string name="dj_block_throwback">Favorite pe care nu le-ai mai ascultat de ceva vreme</string>
     <string name="dj_block_mix">Din mixul %1$s</string>
     <string name="dj_block_mix_generic">Din mixurile tale</string>
+    <string name="dj_voice_title">Vocea DJ-ului</string>
+    <string name="dj_voice_auto">Automată</string>
+    <string name="dj_voice_auto_desc">O voce naturală descărcată, altfel cea mai bună a telefonului</string>
+    <string name="dj_voice_numbered">Vocea %1$d</string>
+    <string name="dj_voice_quality_high">Calitate înaltă</string>
+    <string name="dj_voice_quality_normal">Calitate bună</string>
+    <string name="dj_voice_quality_low">Calitate de bază</string>
+    <string name="dj_voice_online">Online</string>
+    <string name="dj_voice_offline">Offline</string>
+    <string name="dj_voice_none">Nicio voce găsită pentru această limbă. Instalează datele vocale Google din setările telefonului.</string>
+    <string name="dj_voice_try">Ascultă vocea</string>
+    <string name="dj_voice_neural_header">Voci naturale</string>
+    <string name="dj_voice_phone_header">Vocile telefonului</string>
+    <string name="dj_voice_download">Descarcă vocea</string>
+    <string name="dj_voice_downloading">Se descarcă %1$d%%</string>
+    <string name="dj_voice_download_failed">Descărcare eșuată: atinge pentru a reîncerca</string>
+    <string name="dj_voice_delete">Șterge</string>
+    <string name="dj_voice_size">%1$d MB</string>
 </resources>
