@@ -356,6 +356,7 @@ fun SettingsScreen(
                             )
                         }
                     }
+                    item { org.sonora.android.ui.settings.DataBackupSection() }
                     item { DeveloperSection() }
                     item { AboutSonoraSection() }
                 }

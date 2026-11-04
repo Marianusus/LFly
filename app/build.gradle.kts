@@ -23,8 +23,8 @@ android {
         applicationId = "org.sonora.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.6"
+        versionCode = 9
+        versionName = "1.6.1"
 
         if (!abiFilter.isNullOrBlank()) {
             ndk {

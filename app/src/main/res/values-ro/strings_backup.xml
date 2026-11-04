@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="backup_section_title">Date</string>
+    <string name="backup_section_footer">Copia de rezervă conține playlisturile, favoritele, istoricul, mixurile și setările. Nu conține melodiile descărcate, care se descarcă din nou, și nici conectarea la YouTube Music.</string>
+    <string name="backup_export">Exportă datele</string>
+    <string name="backup_export_subtitle">Salvează totul într-un fișier .lfly</string>
+    <string name="backup_import">Importă datele</string>
+    <string name="backup_import_subtitle">Restaurează dintr-un fișier .lfly</string>
+    <string name="backup_export_done">Copie salvată (%1$s)</string>
+    <string name="backup_failed">Copia de rezervă nu a reușit</string>
+    <string name="backup_import_confirm_title">Imporți datele?</string>
+    <string name="backup_import_confirm_body">Datele acestei aplicații sunt înlocuite cu cele din copie. Apoi LFly repornește.</string>
+    <string name="backup_import_action">Importă</string>
+    <string name="backup_import_done">Date importate: LFly repornește</string>
+    <string name="backup_not_lfly">Nu este o copie LFly validă</string>
+</resources>

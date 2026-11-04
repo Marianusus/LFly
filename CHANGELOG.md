@@ -4,6 +4,14 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.6.1] — 2026-11-04
+
+**Move your data between installs.** Updates directly over v1.3.1–v1.6.
+
+### Added
+
+- **Export data / Import data** (Settings → General → Data): one `.lfly` file with your playlists, favourites, history, stats, mixes, playlist Mix settings, followed artists, dislikes, settings and Automix analyses. Importing replaces this install's data and restarts LFly. Downloaded songs, voices and the YouTube Music sign-in are not included.
+
 ## [1.6] — 2026-11-04
 
 **Your YouTube Music account, transition effects and a club DJ.** Updates directly over v1.3.1–v1.5 and keeps your data.

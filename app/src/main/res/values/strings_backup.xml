@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="backup_section_title">Dati</string>
+    <string name="backup_section_footer">Il backup contiene playlist, preferiti, cronologia, mix e impostazioni. Non contiene i brani scaricati, che si riscaricano, né l\'accesso a YouTube Music.</string>
+    <string name="backup_export">Esporta dati</string>
+    <string name="backup_export_subtitle">Salva tutto in un file .lfly</string>
+    <string name="backup_import">Importa dati</string>
+    <string name="backup_import_subtitle">Ripristina da un file .lfly</string>
+    <string name="backup_export_done">Backup salvato (%1$s)</string>
+    <string name="backup_failed">Backup non riuscito</string>
+    <string name="backup_import_confirm_title">Importare i dati?</string>
+    <string name="backup_import_confirm_body">I dati di questa app vengono sostituiti da quelli del backup. Poi LFly si riavvia.</string>
+    <string name="backup_import_action">Importa</string>
+    <string name="backup_import_done">Dati importati: LFly si riavvia</string>
+    <string name="backup_not_lfly">Non è un backup di LFly valido</string>
+</resources>
