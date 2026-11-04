@@ -4,6 +4,33 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.6] — 2026-11-04
+
+**Your YouTube Music account, transition effects and a club DJ.** Updates directly over v1.3.1–v1.5 and keeps your data.
+
+### Added
+
+- **YouTube Music account**: sign in on Google's own page inside the app (LFly never sees the password). Several accounts and Brand channels, encrypted on the phone and never backed up. Settings → Music → YouTube Music account.
+- **Library sync**: your YouTube Music playlists come in as LFly playlists and Liked Music joins your favourites. The heart likes the song on YouTube Music too, and songs added to an imported playlist are added there.
+- **Transition effects**, as in Spotify's Mix editor: echo, delay, reverb and noise, vinyl stop and spinback, beat loops and a loop roll. Auto mixes use them.
+- **Opening animation**: the new icon draws itself, once per launch.
+- **Timed YouTube Music lyrics**, line by line, when YouTube has them.
+
+### Changed
+
+- **New app icon**, adaptive and themed.
+- **DJ**: always mixes like a club DJ, picks songs that match in tempo and key, and talks at every new block.
+- **Saved mixes** work like playlists: rename, reorder, add or remove songs, Mix.
+- **Queue**: hold a song to move it; hold it still to open its menu.
+- **Home**: a compact resume card and cleaner section titles.
+- **Playlist analysis** keeps going when you leave the app and never starts over.
+
+### Fixed
+
+- No second heard twice at the start of a mix.
+- The DJ's voice no longer goes silent after the first block, and autoplay no longer takes over.
+- The YouTube Music and YouTube captions lyrics sources found nothing for YouTube songs.
+
 ## [1.5] — 2026-11-03
 
 **DJ mixing, playlist Mix and a talking DJ.** Updates directly over v1.3.1–v1.4 and keeps your data.
