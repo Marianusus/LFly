@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Everything is backed up as before, except credentials: the YouTube Music session (encrypted with
+     a key that never leaves the device) and the in-app browser's Google cookies. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="lfly_credentials.xml" />
+    <exclude domain="root" path="app_webview/" />
+</full-backup-content>

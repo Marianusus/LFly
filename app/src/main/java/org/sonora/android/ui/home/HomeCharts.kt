@@ -104,7 +104,7 @@ internal fun HomeCharts(
     Column(modifier = modifier.fillMaxWidth()) {
         HomeSectionHeader(
             title = stringResource(R.string.home_charts_title),
-            subtitle = stringResource(R.string.home_charts_subtitle)
+            subtitle = null
         )
         Spacer(modifier = Modifier.height(HomeDimens.HeaderGap))
         if (availableTabs.size > 1) {

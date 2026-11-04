@@ -183,6 +183,26 @@ internal fun HomeHero(
                     )
                 }
             }
+            Spacer(modifier = Modifier.width(10.dp))
+            if (isActive) {
+                HeroRoundButton(
+                    icon = Icons.AutoMirrored.Filled.QueueMusic,
+                    label = stringResource(R.string.home_queue),
+                    filled = false,
+                    onClick = onOpenQueue
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            HeroRoundButton(
+                icon = if (isActive && playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                label = if (isActive && playbackState.isPlaying) {
+                    stringResource(R.string.home_pause)
+                } else {
+                    stringResource(R.string.home_play_content_description)
+                },
+                filled = true,
+                onClick = if (isActive) onTogglePlayPause else ({ onPlayTrack(track) })
+            )
         }
 
         if (isActive && duration > 0L) {
@@ -214,71 +234,31 @@ internal fun HomeHero(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            HeroAction(
-                icon = if (isActive && playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                label = if (isActive && playbackState.isPlaying) {
-                    stringResource(R.string.home_pause)
-                } else {
-                    stringResource(R.string.home_play_content_description)
-                },
-                filled = true,
-                onClick = if (isActive) onTogglePlayPause else ({ onPlayTrack(track) })
-            )
-            if (isActive) {
-                HeroAction(
-                    icon = Icons.AutoMirrored.Filled.QueueMusic,
-                    label = stringResource(R.string.home_queue),
-                    filled = false,
-                    onClick = onOpenQueue
-                )
-            }
-        }
     }
 }
 
+/** A round button beside the track, as in Apple Music's resume card: the play one filled with the accent. */
 @Composable
-private fun HeroAction(
-    icon: ImageVector,
-    label: String,
-    filled: Boolean,
-    onClick: () -> Unit
-) {
+private fun HeroRoundButton(icon: ImageVector, label: String, filled: Boolean, onClick: () -> Unit) {
     val scheme = LocalBackgroundScheme.current
-    val background = if (filled) scheme.accent else scheme.glassTint
-    val content = if (filled) homeOnColor(scheme.accent) else scheme.onBackground
-    Row(
+    val size = if (filled) 48.dp else 40.dp
+    Box(
         modifier = Modifier
-            .heightIn(min = HomeDimens.Target)
+            .size(size)
             .then(
-                if (filled) {
-                    Modifier
-                        .clip(CircleShape)
-                        .background(background)
-                } else {
-                    Modifier.homeLiquidGlass(CircleShape, scheme.glassTint)
-                }
+                if (filled) Modifier.clip(CircleShape).background(scheme.accent)
+                else Modifier.homeLiquidGlass(CircleShape, scheme.glassTint)
             )
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
-            tint = content,
-            modifier = Modifier.size(19.dp)
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
-            ),
-            color = content,
-            maxLines = 1
+            contentDescription = label,
+            tint = if (filled) homeOnColor(scheme.accent) else scheme.onBackground,
+            modifier = Modifier.size(if (filled) 26.dp else 20.dp)
         )
     }
 }
+

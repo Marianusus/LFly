@@ -27,7 +27,7 @@ object DownloadLyricsFetcher {
         prioritizeSyllableSync: Boolean,
         apiKey: String?,
     ): OfflineLyrics? = try {
-        val videoId = track.id.takeIf { YouTubeMusicClient.isValidVideoId(it) }
+        val videoId = track.id.removePrefix("yt_").takeIf { YouTubeMusicClient.isValidVideoId(it) }
         val (title, artist) = LyricsText.splitArtistTitle(track.title, track.artist)
         val result = LyricsRepository.lookup(
             title = title,

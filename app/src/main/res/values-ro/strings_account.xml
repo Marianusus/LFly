@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yt_account_section_title">Cont YouTube Music</string>
+    <string name="yt_account_section_footer">Te conectezi pe pagina Google: LFly nu îți vede niciodată parola. LFly folosește API-urile web neoficiale ale YouTube Music, așa că Google îți poate cere din când în când să te conectezi din nou.</string>
+    <string name="yt_account_sign_in">Conectează-te cu Google</string>
+    <string name="yt_account_sign_in_subtitle">Biblioteca, aprecierile și recomandările contului tău</string>
+    <string name="yt_account_sign_in_title">Conectează-te la YouTube Music</string>
+    <string name="yt_account_switch_title">Schimbă canalul</string>
+    <string name="yt_account_switch_channel">Schimbă canalul</string>
+    <string name="yt_account_add">Adaugă cont</string>
+    <string name="yt_account_sign_out">Deconectează-te</string>
+    <string name="yt_account_sign_out_confirm_title">Te deconectezi de la %1$s?</string>
+    <string name="yt_account_sign_out_confirm_body">LFly uită această conectare. Melodiile și playlisturile din aplicație rămân.</string>
+    <string name="yt_account_expired">Sesiune expirată: conectează-te din nou</string>
+    <string name="yt_account_unnamed">Cont Google</string>
+    <string name="yt_account_brand">Canal de marcă</string>
+    <string name="yt_account_active">În uz</string>
+    <string name="yt_account_done">Gata</string>
+    <string name="yt_account_close">Închide</string>
+    <string name="yt_account_cancel">Anulează</string>
+    <string name="yt_account_hint">Conectează-te cu contul Google. Când vezi YouTube Music pe canalul potrivit, atinge Gata.</string>
+    <string name="yt_account_not_ready">Încă nu: termină conectarea până vezi YouTube Music, apoi atinge Gata.</string>
+    <string name="yt_account_ready">Ești pe YouTube Music. Dacă e canalul potrivit, atinge Gata sus în dreapta.</string>
+    <string name="yt_library_sync">Sincronizează biblioteca</string>
+    <string name="yt_library_sync_never">Adu în LFly playlisturile și aprecierile tale</string>
+    <string name="yt_library_sync_liked">Citesc aprecierile…</string>
+    <string name="yt_library_sync_playlist">Playlistul %1$d din %2$d…</string>
+    <string name="yt_library_sync_failed">Nereușit: atinge pentru a reîncerca</string>
+    <string name="yt_library_sync_done">%1$d playlisturi · %2$d aprecieri · %3$s</string>
+</resources>

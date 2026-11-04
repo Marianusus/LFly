@@ -113,6 +113,42 @@ class MixBuilderTest {
     }
 
     @Test
+    fun `a rebuilt mix keeps what the listener changed in its saved copy`() {
+        val snapshot = listOf(track("mine", "My Pick", "INNA"))
+        val existing = Mix(
+            id = "mix_europop",
+            kind = MIX_KIND_GENRE,
+            genreKey = "europop",
+            name = "Europop Mix",
+            tracks = snapshot,
+            savedTracks = snapshot,
+            savedAt = 20L,
+            savedName = "Estate",
+            savedDescription = "Per la spiaggia",
+            savedCover = "content://cover"
+        )
+
+        val mix = buildMixes(europopTracks(10), existing = listOf(existing), now = 5_000L).first { it.id == "mix_europop" }
+        val playlist = mix.asSavedPlaylist()!!
+
+        assertEquals("mix_europop", playlist.id)
+        assertEquals("Estate", playlist.name)
+        assertEquals("Per la spiaggia", playlist.description)
+        assertEquals("content://cover", playlist.coverUrl)
+        assertEquals(snapshot, playlist.tracks)
+        assertEquals("Europop Mix", mix.name)
+        assertEquals(10, mix.trackCount)
+    }
+
+    @Test
+    fun `a saved copy with every song taken out stays in the Library, a mix never saved is no playlist`() {
+        val emptied = Mix(id = "mix_pop", name = "Pop Mix", savedTracks = emptyList(), savedAt = 1L)
+        assertTrue(emptied.isSaved)
+        assertEquals("Pop Mix", emptied.asSavedPlaylist()!!.name)
+        assertNull(Mix(id = "mix_rock", name = "Rock Mix").asSavedPlaylist())
+    }
+
+    @Test
     fun `a saved mix that falls below the threshold is kept intact`() {
         val snapshot = listOf(track("old", "Saved Pop", "Taylor Swift"))
         val existing = Mix(

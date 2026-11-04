@@ -77,7 +77,7 @@ internal fun HomeRail(
     Column(modifier = modifier.fillMaxWidth()) {
         HomeSectionHeader(
             title = stringResource(R.string.home_recommendations_title),
-            subtitle = stringResource(R.string.home_recommendations_subtitle)
+            subtitle = null
         )
         Spacer(modifier = Modifier.height(HomeDimens.HeaderGap))
         LazyRow(

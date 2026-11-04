@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yt_account_section_title">YouTube Music account</string>
+    <string name="yt_account_section_footer">You sign in on Google\'s own page: LFly never sees your password. LFly uses YouTube Music\'s unofficial web APIs, so Google may ask you to sign in again now and then.</string>
+    <string name="yt_account_sign_in">Sign in with Google</string>
+    <string name="yt_account_sign_in_subtitle">Your account\'s library, likes and recommendations</string>
+    <string name="yt_account_sign_in_title">Sign in to YouTube Music</string>
+    <string name="yt_account_switch_title">Switch channel</string>
+    <string name="yt_account_switch_channel">Switch channel</string>
+    <string name="yt_account_add">Add account</string>
+    <string name="yt_account_sign_out">Sign out</string>
+    <string name="yt_account_sign_out_confirm_title">Sign out of %1$s?</string>
+    <string name="yt_account_sign_out_confirm_body">LFly forgets this sign-in. The songs and playlists in the app stay.</string>
+    <string name="yt_account_expired">Session expired: sign in again</string>
+    <string name="yt_account_unnamed">Google account</string>
+    <string name="yt_account_brand">Brand channel</string>
+    <string name="yt_account_active">In use</string>
+    <string name="yt_account_done">Done</string>
+    <string name="yt_account_close">Close</string>
+    <string name="yt_account_cancel">Cancel</string>
+    <string name="yt_account_hint">Sign in with your Google account. When you see YouTube Music on the right channel, tap Done.</string>
+    <string name="yt_account_not_ready">Not yet: finish signing in until you see YouTube Music, then tap Done.</string>
+    <string name="yt_account_ready">You\'re on YouTube Music. If it\'s the right channel, tap Done at the top right.</string>
+    <string name="yt_library_sync">Sync library</string>
+    <string name="yt_library_sync_never">Bring your playlists and likes into LFly</string>
+    <string name="yt_library_sync_liked">Reading your likes…</string>
+    <string name="yt_library_sync_playlist">Playlist %1$d of %2$d…</string>
+    <string name="yt_library_sync_failed">Failed: tap to try again</string>
+    <string name="yt_library_sync_done">%1$d playlists · %2$d likes · %3$s</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Sonora" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#0D0D0D</item>
+        <item name="android:navigationBarColor">#0D0D0D</item>
+        <item name="android:windowBackground">#0D0D0D</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <!-- Same navy as the opening animation, so the system splash hands over without a jump. -->
+        <item name="android:windowSplashScreenBackground">#070D1E</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+    </style>
+</resources>

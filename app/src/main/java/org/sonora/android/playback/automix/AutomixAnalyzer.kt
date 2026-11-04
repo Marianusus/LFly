@@ -7,6 +7,7 @@ import android.util.LruCache
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.sonora.android.data.NetworkMonitor
 import org.sonora.android.playback.AudioCacheManager
 import java.io.File
 import java.security.MessageDigest
@@ -53,6 +55,13 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
         /** Saved analyses kept on disk; the oldest go first. */
         const val MAX_SAVED = 800
         const val SAVED_VERSION = 1
+
+        /**
+         * A song end that could not be read (no full stream, or nothing decoded) is not tried again
+         * for this long, so a mixed playlist does not stall on the same songs every time it opens.
+         */
+        const val MISS_RETRY_MS = 3L * 24 * 60 * 60 * 1_000
+        const val MISSES_FILE = "automix_misses.json"
     }
 
     private val tracker by lazy { BeatTracker(context) }
@@ -61,6 +70,9 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
     private val oneAtATime = Mutex()
     private val gson = Gson()
     private val savedDir: File by lazy { File(context.filesDir, "automix").apply { mkdirs() } }
+
+    /** When each unreadable song end last failed, by [key]; on disk next to the analyses. */
+    private val misses: MutableMap<String, Long> by lazy { loadMisses() }
 
     /** The grid, once analysed. */
     fun grid(trackId: String, part: Part): BeatGrid? = analysis(trackId, part)?.grid
@@ -72,6 +84,24 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
     fun loudness(trackId: String, part: Part): Double? = analysis(trackId, part)?.loudness
 
     fun isDone(trackId: String, part: Part): Boolean = analysis(trackId, part) != null
+
+    /** True when this song end could not be read lately: it is skipped until [MISS_RETRY_MS] has passed. */
+    fun isUnavailable(trackId: String, part: Part): Boolean {
+        val failedAt = synchronized(misses) { misses[key(trackId, part)] } ?: return false
+        return System.currentTimeMillis() - failedAt < MISS_RETRY_MS
+    }
+
+    /**
+     * Remembers that this song end could not be read. Offline nothing can be read, so nothing is
+     * remembered then: the songs are tried again as soon as there is a network.
+     */
+    fun markUnavailable(trackId: String, part: Part) {
+        if (!NetworkMonitor.isOnline.value) return
+        synchronized(misses) {
+            misses[key(trackId, part)] = System.currentTimeMillis()
+            saveMisses()
+        }
+    }
 
     /** Everything found about this stretch, from memory or from disk; null when it was never analysed. */
     fun analysis(trackId: String, part: Part): MixAnalysis? {
@@ -123,9 +153,11 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
         }.onFailure { Log.w(TAG, "Decoding failed for $trackId $part", it) }.getOrNull()
         if (window == null) {
             Log.w(TAG, "$trackId $part: nothing decoded in ${SystemClock.elapsedRealtime() - started} ms")
-            // Remembered in memory only, so playback does not retry every tick; a later session tries again.
+            // Remembered in memory, so playback does not retry every tick, and on disk for a while.
+            markUnavailable(trackId, part)
             return MixAnalysis(null, null, null).also { results.put(key, it) }
         }
+        val decodedMs = SystemClock.elapsedRealtime() - started
         val rate = LogMelSpectrogram.SAMPLE_RATE
         val grid = runCatching { tracker.track(window) }
             .onFailure { e -> Log.w(TAG, "Analysis failed for $trackId $part", e) }
@@ -141,18 +173,26 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
         val result = MixAnalysis(grid, loudness, energy, waveform, musicalKey)
         results.put(key, result)
         save(key, result)
+        synchronized(misses) { if (misses.remove(key) != null) saveMisses() }
         Log.i(
             TAG,
             "$trackId $part: " + (grid?.let {
                 "%.1f BPM, %d beats, %d downbeats, confidence %.2f".format(it.bpm, it.beats.size, it.downbeats.size, it.confidence)
             } ?: "no grid") + ", key " + (musicalKey?.camelot ?: "n/a") +
                 ", loudness " + (loudness?.let { "%.1f LUFS".format(it) } ?: "n/a") +
-                ", energy " + (energy?.let { describe(it) } ?: "n/a") + " in ${SystemClock.elapsedRealtime() - started} ms"
+                ", energy " + (energy?.let { describe(it) } ?: "n/a") + " in ${SystemClock.elapsedRealtime() - started} ms" +
+                " (reading and decoding $decodedMs ms, ${window.requests} requests, ${sourceKind(source)})"
         )
         return result
     }
 
     private fun key(trackId: String, part: Part) = "$trackId|$part"
+
+    /** Where the audio came from, for the log: never the address itself, which can carry tokens. */
+    private fun sourceKind(source: String): String = when {
+        source.startsWith("/") || source.startsWith("file:") -> "local file"
+        else -> runCatching { android.net.Uri.parse(source).host }.getOrNull() ?: "stream"
+    }
 
     private fun describe(energy: EnergyProfile): String =
         "%d bars%s, outro %s, rise %s".format(
@@ -240,6 +280,21 @@ internal class AutomixAnalyzer(private val context: Context, private val scope: 
             file.setLastModified(System.currentTimeMillis())
             MixAnalysis(grid, saved.loudness, energy, wave, key)
         }.onFailure { Log.w(TAG, "Dropping an unreadable analysis of $key", it); file.delete() }.getOrNull()
+    }
+
+    private fun loadMisses(): MutableMap<String, Long> = runCatching {
+        val file = File(context.filesDir, MISSES_FILE)
+        if (!file.isFile) return@runCatching HashMap<String, Long>()
+        val type = object : TypeToken<HashMap<String, Long>>() {}.type
+        val saved: HashMap<String, Long>? = gson.fromJson(file.readText(), type)
+        val now = System.currentTimeMillis()
+        HashMap(saved.orEmpty().filterValues { now - it < MISS_RETRY_MS })
+    }.onFailure { Log.w(TAG, "Dropping unreadable misses", it) }.getOrDefault(HashMap())
+
+    /** Called holding the lock on [misses]: the file is tiny, and writes never interleave. */
+    private fun saveMisses() {
+        runCatching { File(context.filesDir, MISSES_FILE).writeText(gson.toJson(misses)) }
+            .onFailure { Log.w(TAG, "Could not save the misses", it) }
     }
 
     private fun trimSaved() {

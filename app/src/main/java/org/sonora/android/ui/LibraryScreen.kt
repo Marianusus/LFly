@@ -357,11 +357,15 @@ fun LibraryScreen(
                     }
 
                     // Saved mixes appear inline with a small "Mix · N brani" subtitle.
+                    // A saved mix is listed, opened and edited as a playlist of its own.
                     items(savedMixes, key = { "saved_mix_${it.id}" }) { mix ->
-                        LibraryMixRow(
-                            mix = mix,
-                            onClick = { onMixClick(mix) }
-                        )
+                        val playlist = remember(mix) { mix.asSavedPlaylist() }
+                        if (playlist != null) {
+                            LibraryPlaylistRow(
+                                playlist = playlist,
+                                onClick = { onMixClick(mix) }
+                            )
+                        }
                     }
 
                     if (visiblePlaylists.isEmpty()) {
@@ -558,70 +562,6 @@ private fun LibraryCollectionRow(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
                 color = LocalBackgroundScheme.current.onBackgroundSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-private fun LibraryMixRow(
-    mix: Mix,
-    onClick: () -> Unit
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val snapshotPlaylist = remember(mix.id, mix.savedTracks) {
-        Playlist(
-            id = mix.id,
-            name = mix.name,
-            tracks = mix.savedTracks.orEmpty()
-        )
-    }
-    val scheme = LocalBackgroundScheme.current
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .pressScale(interaction)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = Spacing.gutter, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(scheme.glassTint),
-            contentAlignment = Alignment.Center
-        ) {
-            PlaylistCoverMosaic(
-                playlist = snapshotPlaylist,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = mix.name,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                ),
-                color = scheme.onBackground,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = pluralStringResource(
-                    R.plurals.library_mix_track_count,
-                    mix.savedTrackCount,
-                    mix.savedTrackCount
-                ),
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                color = scheme.onBackgroundSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

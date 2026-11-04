@@ -382,6 +382,7 @@ fun SettingsScreen(
                 }
 
                 SettingsTab.MUSIC -> {
+                    item { org.sonora.android.ui.settings.YouTubeAccountSection() }
                     item {
                         StreamingSourceSection(
                             currentSource = sourcePreference,

@@ -35,6 +35,7 @@ import org.sonora.android.data.MusicRepository
 import org.sonora.android.playback.PlaybackManager
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.playback.TasteProfile
+import org.sonora.android.playback.automix.AutomixAnalyzer
 
 /**
  * The DJ: plays the listener's music in themed blocks of a few songs and introduces each block with
@@ -54,8 +55,11 @@ class DjSession private constructor(private val context: Context) {
         /** The first song may need a while to resolve its stream before the welcome can play. */
         private const val FIRST_LINE_WAIT_MS = 15_000L
 
-        /** Long enough for a crossfade or Automix transition to finish. */
-        private const val LINE_WAIT_MS = 20_000L
+        /**
+         * Long enough for an Automix transition to finish: up to 35 s of mix, the few seconds the
+         * bars take to lock before it, and an effect's tail after it.
+         */
+        private const val LINE_WAIT_MS = 60_000L
 
         /** Lets the new song be heard for a moment before the DJ talks over it. */
         private const val SETTLE_MS = 600L
@@ -64,6 +68,14 @@ class DjSession private constructor(private val context: Context) {
         private const val DISCOVERY_COUNT = 15
         private const val ARTIST_RELATED_COUNT = 10
         private const val ARTIST_TOP_TRACKS = 20
+
+        /**
+         * Candidates whose start is analysed at each step of a flow when their tempo is not known yet,
+         * so the next song can be one that mixes on the beat. Each costs about a minute of audio
+         * (kept in the cache, and on disk once measured, so a song is analysed only once).
+         */
+        private const val TEMPO_PROBES = 3
+        private const val PROBE_TIMEOUT_MS = 20_000L
 
         @Volatile
         private var instance: DjSession? = null
@@ -173,7 +185,8 @@ class DjSession private constructor(private val context: Context) {
         val library = library()
         val exclusions = exclusions(library)
         val flow = try {
-            flowBlock(seed, library, exclusions)
+            // The first block must start at once; later ones are built while music plays, with time to listen ahead.
+            flowBlock(seed, library, exclusions, probe = firstBlockStart != null)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -221,11 +234,20 @@ class DjSession private constructor(private val context: Context) {
     /**
      * Like a DJ working a set: it opens on one of the listener's most played songs (the one that
      * follows best from [previous]) and then lets each next song grow out of the one before, asking
-     * the engine what fits that song and keeping tempo and variety in mind.
+     * the engine what fits that song and keeping tempo, key and variety in mind. With [probe] the
+     * start of the most promising candidates is analysed first, so the set stays on the beat.
      */
-    private suspend fun flowBlock(previous: Track?, library: DjLibrary, exclusions: DjExclusions): DjBlock? {
+    private suspend fun flowBlock(
+        previous: Track?,
+        library: DjLibrary,
+        exclusions: DjExclusions,
+        probe: Boolean
+    ): DjBlock? {
         val favourites = DjBlocks.usable(DjBlockKind.TOP_PLAYED, library.topPlayed + library.favorites, exclusions)
-        val anchor = DjFlow.pickAnchor(favourites, previous, random) ?: return null
+        val anchors = favourites.take(DjFlow.ANCHOR_POOL)
+        if (probe && previous != null) learnGrooves(listOf(previous) + anchors.shuffled(random).take(TEMPO_PROBES))
+        val anchorGrooves = grooves(listOfNotNull(previous) + anchors)
+        val anchor = DjFlow.pickAnchor(favourites, previous, random) { anchorGrooves.of(it) } ?: return null
         val chain = mutableListOf(anchor)
         val size = random.nextInt(DjBlocks.MIN_TRACKS, DjBlocks.MAX_TRACKS + 1)
         while (chain.size < size) {
@@ -235,11 +257,57 @@ class DjSession private constructor(private val context: Context) {
                 recommend(chain.last(), library, taken, DjFlow.CANDIDATES),
                 taken
             )
-            val next = DjFlow.pickNext(chain.last(), candidates, chain.takeLast(3).map { it.artist }, random) ?: break
+            val recentArtists = chain.takeLast(3).map { it.artist }
+            if (probe) learnGrooves(listOf(chain.last()) + DjFlow.probeOrder(chain.last(), candidates, recentArtists).take(TEMPO_PROBES))
+            val known = grooves(listOf(chain.last()) + candidates)
+            val next = DjFlow.pickNext(chain.last(), candidates, recentArtists, random) { known.of(it) } ?: break
             chain += next
         }
         if (chain.size < DjBlocks.MIN_TRACKS) return null
+        val sounds = grooves(chain)
+        Log.i(TAG, "Flow tempos: " + chain.joinToString(" -> ") { track ->
+            sounds.of(track).let { g -> "${g.bpm?.let { "%.0f".format(it) } ?: "?"} ${g.key?.camelot.orEmpty()}".trim() }
+        })
         return DjBlock(DjBlockKind.FLOW, chain)
+    }
+
+    /** Tempo and key of each of [tracks] as far as Automix has analysed them; read from disk, so off the main thread. */
+    private suspend fun grooves(tracks: List<Track>): Map<String, DjFlow.Groove> = withContext(Dispatchers.IO) {
+        tracks.associate { track ->
+            val head = playbackManager.mixAnalysis(track.id, AutomixAnalyzer.Part.HEAD)
+            val tail = playbackManager.mixAnalysis(track.id, AutomixAnalyzer.Part.TAIL)
+            track.id to DjFlow.Groove(
+                bpm = (head?.grid ?: tail?.grid)?.bpm?.toFloat() ?: track.bpm,
+                key = head?.key ?: tail?.key
+            )
+        }
+    }
+
+    private fun Map<String, DjFlow.Groove>.of(track: Track): DjFlow.Groove = this[track.id] ?: DjFlow.Groove(track.bpm)
+
+    /**
+     * Analyses the start of each of [tracks] whose tempo is not known yet, one after the other.
+     * Playback's own analyses queue fairly in between, so a mix about to happen never waits long.
+     */
+    private suspend fun learnGrooves(tracks: List<Track>) {
+        val known = grooves(tracks)
+        val unreadable = withContext(Dispatchers.IO) {
+            tracks.filter { playbackManager.mixUnavailable(it.id, AutomixAnalyzer.Part.HEAD) }.mapTo(HashSet()) { it.id }
+        }
+        for (track in tracks.distinctBy { it.id }) {
+            if (known.of(track).bpm != null || track.id in unreadable) continue
+            val found = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
+                try {
+                    playbackManager.analyzeForMix(track, AutomixAnalyzer.Part.HEAD)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not analyse '${track.title}'", e)
+                    null
+                }
+            }
+            Log.d(TAG, "Tempo of '${track.title}': ${found?.grid?.bpm?.let { "%.1f BPM".format(it) } ?: "unknown"}")
+        }
     }
 
     private suspend fun artistBlock(library: DjLibrary, exclusions: DjExclusions): DjBlock? {

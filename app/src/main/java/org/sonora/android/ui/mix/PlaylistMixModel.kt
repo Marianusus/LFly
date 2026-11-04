@@ -2,7 +2,6 @@ package org.sonora.android.ui.mix
 
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +18,7 @@ import org.sonora.android.playback.automix.AutomixPlanner
 import org.sonora.android.playback.automix.BeatGrid
 import org.sonora.android.playback.automix.EnergyProfile
 import org.sonora.android.playback.automix.Loudness
+import org.sonora.android.playback.automix.MixAnalysisProgress
 import org.sonora.android.playback.automix.MixOrder
 import org.sonora.android.playback.automix.MixPreset
 import org.sonora.android.playback.automix.MixRecipe
@@ -27,11 +27,12 @@ import org.sonora.android.playback.automix.MixTransition
 import org.sonora.android.playback.automix.PlanFixes
 import org.sonora.android.playback.automix.PlaylistMix
 import org.sonora.android.playback.automix.TransitionCurves
+import org.sonora.android.playback.automix.EffectCurve
+import org.sonora.android.playback.automix.JogwheelCurve
+import org.sonora.android.playback.automix.LoopCurve
 import org.sonora.android.playback.automix.TransitionStyle
 import org.sonora.android.playback.automix.Waveform
 
-/** Progress of a mixed playlist's analysis: [done] of [total] song ends. */
-data class MixAnalysisProgress(val playlistId: String, val done: Int, val total: Int)
 
 /** One song of the editor: its stretch next to the transition and what is known about it. */
 class EditorSide internal constructor(
@@ -101,8 +102,8 @@ class PlaylistMixModel internal constructor(
     /** Tempo and key of the songs analysed so far, by track id. */
     val trackInfo: StateFlow<Map<String, MixTrackInfo>> = _info.asStateFlow()
 
-    private val _progress = MutableStateFlow<MixAnalysisProgress?>(null)
-    val progress: StateFlow<MixAnalysisProgress?> = _progress.asStateFlow()
+    /** The analysis runs in the player, so it goes on when this screen is gone. */
+    val progress: StateFlow<MixAnalysisProgress?> = playback.playlistAnalysis
 
     private val _editor = MutableStateFlow<TransitionEditorData?>(null)
 
@@ -114,68 +115,39 @@ class PlaylistMixModel internal constructor(
 
     val preview: StateFlow<PreviewState?> get() = playback.previewState
 
-    private var analysisJob: Job? = null
-    private var analysisPlaylistId: String? = null
+    init {
+        scope.launch { playback.analysedTracks.collect { refreshInfo(listOf(it)) } }
+    }
 
     fun isMixed(playlistId: String): Boolean = repository.playlistMix(playlistId).enabled
 
     fun setMixed(playlist: Playlist, enabled: Boolean) {
         repository.setPlaylistMixEnabled(playlist.id, enabled)
-        if (enabled) analyze(playlist) else if (analysisPlaylistId == playlist.id) stopAnalysis()
+        if (enabled) analyze(playlist) else if (progress.value?.playlistId == playlist.id) playback.stopPlaylistAnalysis()
     }
 
     /** Loads what is already known about [playlist]'s songs and, when it is mixed, analyses the rest. */
     fun open(playlist: Playlist) {
-        refreshInfo(playlist.tracks)
+        refreshInfo(playlist.tracks.map { it.id })
         if (isMixed(playlist.id)) analyze(playlist)
     }
 
     fun transition(playlistId: String, from: Track, to: Track): MixTransition =
         repository.playlistMix(playlistId).transition(from.id, to.id)
 
-    /** The ends each transition needs: every song's start but the first's, every ending but the last's. */
-    fun analyze(playlist: Playlist) {
-        if (analysisJob?.isActive == true && analysisPlaylistId == playlist.id) return
-        stopAnalysis()
-        val tracks = playlist.tracks
-        if (tracks.size < 2) return
-        val work = buildList {
-            tracks.forEachIndexed { index, track ->
-                if (index < tracks.size - 1) add(track to AutomixAnalyzer.Part.TAIL)
-                if (index > 0) add(track to AutomixAnalyzer.Part.HEAD)
-            }
-        }
-        analysisPlaylistId = playlist.id
-        analysisJob = scope.launch {
-            var done = 0
-            for ((track, part) in work) {
-                if (playback.mixAnalysis(track.id, part) == null) {
-                    _progress.value = MixAnalysisProgress(playlist.id, done, work.size)
-                    runCatching { playback.analyzeForMix(track, part) }
-                        .onFailure { Log.w(TAG, "Analysis of '${track.title}' $part failed", it) }
-                }
-                done++
-                refreshInfo(listOf(track))
-            }
-            _progress.value = null
-        }
-    }
+    /** Analyses what the playlist's transitions still need, in the background; songs done before are skipped. */
+    fun analyze(playlist: Playlist) = playback.analyzePlaylist(playlist.id, playlist.tracks)
 
-    private fun stopAnalysis() {
-        analysisJob?.cancel()
-        analysisJob = null
-        analysisPlaylistId = null
-        _progress.value = null
-    }
-
-    private fun refreshInfo(tracks: List<Track>) {
-        val found = tracks.associate { it.id to infoOf(it) }.filterValues { it.bpm != null || it.key != null }
+    private fun refreshInfo(trackIds: List<String>) {
+        val found = trackIds.associateWith { infoOf(it) }.filterValues { it.bpm != null || it.key != null }
         if (found.isNotEmpty()) _info.update { it + found }
     }
 
-    private fun infoOf(track: Track): MixTrackInfo {
-        val head = playback.mixAnalysis(track.id, AutomixAnalyzer.Part.HEAD)
-        val tail = playback.mixAnalysis(track.id, AutomixAnalyzer.Part.TAIL)
+    private fun infoOf(track: Track): MixTrackInfo = infoOf(track.id)
+
+    private fun infoOf(trackId: String): MixTrackInfo {
+        val head = playback.mixAnalysis(trackId, AutomixAnalyzer.Part.HEAD)
+        val tail = playback.mixAnalysis(trackId, AutomixAnalyzer.Part.TAIL)
         return MixTrackInfo(
             headBpm = head?.grid?.bpm,
             tailBpm = tail?.grid?.bpm,
@@ -196,7 +168,7 @@ class PlaylistMixModel internal constructor(
                 ?: runCatching { playback.analyzeForMix(from, AutomixAnalyzer.Part.TAIL) }.getOrNull()
             val head = playback.mixAnalysis(to.id, AutomixAnalyzer.Part.HEAD)
                 ?: runCatching { playback.analyzeForMix(to, AutomixAnalyzer.Part.HEAD) }.getOrNull()
-            refreshInfo(listOf(from, to))
+            refreshInfo(listOf(from.id, to.id))
             _editor.value = TransitionEditorData(
                 playlistId = playlist.id,
                 outgoing = EditorSide(from, tail?.waveform, infoOf(from), tail?.grid, tail?.energy, tail?.loudness),
@@ -231,7 +203,10 @@ class PlaylistMixModel internal constructor(
             val plan = AutomixPlanner.plan(outGrid, duration, inGrid, out.energy, inc.energy, fixes)
             if (plan != null) {
                 val calm = out.energy?.isCalm == true || inc.energy?.isCalm == true
-                val auto = TransitionCurves.resolve(repository.automixStyle.value, true, calm, plan.landsRise)
+                val auto = TransitionCurves.resolve(
+                    repository.automixStyle.value, true, calm, plan.landsRise,
+                    TransitionCurves.pairSeed(out.track.id, inc.track.id)
+                )
                 val mixSeconds = plan.mixMs / 1_000.0
                 return EditorPlan(
                     exitMs = plan.exitMs,
@@ -253,7 +228,8 @@ class PlaylistMixModel internal constructor(
         val mixMs = barMs?.let { (bars * it).toLong() } ?: UNMATCHED_MS
         if (duration <= mixMs) return null
         val exit = (transition.exitMs ?: (duration - mixMs)).coerceIn(0L, duration - mixMs)
-        val auto = TransitionStyle.FILTER
+        val calm = out.energy?.isCalm == true || inc.energy?.isCalm == true
+        val auto = TransitionCurves.resolve(repository.automixStyle.value, false, calm)
         return EditorPlan(
             exitMs = exit,
             entryMs = transition.entryMs ?: 0L,
@@ -314,7 +290,11 @@ class PlaylistMixModel internal constructor(
         repository.savePlaylist(playlist.copy(tracks = tracks, updatedAt = System.currentTimeMillis()))
     }
 
-    private fun presetOf(style: TransitionStyle): MixPreset? = MixPreset.entries.firstOrNull { it.recipe == style.recipe }
+    /** The preset AUTO's choice is built on; an effect AUTO adds on top does not make it another one. */
+    private fun presetOf(style: TransitionStyle): MixPreset? {
+        val base = style.recipe.copy(effect = EffectCurve.NONE, jogwheel = JogwheelCurve.NONE, loop = LoopCurve.NONE)
+        return MixPreset.entries.firstOrNull { it.recipe == base }
+    }
 
     private fun stepsMs(from: Double, to: Double, barMs: Double?): List<Long> {
         val step = (barMs ?: 2_000.0) / 1_000.0

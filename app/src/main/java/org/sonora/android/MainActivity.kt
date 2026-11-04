@@ -16,6 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import org.sonora.android.ui.MainScreen
 import org.sonora.android.ui.SonoraViewModel
 import org.sonora.android.ui.theme.MotionPreferences
@@ -23,6 +26,11 @@ import org.sonora.android.ui.theme.SonoraAmoledBlack
 import org.sonora.android.ui.theme.SonoraTheme
 
 class MainActivity : ComponentActivity() {
+
+    private companion object {
+        /** Lives as long as the app's process: the opening animation plays once per launch. */
+        var splashShown = false
+    }
 
     private val viewModel: SonoraViewModel by viewModels()
 
@@ -54,6 +62,10 @@ class MainActivity : ComponentActivity() {
         // Request notification permission for Android 13+ media notifications
         checkAndRequestNotificationPermission()
 
+        // Once per launch of the app: not when it comes back from the background or the screen is
+        // reopened while the app still runs (from the music notification, say).
+        val freshStart = savedInstanceState == null && !splashShown
+        splashShown = true
         setContent {
             val themeStyle by viewModel.themeStyle.collectAsState()
             val appearanceMode by viewModel.appearanceMode.collectAsState()
@@ -70,6 +82,11 @@ class MainActivity : ComponentActivity() {
                     color = SonoraTheme.colors.background
                 ) {
                     MainScreen(viewModel = viewModel)
+                }
+                // Only on a fresh start, not when the screen is recreated (rotation, language).
+                var splashing by rememberSaveable { mutableStateOf(freshStart) }
+                if (splashing) {
+                    org.sonora.android.ui.LaunchSplash(reduceMotion = reduceMotion) { splashing = false }
                 }
             }
         }

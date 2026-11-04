@@ -18,8 +18,8 @@ import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
 
-/** Mono audio at the model's rate, and where it starts in the song. */
-internal class DecodedWindow(val samples: FloatArray, val startSeconds: Double)
+/** Mono audio at the model's rate, and where it starts in the song; [requests] is how many reads the server saw. */
+internal class DecodedWindow(val samples: FloatArray, val startSeconds: Double, val requests: Int = 0)
 
 /**
  * Decodes one stretch of a song with the platform codecs. Remote songs are read through the
@@ -131,7 +131,7 @@ internal object AudioWindowDecoder {
 
             if (firstKeptUs < 0 || mono.size == 0) return null
             val resampled = Resampler.resample(mono.toArray(), sampleRate, LogMelSpectrogram.SAMPLE_RATE)
-            return DecodedWindow(resampled, firstKeptUs / 1_000_000.0)
+            return DecodedWindow(resampled, firstKeptUs / 1_000_000.0, (dataSource as? Media3MediaDataSource)?.opens ?: 0)
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
@@ -162,14 +162,24 @@ internal object AudioWindowDecoder {
 
 /**
  * Gives MediaExtractor random access to a Media3 [DataSource]. Reads usually follow each other, so
- * one open stream is kept and only reopened when the extractor jumps.
+ * one open stream is kept: a short jump ahead is read through, and only a jump back or far ahead
+ * reopens it (a new request, which on a slow server costs more than the bytes in between).
  */
 @OptIn(UnstableApi::class)
 private class Media3MediaDataSource(factory: DataSource.Factory, private val uri: Uri) : MediaDataSource() {
+    private companion object {
+        const val SKIP_AHEAD_BYTES = 512 * 1024
+    }
+
     private val source = factory.createDataSource()
     private var position = -1L
     private var length = C.LENGTH_UNSET.toLong()
     private var opened = false
+    private val skipBuffer by lazy { ByteArray(16 * 1024) }
+
+    /** Requests made so far, for the analysis log. */
+    var opens = 0
+        private set
 
     @Synchronized
     override fun getSize(): Long {
@@ -181,7 +191,11 @@ private class Media3MediaDataSource(factory: DataSource.Factory, private val uri
     override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
         if (size == 0) return 0
         if (length != C.LENGTH_UNSET.toLong() && position >= length) return -1
-        if (!opened || position != this.position) openAt(position)
+        if (!opened || position != this.position) {
+            if (!(opened && position > this.position && position - this.position <= SKIP_AHEAD_BYTES && skipTo(position))) {
+                openAt(position)
+            }
+        }
         var total = 0
         while (total < size) {
             val read = source.read(buffer, offset + total, size - total)
@@ -192,7 +206,18 @@ private class Media3MediaDataSource(factory: DataSource.Factory, private val uri
         return if (total == 0) -1 else total
     }
 
+    /** Reads through to [target] on the open stream; false when the stream ends first. */
+    private fun skipTo(target: Long): Boolean {
+        while (this.position < target) {
+            val read = source.read(skipBuffer, 0, minOf(skipBuffer.size.toLong(), target - this.position).toInt())
+            if (read == C.RESULT_END_OF_INPUT) return false
+            this.position += read
+        }
+        return true
+    }
+
     private fun openAt(target: Long) {
+        opens++
         if (opened) runCatching { source.close() }
         val opened = source.open(DataSpec.Builder().setUri(uri).setPosition(target).build())
         if (target == 0L && opened != C.LENGTH_UNSET.toLong()) length = opened

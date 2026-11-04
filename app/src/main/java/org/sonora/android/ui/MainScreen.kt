@@ -203,6 +203,8 @@ fun MainScreen(
     val homeTopPlaylists by viewModel.homeTopPlaylists.collectAsState()
     val mixes by viewModel.mixes.collectAsState()
     val savedMixes by viewModel.savedMixes.collectAsState()
+    // A mix saved to the Library is a playlist of its own: same screen, same actions.
+    val savedMixPlaylists = remember(savedMixes) { savedMixes.mapNotNull { it.asSavedPlaylist() } }
     val localTracks by viewModel.localTracks.collectAsState()
     val healthList by viewModel.healthState.collectAsState()
     val appLanguage by viewModel.appLanguage.collectAsState()
@@ -910,7 +912,7 @@ fun MainScreen(
                                     isOnline = isOnline,
                                     downloadedTracks = offlineTracks,
                                     savedMixes = savedMixes,
-                                    onMixClick = { mix -> viewModel.navigateToMix(mix.id, fromLibrary = true) },
+                                    onMixClick = { mix -> viewModel.navigateToPlaylist(mix.id) },
                                     onPlayDownloads = { tracks ->
                                         if (tracks.isNotEmpty()) viewModel.playQueue(tracks, 0, mainContextDownloaded)
                                     },
@@ -1107,6 +1109,7 @@ fun MainScreen(
 
                     is ScreenDestination.PlaylistDetail -> {
                         val activePlaylist = playlists.firstOrNull { it.id == dest.playlistId }
+                            ?: savedMixPlaylists.firstOrNull { it.id == dest.playlistId }
                         val isAutoPlaylist = activePlaylist?.id == MusicRepository.PLAYLIST_ON_REPEAT_ID
                         val activePlaylistDownloadProgress = remember(activePlaylist?.tracks, downloadStates) {
                             aggregateDownloadProgress(activePlaylist?.tracks.orEmpty(), downloadStates)
@@ -1786,7 +1789,7 @@ fun MainScreen(
         if (currentTrackForPlaylist != null) {
             AddToPlaylistDialog(
                 track = currentTrackForPlaylist,
-                playlists = playlists,
+                playlists = playlists + savedMixPlaylists,
                 onDismissRequest = { viewModel.hideAddToPlaylistDialog() },
                 onPlaylistSelect = { targetPlaylist ->
                     if (targetPlaylist.tracks.any { it.id == currentTrackForPlaylist.id }) {

@@ -77,6 +77,7 @@ import org.sonora.android.R
 import org.sonora.android.api.Track
 import org.sonora.android.playback.PlaybackState
 import org.sonora.android.ui.theme.LocalBackgroundScheme
+import sh.calvin.reorderable.ReorderableCollectionItemScope
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -252,7 +253,6 @@ fun BitchordQueueList(
                             isCurrent = true,
                             canRemove = false,
                             canReorder = false,
-                            dragHandleModifier = Modifier,
                             onPlay = { onTrackClick(current.index) },
                             onRemove = {},
                             sourceActions = sourceActions
@@ -291,11 +291,7 @@ fun BitchordQueueList(
                                 canRemove = true,
                                 canReorder = canReorder,
                                 isDragging = isDragging,
-                                dragHandleModifier = if (canReorder) {
-                                    Modifier.longPressDraggableHandle(enabled = true)
-                                } else {
-                                    Modifier
-                                },
+                                reorderScope = if (canReorder) this else null,
                                 onPlay = { onTrackClick(entry.index) },
                                 onRemove = { onRemoveTrack(entry.index) },
                                 sourceActions = sourceActions
@@ -337,11 +333,7 @@ fun BitchordQueueList(
                                 canRemove = true,
                                 canReorder = canReorderRadio,
                                 isDragging = isDragging,
-                                dragHandleModifier = if (canReorderRadio) {
-                                    Modifier.longPressDraggableHandle(enabled = true)
-                                } else {
-                                    Modifier
-                                },
+                                reorderScope = if (canReorderRadio) this else null,
                                 onPlay = { onTrackClick(entry.index) },
                                 onRemove = { onRemoveTrack(entry.index) },
                                 sourceActions = sourceActions
@@ -474,11 +466,12 @@ private fun QueuePanelRow(
     isCurrent: Boolean,
     canRemove: Boolean,
     canReorder: Boolean,
-    dragHandleModifier: Modifier,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
     sourceActions: TrackSourceActions? = null,
-    isDragging: Boolean = false
+    isDragging: Boolean = false,
+    /** Set when the row can be moved: holding it lifts it, and holding still opens the menu. */
+    reorderScope: ReorderableCollectionItemScope? = null
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val anchor = remember { TrackAnchor() }
@@ -492,6 +485,22 @@ private fun QueuePanelRow(
         else -> Color.Transparent
     }
 
+    val openMenu = {
+        if (canRemove && contextMenu != null && anchor.rect != Rect.Zero) {
+            contextMenu.open(
+                track = entry.track,
+                anchor = anchor.rect,
+                extraGroups = listOf(HeldTrackMenuGroup(listOf(
+                    HeldTrackAction(Icons.Default.PlayArrow, playNowLabel) { onPlay() },
+                    HeldTrackAction(Icons.Default.DeleteOutline, removeLabel, removeTint) { onRemove() }
+                )))
+            )
+        } else if (canRemove) {
+            menuExpanded = true
+        }
+    }
+    val hold = reorderScope?.run { rememberHoldToMove(onTap = onPlay, onHeld = openMenu) }
+
     Box {
         Row(
             modifier = Modifier
@@ -501,29 +510,13 @@ private fun QueuePanelRow(
                 .onGloballyPositioned { coordinates ->
                     if (coordinates.isAttached) anchor.rect = coordinates.boundsInWindow()
                 }
-                .combinedClickable(
-                    onClick = onPlay,
-                    onLongClick = {
-                        if (canRemove && contextMenu != null && anchor.rect != Rect.Zero) {
-                            contextMenu.open(
-                                track = entry.track,
-                                anchor = anchor.rect,
-                                extraGroups = listOf(HeldTrackMenuGroup(listOf(
-                                    HeldTrackAction(Icons.Default.PlayArrow, playNowLabel) { onPlay() },
-                                    HeldTrackAction(Icons.Default.DeleteOutline, removeLabel, removeTint) { onRemove() }
-                                )))
-                            )
-                        } else if (canRemove) {
-                            menuExpanded = true
-                        }
-                    }
-                )
+                .then(hold?.row ?: Modifier.combinedClickable(onClick = onPlay, onLongClick = openMenu))
                 .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (canReorder) {
                 Box(
-                    modifier = dragHandleModifier.size(20.dp),
+                    modifier = (hold?.handle ?: Modifier).size(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(

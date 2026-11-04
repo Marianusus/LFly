@@ -49,7 +49,7 @@ class TransitionCurvesTest {
                 val inCut = when (style) {
                     TransitionStyle.RISE, TransitionStyle.SLAM ->
                         p > TransitionCurves.SWAP_AT - step && p < TransitionCurves.SWAP_AT + TransitionCurves.SWAP_WIDTH + step
-                    TransitionStyle.BASS_SWAP, TransitionStyle.EQ_SWAP, TransitionStyle.WAVE ->
+                    TransitionStyle.BASS_SWAP, TransitionStyle.ROLL_DROP, TransitionStyle.EQ_SWAP, TransitionStyle.WAVE ->
                         p > 1f - TransitionCurves.SWAP_WIDTH - step
                     else -> false
                 }
@@ -154,17 +154,23 @@ class TransitionCurvesTest {
                     assertEquals(TransitionStyle.RISE, TransitionCurves.resolve(MixStyle.RISE, beatMatched, calm, landsRise))
                     val full = if (beatMatched) TransitionStyle.BASS_SWAP else TransitionStyle.FILTER
                     assertEquals(full, TransitionCurves.resolve(MixStyle.BASS_SWAP, beatMatched, calm, landsRise))
-                    val auto = when {
-                        calm -> TransitionStyle.FADE
-                        beatMatched && landsRise -> TransitionStyle.BASS_SWAP
-                        beatMatched -> TransitionStyle.EQ_SWAP
-                        else -> TransitionStyle.FILTER
+                    for (seed in 0..1) {
+                        val auto = when {
+                            calm -> TransitionStyle.REVERB_FADE
+                            beatMatched && landsRise -> if (seed == 0) TransitionStyle.ROLL_DROP else TransitionStyle.BASS_SWAP
+                            beatMatched -> TransitionStyle.EQ_SWAP
+                            else -> TransitionStyle.ECHO_OUT
+                        }
+                        assertEquals(
+                            "AUTO beat=$beatMatched calm=$calm rise=$landsRise seed=$seed",
+                            auto,
+                            TransitionCurves.resolve(MixStyle.AUTO, beatMatched, calm, landsRise, seed)
+                        )
                     }
-                    assertEquals(
-                        "AUTO beat=$beatMatched calm=$calm rise=$landsRise",
-                        auto,
-                        TransitionCurves.resolve(MixStyle.AUTO, beatMatched, calm, landsRise)
-                    )
+                    // A style the listener picked plays without effects.
+                    for (choice in MixStyle.entries.filter { it != MixStyle.AUTO }) {
+                        assertTrue(!TransitionCurves.resolve(choice, beatMatched, calm, landsRise).recipe.hasEffects)
+                    }
                 }
             }
         }

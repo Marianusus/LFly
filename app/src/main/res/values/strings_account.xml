@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yt_account_section_title">Account YouTube Music</string>
+    <string name="yt_account_section_footer">Accedi nella vera pagina di Google: LFly non vede mai la password. LFly usa le API web di YouTube Music, che non sono ufficiali, quindi ogni tanto Google può chiederti di accedere di nuovo.</string>
+    <string name="yt_account_sign_in">Accedi con Google</string>
+    <string name="yt_account_sign_in_subtitle">Libreria, Mi piace e consigli del tuo account</string>
+    <string name="yt_account_sign_in_title">Accedi a YouTube Music</string>
+    <string name="yt_account_switch_title">Cambia canale</string>
+    <string name="yt_account_switch_channel">Cambia canale</string>
+    <string name="yt_account_add">Aggiungi account</string>
+    <string name="yt_account_sign_out">Esci</string>
+    <string name="yt_account_sign_out_confirm_title">Uscire da %1$s?</string>
+    <string name="yt_account_sign_out_confirm_body">LFly dimentica questo accesso. I brani e le playlist nell\'app restano.</string>
+    <string name="yt_account_expired">Sessione scaduta: accedi di nuovo</string>
+    <string name="yt_account_unnamed">Account Google</string>
+    <string name="yt_account_brand">Canale Brand</string>
+    <string name="yt_account_active">In uso</string>
+    <string name="yt_account_done">Fatto</string>
+    <string name="yt_account_close">Chiudi</string>
+    <string name="yt_account_cancel">Annulla</string>
+    <string name="yt_account_hint">Accedi con il tuo account Google. Quando vedi YouTube Music con il canale giusto, tocca Fatto.</string>
+    <string name="yt_account_not_ready">Non ancora: completa l\'accesso finché vedi YouTube Music, poi tocca Fatto.</string>
+    <string name="yt_account_ready">Sei su YouTube Music. Se il canale è quello giusto, tocca Fatto in alto a destra.</string>
+    <string name="yt_library_sync">Sincronizza libreria</string>
+    <string name="yt_library_sync_never">Porta in LFly le tue playlist e i Mi piace</string>
+    <string name="yt_library_sync_liked">Leggo i Mi piace…</string>
+    <string name="yt_library_sync_playlist">Playlist %1$d di %2$d…</string>
+    <string name="yt_library_sync_failed">Non riuscita: tocca per riprovare</string>
+    <string name="yt_library_sync_done">%1$d playlist · %2$d Mi piace · %3$s</string>
+</resources>

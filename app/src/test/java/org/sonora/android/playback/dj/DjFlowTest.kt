@@ -7,6 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.sonora.android.api.Track
+import org.sonora.android.playback.automix.MusicalKey
 import kotlin.random.Random
 
 class DjFlowTest {
@@ -15,10 +16,10 @@ class DjFlowTest {
         Track(id = id, title = "Song $id", artist = artist, album = null, durationMs = durationMs, coverUrl = null, bpm = bpm)
 
     @Test
-    fun `tempos match at the same speed and at double or half time`() {
+    fun `tempos match at the same speed, not at double or half time, which Automix cannot mix`() {
         assertEquals(0.0, DjFlow.tempoDistance(120f, 120f)!!, 1e-9)
-        assertEquals(0.0, DjFlow.tempoDistance(70f, 140f)!!, 1e-9)
-        assertEquals(0.0, DjFlow.tempoDistance(140f, 70f)!!, 1e-9)
+        assertTrue(DjFlow.tempoDistance(70f, 140f)!! > 0.5)
+        assertEquals(DjFlow.tempoDistance(70f, 140f)!!, DjFlow.tempoDistance(140f, 70f)!!, 1e-9)
         assertTrue(DjFlow.tempoDistance(120f, 128f)!! < DjFlow.tempoDistance(120f, 100f)!!)
         assertNull(DjFlow.tempoDistance(null, 120f))
         assertNull(DjFlow.tempoDistance(120f, 0f))
@@ -54,17 +55,61 @@ class DjFlowTest {
 
     @Test
     fun `the next song is always one of the three best`() {
-        val previous = track("p", bpm = 120f)
-        val candidates = listOf(
-            track("far1", bpm = 90f), track("far2", bpm = 92f), track("good1", bpm = 121f),
-            track("far3", bpm = 88f), track("good2", bpm = 119f), track("good3", bpm = 60f)
-        )
-        val best = setOf("good1", "good2", "good3")
+        val previous = track("p")
+        val candidates = (1..8).map { track("c$it") }
+        val best = setOf("c1", "c2", "c3")
         repeat(200) { seed ->
             val next = DjFlow.pickNext(previous, candidates, emptyList(), Random(seed))
             assertNotNull(next)
             assertTrue(next!!.id in best)
         }
+    }
+
+    @Test
+    fun `when some songs mix on the beat, the next song is one of them`() {
+        val previous = track("p", bpm = 120f)
+        val candidates = listOf(
+            track("far1", bpm = 90f), track("far2", bpm = 92f), track("good1", bpm = 121f),
+            track("far3", bpm = 88f), track("unknown"), track("good2", bpm = 116f), track("double", bpm = 60f)
+        )
+        val onTheBeat = setOf("good1", "good2")
+        val picks = (0 until 200).map { DjFlow.pickNext(previous, candidates, emptyList(), Random(it))!!.id }
+        assertTrue(picks.all { it in onTheBeat })
+        assertTrue(picks.toSet() == onTheBeat)
+    }
+
+    @Test
+    fun `the analysed tempo and key are used when the catalogue has none`() {
+        val previous = track("p")
+        val clashing = track("a")
+        val fitting = track("b")
+        val grooves = mapOf(
+            "p" to DjFlow.Groove(124f, MusicalKey(9, minor = true)),
+            "a" to DjFlow.Groove(124f, MusicalKey(1, minor = false)),
+            "b" to DjFlow.Groove(125f, MusicalKey(4, minor = true))
+        )
+        val groove = { t: Track -> grooves.getValue(t.id) }
+        val clash = DjFlow.score(previous, clashing, rank = 0, total = 10, recentArtists = emptyList(), groove = groove)
+        val fit = DjFlow.score(previous, fitting, rank = 2, total = 10, recentArtists = emptyList(), groove = groove)
+        assertTrue(fit > clash)
+        assertTrue(DjFlow.onTheBeat(previous, fitting, groove))
+        // Both are on the beat and close in the engine's order; the one in a fitting key is picked more often.
+        val others = (1..8).map { track("far$it") }
+        val withOthers = grooves + others.associate { it.id to DjFlow.Groove(90f) }
+        val pool = listOf(clashing, fitting) + others
+        val picks = (0 until 200).map {
+            DjFlow.pickNext(previous, pool, emptyList(), Random(it)) { t -> withOthers.getValue(t.id) }!!.id
+        }
+        assertTrue(picks.all { it == "a" || it == "b" })
+        assertTrue(picks.count { it == "b" } > picks.size / 2)
+    }
+
+    @Test
+    fun `candidates are probed best first on style and variety`() {
+        val previous = track("p", artist = "Same")
+        val candidates = listOf(track("sameArtist", artist = "Same"), track("c1"), track("c2"), track("c3"))
+        val order = DjFlow.probeOrder(previous, candidates, emptyList()).map { it.id }
+        assertEquals(listOf("c1", "c2", "c3", "sameArtist"), order)
     }
 
     @Test

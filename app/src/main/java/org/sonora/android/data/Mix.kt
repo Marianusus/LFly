@@ -24,9 +24,14 @@ data class Mix(
     val tracks: List<Track> = emptyList(),
     val updatedAt: Long = 0L,
     val savedTracks: List<Track>? = null,
-    val savedAt: Long? = null
+    val savedAt: Long? = null,
+    /** The saved copy's own name, description and cover, set as on a playlist; null keeps the mix's. */
+    val savedName: String? = null,
+    val savedDescription: String? = null,
+    val savedCover: String? = null
 ) {
-    val isSaved: Boolean get() = !savedTracks.isNullOrEmpty()
+    /** Saved to the Library: the copy stays there even when the listener takes every song out of it. */
+    val isSaved: Boolean get() = savedTracks != null
 
     val trackCount: Int get() = tracks.size
     val savedTrackCount: Int get() = savedTracks?.size ?: 0
@@ -37,6 +42,33 @@ data class Mix(
     val coverUrl: String? get() = firstCover(tracks)
     val savedCoverUrl: String? get() = firstCover(savedTracks.orEmpty())
     val displayCoverUrl: String? get() = if (isSaved) savedCoverUrl ?: coverUrl else coverUrl
+
+    /**
+     * The saved copy as the Library shows and edits it: a playlist with the mix's id, so every
+     * playlist screen and action works on it. Null while the mix is not saved.
+     */
+    fun asSavedPlaylist(): Playlist? {
+        val tracks = savedTracks ?: return null
+        val at = savedAt ?: updatedAt
+        return Playlist(
+            id = id,
+            name = savedName?.takeIf { it.isNotBlank() } ?: name,
+            description = savedDescription,
+            coverUrl = savedCover,
+            tracks = tracks,
+            createdAt = at,
+            updatedAt = at
+        )
+    }
+
+    /** This mix rebuilt, keeping the copy saved from [previous]: its songs and what the listener changed. */
+    fun keepingSavedCopy(previous: Mix?): Mix = if (previous == null) this else copy(
+        savedTracks = previous.savedTracks,
+        savedAt = previous.savedAt,
+        savedName = previous.savedName,
+        savedDescription = previous.savedDescription,
+        savedCover = previous.savedCover
+    )
 
     private fun firstCover(list: List<Track>): String? =
         list.firstOrNull { !it.coverUrl.isNullOrBlank() }?.coverUrl

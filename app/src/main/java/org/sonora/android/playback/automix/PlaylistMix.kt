@@ -65,6 +65,9 @@ data class MixTransition(
     }
 }
 
+/** Progress of a mixed playlist's analysis: the song at [done] (from 0) of [total] songs is being analysed. */
+data class MixAnalysisProgress(val playlistId: String, val done: Int, val total: Int)
+
 /** A playlist's Mix: on or off, and the transitions the listener edited, keyed by [pairKey]. */
 data class PlaylistMix(
     val enabled: Boolean = false,

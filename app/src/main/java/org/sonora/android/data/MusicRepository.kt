@@ -491,6 +491,29 @@ class MusicRepository(
         }
     }
 
+    /**
+     * Adds every track of [tracks] not already a favourite, after the ones there are, in one write:
+     * an import of hundreds of liked songs is saved once. Returns how many were added.
+     */
+    fun addFavorites(tracks: List<Track>): Int {
+        var added = 0
+        val snapshot = synchronized(this) {
+            val current = _favorites.value
+            val known = current.mapTo(HashSet()) { it.id }
+            val fresh = tracks.filter { known.add(it.id) }
+            if (fresh.isEmpty()) return 0
+            added = fresh.size
+            (current + fresh).also { _favorites.value = it }
+        }
+        repositoryScope.launch {
+            favoritesMutex.withLock {
+                saveToFile(FILE_FAVORITES, snapshot)
+                Log.d(TAG, "Imported favorites, now ${snapshot.size} tracks")
+            }
+        }
+        return added
+    }
+
     fun removeFavorite(trackId: String) {
         synchronized(this) {
             val current = _favorites.value.toMutableList()
@@ -798,6 +821,10 @@ class MusicRepository(
     }
 
     fun savePlaylist(playlist: Playlist) {
+        if (isSavedMix(playlist.id)) {
+            editSavedMix(playlist.id) { it.copy(savedTracks = playlist.tracks.map(::stabilizeForPersistence)) }
+            return
+        }
         synchronized(this) {
             val current = _playlists.value.toMutableList()
             val index = current.indexOfFirst { it.id == playlist.id }
@@ -819,6 +846,13 @@ class MusicRepository(
 
     fun addTrackToPlaylist(playlistId: String, track: Track) {
         if (playlistId == PLAYLIST_ON_REPEAT_ID) return
+        if (isSavedMix(playlistId)) {
+            editSavedMix(playlistId) { mix ->
+                val tracks = mix.savedTracks.orEmpty()
+                if (tracks.any { it.id == track.id }) null else mix.copy(savedTracks = tracks + stabilizeForPersistence(track))
+            }
+            return
+        }
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -851,6 +885,10 @@ class MusicRepository(
 
     fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
         if (playlistId == PLAYLIST_ON_REPEAT_ID) return
+        if (isSavedMix(playlistId)) {
+            editSavedMix(playlistId) { mix -> mix.copy(savedTracks = mix.savedTracks.orEmpty().filterNot { it.id == trackId }) }
+            return
+        }
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -883,6 +921,15 @@ class MusicRepository(
 
     fun reorderPlaylist(playlistId: String, from: Int, to: Int) {
         if (playlistId == PLAYLIST_ON_REPEAT_ID) return
+        if (isSavedMix(playlistId)) {
+            editSavedMix(playlistId) { mix ->
+                val tracks = mix.savedTracks.orEmpty().toMutableList()
+                if (from !in tracks.indices || to !in tracks.indices || from == to) return@editSavedMix null
+                tracks.add(to, tracks.removeAt(from))
+                mix.copy(savedTracks = tracks)
+            }
+            return
+        }
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -942,6 +989,10 @@ class MusicRepository(
 
     fun renamePlaylist(playlistId: String, newName: String) {
         if (playlistId == PLAYLIST_ON_REPEAT_ID) return
+        if (isSavedMix(playlistId)) {
+            editSavedMix(playlistId) { it.copy(savedName = newName.trim().takeIf(String::isNotBlank)) }
+            return
+        }
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -967,6 +1018,16 @@ class MusicRepository(
 
     fun updatePlaylist(playlistId: String, name: String, description: String? = null, coverUrl: String? = null) {
         if (playlistId == PLAYLIST_ON_REPEAT_ID) return
+        if (isSavedMix(playlistId)) {
+            editSavedMix(playlistId) {
+                it.copy(
+                    savedName = name.trim().takeIf(String::isNotBlank),
+                    savedDescription = description?.trim()?.takeIf { d -> d.isNotBlank() },
+                    savedCover = coverUrl?.trim()?.takeIf { c -> c.isNotBlank() }
+                )
+            }
+            return
+        }
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -1047,6 +1108,11 @@ class MusicRepository(
 
     fun deletePlaylist(playlistId: String) {
         if (playlistId == PLAYLIST_ON_REPEAT_ID) return
+        // Deleting a saved mix takes its copy out of the Library; the mix itself stays in Home.
+        if (isSavedMix(playlistId)) {
+            removeMixFromLibrary(playlistId)
+            return
+        }
         var playlistModified = false
         synchronized(this) {
             val current = _playlists.value.toMutableList()
@@ -1432,13 +1498,38 @@ class MusicRepository(
             val mix = current[index]
             if (!mix.isSaved) return
             val updated = current.toMutableList()
-            updated[index] = mix.copy(savedTracks = null, savedAt = null)
+            updated[index] = mix.copy(savedTracks = null, savedAt = null, savedName = null, savedDescription = null, savedCover = null)
             _mixes.value = updated
             changed = true
         }
         if (changed) {
             persistMixes()
+            // Its Mix settings went with the copy, so saving the mix again starts fresh.
+            if (_playlistMixes.value.containsKey(mixId)) updatePlaylistMix(mixId) { PlaylistMix() }
             Log.i(TAG, "Mix removed from library: $mixId")
+        }
+    }
+
+    /** True when [id] is a mix saved to the Library: the playlist actions then edit its saved copy. */
+    fun isSavedMix(id: String): Boolean = _mixes.value.any { it.id == id && it.isSaved }
+
+    /**
+     * Applies [change] to the saved copy of mix [mixId] and saves it; a null change leaves it alone.
+     * The live mix in Home is never touched.
+     */
+    private fun editSavedMix(mixId: String, change: (Mix) -> Mix?) {
+        val changed = synchronized(this) {
+            val current = _mixes.value
+            val index = current.indexOfFirst { it.id == mixId && it.isSaved }
+            if (index < 0) return
+            val next = change(current[index]) ?: return
+            if (next == current[index]) return
+            _mixes.value = current.toMutableList().also { it[index] = next }
+            true
+        }
+        if (changed) {
+            persistMixes()
+            Log.d(TAG, "Saved mix edited: $mixId")
         }
     }
 
@@ -1839,7 +1930,8 @@ class MusicRepository(
     fun mixedTransition(fromId: String, toId: String): MixTransition? {
         val mixes = _playlistMixes.value
         if (mixes.isEmpty()) return null
-        for (playlist in _playlists.value) {
+        val saved = _mixes.value.mapNotNull { it.asSavedPlaylist() }
+        for (playlist in _playlists.value + saved) {
             val mix = mixes[playlist.id] ?: continue
             if (!mix.enabled) continue
             val tracks = playlist.tracks
@@ -1873,7 +1965,9 @@ class MusicRepository(
                     @Suppress("SENSELESS_COMPARISON", "UNNECESSARY_SAFE_CALL")
                     PlaylistMix(
                         enabled = mix.enabled,
-                        transitions = (mix.transitions ?: emptyMap()).filterValues { it != null && it.preset != null }
+                        transitions = (mix.transitions ?: emptyMap())
+                            .filterValues { it != null && it.preset != null }
+                            .mapValues { (_, t) -> t.copy(custom = t.custom?.repaired()) }
                     )
                 }
                 synchronized(this@MusicRepository) { _playlistMixes.value = clean }

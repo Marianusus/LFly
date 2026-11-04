@@ -80,6 +80,9 @@ class SonoraApp : Application() {
         TrackSourcePreferences.init(this)
         SearchHistoryStore.init(this)
 
+        // 1c. The YouTube Music account, if the listener signed in: API clients read it from YouTubeAuth.
+        org.sonora.android.auth.GoogleAccountStore.getInstance(this)
+
         // 2. Eagerly load persistent data from internal storage & audio DSP settings
         musicRepository
         equalizerManager

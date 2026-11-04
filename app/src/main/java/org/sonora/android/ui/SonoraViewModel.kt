@@ -1719,7 +1719,7 @@ class SonoraViewModel @JvmOverloads constructor(
             val initialStates = sources.associateWith { LyricsProviderState.NOT_FETCHED }
             _lyricsProviderStates.value = initialStates
 
-            val videoId = canonical.id.takeIf { YouTubeMusicClient.isValidVideoId(it) }
+            val videoId = canonical.id.removePrefix("yt_").takeIf { YouTubeMusicClient.isValidVideoId(it) }
             val (title, artist) = org.sonora.android.api.lyrics.LyricsText.splitArtistTitle(
                 canonical.title,
                 canonical.artist,
@@ -2128,7 +2128,8 @@ class SonoraViewModel @JvmOverloads constructor(
 
     fun toggleFavorite(track: Track) {
         val canonical = DownloadManager.canonicalTrackFor(track) ?: track
-        musicRepository.toggleFavorite(canonical)
+        val favourite = musicRepository.toggleFavorite(canonical)
+        org.sonora.android.account.YouTubeLibrarySync.getInstance(getApplication()).onFavoriteChanged(canonical, favourite)
     }
 
     fun createPlaylist(name: String, description: String? = null, coverUrl: String? = null): Playlist {
@@ -2150,6 +2151,7 @@ class SonoraViewModel @JvmOverloads constructor(
 
     fun addTrackToPlaylist(playlistId: String, track: Track) {
         musicRepository.addTrackToPlaylist(playlistId, track)
+        org.sonora.android.account.YouTubeLibrarySync.getInstance(getApplication()).onAddedToPlaylist(playlistId, track)
     }
 
     fun removeTrackFromPlaylist(playlistId: String, trackId: String) {

@@ -65,7 +65,7 @@ private const val ShelfMaxPages = 3
 internal fun HomeShelf(
     entries: List<ShelfEntry>,
     title: String,
-    subtitle: String,
+    subtitle: String?,
     columns: Int,
     currentTrackId: String?,
     isPlaying: Boolean,

@@ -85,8 +85,12 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import org.sonora.android.R
 import org.sonora.android.api.Track
+import org.sonora.android.playback.automix.MixAnalysisProgress
+import org.sonora.android.playback.automix.EffectCurve
 import org.sonora.android.playback.automix.EqCurve
 import org.sonora.android.playback.automix.FilterCurve
+import org.sonora.android.playback.automix.JogwheelCurve
+import org.sonora.android.playback.automix.LoopCurve
 import org.sonora.android.playback.automix.MixPreset
 import org.sonora.android.playback.automix.MixRecipe
 import org.sonora.android.playback.automix.MixTrackInfo
@@ -149,6 +153,52 @@ private fun filterLabel(curve: FilterCurve): String = stringResource(
         FilterCurve.NONE -> R.string.playlist_mixing_filter_none
         FilterCurve.LOW_PASS -> R.string.playlist_mixing_filter_low
         FilterCurve.HIGH_PASS -> R.string.playlist_mixing_filter_high
+    }
+)
+
+@Composable
+private fun effectLabel(curve: EffectCurve): String = stringResource(
+    when (curve) {
+        EffectCurve.NONE -> R.string.playlist_mixing_fx_none
+        EffectCurve.ECHO_HALF_OUT -> R.string.playlist_mixing_fx_echo_half_out
+        EffectCurve.ECHO_3Q_OUT -> R.string.playlist_mixing_fx_echo_3q_out
+        EffectCurve.ECHO_1_OUT -> R.string.playlist_mixing_fx_echo_1_out
+        EffectCurve.ECHO_HALF_CUT -> R.string.playlist_mixing_fx_echo_half_cut
+        EffectCurve.ECHO_3Q_CUT -> R.string.playlist_mixing_fx_echo_3q_cut
+        EffectCurve.ECHO_1_CUT -> R.string.playlist_mixing_fx_echo_1_cut
+        EffectCurve.DELAY_HALF_CUT -> R.string.playlist_mixing_fx_delay_half_cut
+        EffectCurve.DELAY_3Q_CUT -> R.string.playlist_mixing_fx_delay_3q_cut
+        EffectCurve.REVERB_OUT_CENTER -> R.string.playlist_mixing_fx_reverb_out_center
+        EffectCurve.REVERB_OUT_END -> R.string.playlist_mixing_fx_reverb_out_end
+        EffectCurve.REVERB_CUT_END -> R.string.playlist_mixing_fx_reverb_cut_end
+        EffectCurve.NOISE_OUT_END -> R.string.playlist_mixing_fx_noise_out_end
+    }
+)
+
+@Composable
+private fun jogwheelLabel(curve: JogwheelCurve): String = stringResource(
+    when (curve) {
+        JogwheelCurve.NONE -> R.string.playlist_mixing_jog_none
+        JogwheelCurve.VINYL_STOP_FAST_1 -> R.string.playlist_mixing_jog_vinyl_fast_1
+        JogwheelCurve.VINYL_STOP_FAST_2 -> R.string.playlist_mixing_jog_vinyl_fast_2
+        JogwheelCurve.VINYL_STOP_FAST_4 -> R.string.playlist_mixing_jog_vinyl_fast_4
+        JogwheelCurve.VINYL_STOP_SLOW -> R.string.playlist_mixing_jog_vinyl_slow
+        JogwheelCurve.SPINBACK_1 -> R.string.playlist_mixing_jog_spinback_1
+        JogwheelCurve.SPINBACK_2 -> R.string.playlist_mixing_jog_spinback_2
+        JogwheelCurve.SPINBACK_4 -> R.string.playlist_mixing_jog_spinback_4
+    }
+)
+
+@Composable
+private fun loopLabel(curve: LoopCurve): String = stringResource(
+    when (curve) {
+        LoopCurve.NONE -> R.string.playlist_mixing_loop_none
+        LoopCurve.ONE_BEAT -> R.string.playlist_mixing_loop_1
+        LoopCurve.TWO_BEAT -> R.string.playlist_mixing_loop_2
+        LoopCurve.FOUR_BEAT -> R.string.playlist_mixing_loop_4
+        LoopCurve.EIGHT_BEAT -> R.string.playlist_mixing_loop_8
+        LoopCurve.SIXTEEN_BEAT -> R.string.playlist_mixing_loop_16
+        LoopCurve.HALVING -> R.string.playlist_mixing_loop_halving
     }
 )
 
@@ -676,6 +726,18 @@ private fun EditorContent(
                         SegmentRow(stringResource(R.string.playlist_mixing_filter_in), base.filterIn) { custom(base.copy(filterIn = it)) }
                         GroupDivider()
                         SegmentRow(stringResource(R.string.playlist_mixing_filter_out), base.filterOut) { custom(base.copy(filterOut = it)) }
+                        GroupDivider()
+                        MenuRow(stringResource(R.string.playlist_mixing_effects), EffectCurve.entries, base.effect, { effectLabel(it) }) {
+                            custom(base.copy(effect = it))
+                        }
+                        GroupDivider()
+                        MenuRow(stringResource(R.string.playlist_mixing_jogwheel), JogwheelCurve.entries, base.jogwheel, { jogwheelLabel(it) }) {
+                            custom(base.copy(jogwheel = it))
+                        }
+                        GroupDivider()
+                        MenuRow(stringResource(R.string.playlist_mixing_looping), LoopCurve.entries, base.loop, { loopLabel(it) }) {
+                            custom(base.copy(loop = it))
+                        }
                     }
                 }
             }

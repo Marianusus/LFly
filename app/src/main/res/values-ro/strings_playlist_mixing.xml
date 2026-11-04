@@ -69,4 +69,36 @@
     <string name="playlist_mixing_in_label">Intră</string>
     <string name="playlist_mixing_edit_title_short">Tranziție</string>
     <string name="playlist_mixing_duration_bars">Durată în măsuri</string>
+    <!-- Effects, jogwheel and looping, as in Spotify's Mix editor -->
+    <string name="playlist_mixing_effects">Efecte</string>
+    <string name="playlist_mixing_jogwheel">Jog wheel</string>
+    <string name="playlist_mixing_looping">Bucle</string>
+    <string name="playlist_mixing_fx_none">Fără</string>
+    <string name="playlist_mixing_fx_echo_half_out">Ecou ½ estompare finală</string>
+    <string name="playlist_mixing_fx_echo_3q_out">Ecou ¾ estompare finală</string>
+    <string name="playlist_mixing_fx_echo_1_out">Ecou 1 estompare finală</string>
+    <string name="playlist_mixing_fx_echo_half_cut">Ecou ½ tăiere finală</string>
+    <string name="playlist_mixing_fx_echo_3q_cut">Ecou ¾ tăiere finală</string>
+    <string name="playlist_mixing_fx_echo_1_cut">Ecou 1 tăiere finală</string>
+    <string name="playlist_mixing_fx_delay_half_cut">Delay ½ tăiere finală</string>
+    <string name="playlist_mixing_fx_delay_3q_cut">Delay ¾ tăiere finală</string>
+    <string name="playlist_mixing_fx_reverb_out_center">Reverb estompare la centru</string>
+    <string name="playlist_mixing_fx_reverb_out_end">Reverb estompare finală</string>
+    <string name="playlist_mixing_fx_reverb_cut_end">Reverb tăiere finală</string>
+    <string name="playlist_mixing_fx_noise_out_end">Zgomot estompare finală</string>
+    <string name="playlist_mixing_jog_none">Fără</string>
+    <string name="playlist_mixing_jog_vinyl_fast_1">Oprire vinil rapidă 1 bătaie</string>
+    <string name="playlist_mixing_jog_vinyl_fast_2">Oprire vinil rapidă 2 bătăi</string>
+    <string name="playlist_mixing_jog_vinyl_fast_4">Oprire vinil rapidă 4 bătăi</string>
+    <string name="playlist_mixing_jog_vinyl_slow">Oprire vinil lentă</string>
+    <string name="playlist_mixing_jog_spinback_1">Spinback 1 bătaie</string>
+    <string name="playlist_mixing_jog_spinback_2">Spinback 2 bătăi</string>
+    <string name="playlist_mixing_jog_spinback_4">Spinback 4 bătăi</string>
+    <string name="playlist_mixing_loop_none">Fără</string>
+    <string name="playlist_mixing_loop_1">Buclă de 1 bătaie</string>
+    <string name="playlist_mixing_loop_2">Buclă de 2 bătăi</string>
+    <string name="playlist_mixing_loop_4">Buclă de 4 bătăi</string>
+    <string name="playlist_mixing_loop_8">Buclă de 8 bătăi</string>
+    <string name="playlist_mixing_loop_16">Buclă de 16 bătăi</string>
+    <string name="playlist_mixing_loop_halving">Buclă înjumătățită</string>
 </resources>

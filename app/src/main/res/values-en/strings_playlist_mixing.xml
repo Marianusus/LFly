@@ -69,4 +69,36 @@
     <string name="playlist_mixing_in_label">In</string>
     <string name="playlist_mixing_edit_title_short">Transition</string>
     <string name="playlist_mixing_duration_bars">Duration in bars</string>
+    <!-- Effects, jogwheel and looping, as in Spotify's Mix editor -->
+    <string name="playlist_mixing_effects">Effects</string>
+    <string name="playlist_mixing_jogwheel">Jogwheel</string>
+    <string name="playlist_mixing_looping">Looping</string>
+    <string name="playlist_mixing_fx_none">None</string>
+    <string name="playlist_mixing_fx_echo_half_out">Echo ½ out end</string>
+    <string name="playlist_mixing_fx_echo_3q_out">Echo ¾ out end</string>
+    <string name="playlist_mixing_fx_echo_1_out">Echo 1 out end</string>
+    <string name="playlist_mixing_fx_echo_half_cut">Echo ½ cut end</string>
+    <string name="playlist_mixing_fx_echo_3q_cut">Echo ¾ cut end</string>
+    <string name="playlist_mixing_fx_echo_1_cut">Echo 1 cut end</string>
+    <string name="playlist_mixing_fx_delay_half_cut">Delay ½ cut end</string>
+    <string name="playlist_mixing_fx_delay_3q_cut">Delay ¾ cut end</string>
+    <string name="playlist_mixing_fx_reverb_out_center">Reverb out center</string>
+    <string name="playlist_mixing_fx_reverb_out_end">Reverb out end</string>
+    <string name="playlist_mixing_fx_reverb_cut_end">Reverb cut end</string>
+    <string name="playlist_mixing_fx_noise_out_end">Noise out end</string>
+    <string name="playlist_mixing_jog_none">None</string>
+    <string name="playlist_mixing_jog_vinyl_fast_1">Vinyl stop fast 1 beat end</string>
+    <string name="playlist_mixing_jog_vinyl_fast_2">Vinyl stop fast 2 beat end</string>
+    <string name="playlist_mixing_jog_vinyl_fast_4">Vinyl stop fast 4 beat end</string>
+    <string name="playlist_mixing_jog_vinyl_slow">Vinyl stop slow end</string>
+    <string name="playlist_mixing_jog_spinback_1">Spinback 1 beat end</string>
+    <string name="playlist_mixing_jog_spinback_2">Spinback 2 beat end</string>
+    <string name="playlist_mixing_jog_spinback_4">Spinback 4 beat end</string>
+    <string name="playlist_mixing_loop_none">None</string>
+    <string name="playlist_mixing_loop_1">1 beat loop</string>
+    <string name="playlist_mixing_loop_2">2 beat loop</string>
+    <string name="playlist_mixing_loop_4">4 beat loop</string>
+    <string name="playlist_mixing_loop_8">8 beat loop</string>
+    <string name="playlist_mixing_loop_16">16 beat loop</string>
+    <string name="playlist_mixing_loop_halving">Loop halving</string>
 </resources>

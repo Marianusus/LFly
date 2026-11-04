@@ -84,6 +84,7 @@ import org.sonora.android.playback.PlaybackState
 import org.sonora.android.ui.theme.LocalBackgroundScheme
 import org.sonora.android.ui.theme.SonoraTheme
 import org.sonora.android.ui.theme.SonoraEmerald
+import sh.calvin.reorderable.ReorderableCollectionItemScope
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -396,11 +397,7 @@ fun QueueBottomSheetContent(
                                 isCurrent = actualIndex == currentIndex,
                                 isDragging = isDragging,
                                 reorderEnabled = canReorder,
-                                dragHandleModifier = if (canReorder) {
-                                    Modifier.longPressDraggableHandle(enabled = true)
-                                } else {
-                                    Modifier
-                                },
+                                reorderScope = if (canReorder) this else null,
                                 onTrackClick = { onTrackClick(actualIndex) },
                                 onPlayNow = { onTrackClick(actualIndex) },
                                 onRemove = { onRemoveTrack(actualIndex) },
@@ -436,7 +433,6 @@ fun QueueBottomSheetContent(
                             isCurrent = false,
                             isDragging = false,
                             reorderEnabled = false,
-                            dragHandleModifier = Modifier,
                             onTrackClick = { onTrackClick(actualIndex) },
                             onPlayNow = { onTrackClick(actualIndex) },
                             onRemove = { onRemoveTrack(actualIndex) },
@@ -870,12 +866,13 @@ private fun UpcomingQueueItem(
     isCurrent: Boolean,
     isDragging: Boolean,
     reorderEnabled: Boolean,
-    dragHandleModifier: Modifier,
     onTrackClick: () -> Unit,
     onPlayNow: () -> Unit,
     onRemove: () -> Unit,
     sourceActions: TrackSourceActions? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Set when the row can be moved: holding it lifts it, and holding still opens the menu. */
+    reorderScope: ReorderableCollectionItemScope? = null
 ) {
     val scheme = LocalBackgroundScheme.current
     val accent = scheme.accent
@@ -893,6 +890,21 @@ private fun UpcomingQueueItem(
     val playNowLabel = stringResource(R.string.queue_play_now)
     val removeLabel = stringResource(R.string.queue_remove_from_queue)
     val removeTint = MaterialTheme.colorScheme.error
+    val openMenu = {
+        if (contextMenu != null && anchor.rect != Rect.Zero) {
+            contextMenu.open(
+                track = track,
+                anchor = anchor.rect,
+                extraGroups = listOf(HeldTrackMenuGroup(listOf(
+                    HeldTrackAction(Icons.Default.PlayArrow, playNowLabel) { onPlayNow() },
+                    HeldTrackAction(Icons.Default.DeleteOutline, removeLabel, removeTint) { onRemove() }
+                )))
+            )
+        } else {
+            menuExpanded = true
+        }
+    }
+    val hold = reorderScope?.run { rememberHoldToMove(onTap = onTrackClick, onHeld = openMenu) }
 
     Row(
         modifier = modifier
@@ -902,23 +914,7 @@ private fun UpcomingQueueItem(
             .onGloballyPositioned { coordinates ->
                 if (coordinates.isAttached) anchor.rect = coordinates.boundsInWindow()
             }
-            .combinedClickable(
-                onClick = onTrackClick,
-                onLongClick = {
-                    if (contextMenu != null && anchor.rect != Rect.Zero) {
-                        contextMenu.open(
-                            track = track,
-                            anchor = anchor.rect,
-                            extraGroups = listOf(HeldTrackMenuGroup(listOf(
-                                HeldTrackAction(Icons.Default.PlayArrow, playNowLabel) { onPlayNow() },
-                                HeldTrackAction(Icons.Default.DeleteOutline, removeLabel, removeTint) { onRemove() }
-                            )))
-                        )
-                    } else {
-                        menuExpanded = true
-                    }
-                }
-            )
+            .then(hold?.row ?: Modifier.combinedClickable(onClick = onTrackClick, onLongClick = openMenu))
             .padding(start = 6.dp, end = 0.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1043,7 +1039,7 @@ private fun UpcomingQueueItem(
 
         if (reorderEnabled) {
             Box(
-                modifier = dragHandleModifier
+                modifier = (hold?.handle ?: Modifier)
                     .size(32.dp),
                 contentAlignment = Alignment.Center
             ) {

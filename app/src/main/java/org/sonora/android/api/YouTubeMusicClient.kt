@@ -10,6 +10,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import org.sonora.android.auth.GoogleSession
+import org.sonora.android.auth.YouTubeAccount
+import org.sonora.android.auth.YouTubeAuth
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
@@ -36,6 +39,15 @@ open class YouTubeMusicClient(
     companion object {
         private const val TAG = "YouTubeMusicClient"
         const val BASE_URL = "https://music.youtube.com"
+        private const val WEB_REMIX_VERSION = "1.20240722.01.00"
+        private const val LIBRARY_PLAYLISTS = "FEmusic_liked_playlists"
+        private const val ANDROID_MUSIC_VERSION = "8.12.54"
+        private const val LIKED_MUSIC = "LM"
+
+        /** Liked Music (read into Favourites on its own) and Episodes for Later (podcasts). */
+        private val NOT_LIBRARY_PLAYLISTS = setOf(LIKED_MUSIC, "SE")
+        private const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         private const val YTM_SEARCH_URL = "$BASE_URL/youtubei/v1/search"
         private const val YTM_SUGGESTIONS_URL = "$BASE_URL/youtubei/v1/music/get_search_suggestions"
         private const val BROWSE_URL = "$BASE_URL/youtubei/v1/browse"
@@ -1072,6 +1084,258 @@ open class YouTubeMusicClient(
         })
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Signed requests: the listener's YouTube Music account (adapted from BitChord, GPL-3.0).
+    // Everything above stays anonymous, as before: search, radio and the player used for streams.
+    // ---------------------------------------------------------------------------------------------
+
+    /** A browse page as [account] sees it; null on any failure. */
+    suspend fun browseAsAccount(browseId: String, params: String?, account: YouTubeAccount): JsonObject? =
+        withContext(Dispatchers.IO) { runCatching { fetchBrowseRoot(browseId, params, account = account) }.getOrNull() }
+
+    /**
+     * A browse page as YouTube Music's Android app gets it. Its lyrics page carries the lines as a
+     * list (`timedLyricsModel`), with their times when YouTube has them, where the web gets one text.
+     */
+    suspend fun browseAndroidMusic(browseId: String, params: String?): JsonObject? = withContext(Dispatchers.IO) {
+        val payload = JsonObject().apply {
+            add("context", JsonObject().apply {
+                add("client", JsonObject().apply {
+                    addProperty("clientName", "ANDROID_MUSIC")
+                    addProperty("clientVersion", ANDROID_MUSIC_VERSION)
+                    addProperty("androidSdkVersion", 34)
+                    addProperty("osName", "Android")
+                    addProperty("hl", "en")
+                })
+            })
+            addProperty("browseId", browseId)
+            if (!params.isNullOrBlank()) addProperty("params", params)
+        }
+        val request = Request.Builder()
+            .url("$BROWSE_URL?prettyPrint=false")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .addHeader("Content-Type", "application/json")
+            .addHeader("User-Agent", "com.google.android.apps.youtube.music/$ANDROID_MUSIC_VERSION (Linux; U; Android 14) gzip")
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                JsonParser.parseString(response.body?.string().orEmpty()).takeIf { it.isJsonObject }?.asJsonObject
+            }
+        }.getOrNull()
+    }
+
+    /** Who [account] is, as YouTube Music's own account menu says: name, handle, email, avatar. */
+    suspend fun accountInfo(account: YouTubeAccount): Result<YouTubeAccountInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            val root = postSigned("account/account_menu", account) {} ?: error("Account menu refused")
+            parseAccountMenu(root) ?: error("No signed-in account in the menu")
+        }
+    }
+
+    /**
+     * Posts to InnerTube as [account]: its cookie, a fresh `SAPISIDHASH`, the account of the cookie
+     * jar it belongs to (`X-Goog-AuthUser`), its Brand channel (`X-Goog-PageId`) and its identity
+     * (`context.user.onBehalfOfUser`). A 401 means Google ended the session: [YouTubeAuth] is told,
+     * so the listener is asked to sign in again. Null on any failure.
+     */
+    internal fun postSigned(endpoint: String, account: YouTubeAccount, body: JsonObject.() -> Unit): JsonObject? {
+        val sapisid = GoogleSession.sapisidFrom(account.cookie) ?: run {
+            YouTubeAuth.markExpired()
+            return null
+        }
+        val version = account.clientVersion?.takeIf { it.isNotBlank() } ?: WEB_REMIX_VERSION
+        val payload = JsonObject().apply {
+            add("context", JsonObject().apply {
+                add("client", JsonObject().apply {
+                    addProperty("clientName", "WEB_REMIX")
+                    addProperty("clientVersion", version)
+                    addProperty("hl", "en")
+                    addProperty("gl", "US")
+                    account.visitorData?.let { addProperty("visitorData", it) }
+                })
+                account.dataSyncId?.let { id -> add("user", JsonObject().apply { addProperty("onBehalfOfUser", id) }) }
+            })
+            body()
+        }
+        val request = Request.Builder()
+            .url("$BASE_URL/youtubei/v1/$endpoint?prettyPrint=false")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .addHeader("Content-Type", "application/json")
+            .addHeader("User-Agent", DESKTOP_UA)
+            .addHeader("Origin", BASE_URL)
+            .addHeader("X-Origin", BASE_URL)
+            .addHeader("Referer", "$BASE_URL/")
+            .addHeader("Cookie", account.cookie)
+            .addHeader("Authorization", GoogleSession.sapisidHash(sapisid))
+            .addHeader("X-Goog-AuthUser", account.authUser ?: "0")
+            .addHeader("X-Youtube-Client-Name", "67")
+            .addHeader("X-Youtube-Client-Version", version)
+            .apply {
+                account.pageId?.let { addHeader("X-Goog-PageId", it) }
+                account.visitorData?.let { addHeader("X-Goog-Visitor-Id", it) }
+            }
+            .build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (response.code == 401) {
+                    Log.w(TAG, "Signed $endpoint refused: the YouTube Music session has ended")
+                    YouTubeAuth.markExpired()
+                    return null
+                }
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Signed $endpoint failed: HTTP ${response.code}")
+                    return null
+                }
+                val body = response.body?.string().orEmpty()
+                if (body.isBlank()) return null
+                JsonParser.parseString(body).takeIf { it.isJsonObject }?.asJsonObject
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Signed $endpoint failed: ${e.javaClass.simpleName}")
+            null
+        }
+    }
+
+    /**
+     * The playlists in the listener's library (made or saved), as YouTube Music's Library lists
+     * them. Liked Music (`LM`) is left out, as it is read on its own into Favourites, and so is
+     * Episodes for Later (`SE`), which holds podcasts.
+     */
+    suspend fun libraryPlaylists(account: YouTubeAccount): Result<List<YouTubePlaylist>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val found = LinkedHashMap<String, YouTubePlaylist>()
+            var root: JsonObject? = fetchBrowseRoot(LIBRARY_PLAYLISTS, account = account)
+                ?: error("Library refused")
+            var pages = 0
+            while (root != null && pages < 20) {
+                pages++
+                collectLibraryPlaylists(root, found)
+                val next = findString(root, "continuation") ?: break
+                root = runCatching { fetchBrowseRoot(LIBRARY_PLAYLISTS, continuation = next, account = account) }.getOrNull()
+            }
+            found.values.filter { it.playlistId !in NOT_LIBRARY_PLAYLISTS }
+        }
+    }
+
+    /** Liked Music: the songs the listener gave a thumbs up, newest first. */
+    suspend fun likedSongs(account: YouTubeAccount, onProgress: ((Int) -> Unit)? = null): Result<List<Track>> =
+        getYouTubePlaylist(LIKED_MUSIC, onProgress = onProgress, maxTracks = 5_000, account = account).map { it.tracks }
+
+    /** Thumbs up ([liked] true), thumbs down (false) or neither (null) on YouTube Music. */
+    suspend fun rate(account: YouTubeAccount, videoId: String, liked: Boolean?): Boolean = withContext(Dispatchers.IO) {
+        val endpoint = when (liked) {
+            true -> "like/like"
+            false -> "like/dislike"
+            null -> "like/removelike"
+        }
+        postSigned(endpoint, account) {
+            add("target", JsonObject().apply { addProperty("videoId", videoId) })
+        } != null
+    }
+
+    /** Adds [videoId] to one of the listener's own playlists on YouTube Music. */
+    suspend fun addToPlaylist(account: YouTubeAccount, playlistId: String, videoId: String): Boolean = withContext(Dispatchers.IO) {
+        postSigned("browse/edit_playlist", account) {
+            addProperty("playlistId", playlistId.removePrefix("VL"))
+            add("actions", JsonArray().apply {
+                add(JsonObject().apply {
+                    addProperty("action", "ACTION_ADD_VIDEO")
+                    addProperty("addedVideoId", videoId)
+                    addProperty("dedupeOption", "DEDUPE_OPTION_SKIP")
+                })
+            })
+        }?.get("status")?.asString?.contains("SUCCEEDED") == true
+    }
+
+    /** Every playlist card under [root]: a two-row item whose browse endpoint opens a playlist. */
+    private fun collectLibraryPlaylists(root: JsonElement, into: MutableMap<String, YouTubePlaylist>) {
+        when {
+            root.isJsonObject -> {
+                val obj = root.asJsonObject
+                obj.getAsJsonObject("musicTwoRowItemRenderer")?.let { item ->
+                    val browseId = item.getAsJsonObject("navigationEndpoint")
+                        ?.getAsJsonObject("browseEndpoint")?.get("browseId")?.asString
+                    if (browseId != null && browseId.startsWith("VL")) {
+                        val title = item.getAsJsonObject("title")?.getAsJsonArray("runs")
+                            ?.joinToString("") { it.asJsonObject.get("text")?.asString.orEmpty() }.orEmpty()
+                        // "Author • 9 tracks": only the author, since the count goes stale.
+                        val subtitle = item.getAsJsonObject("subtitle")?.getAsJsonArray("runs")
+                            ?.firstOrNull()?.asJsonObject?.get("text")?.asString?.takeIf { it.isNotBlank() }
+                        val thumb = findObject(item, "thumbnail")?.let { findArrayLastUrl(it) }
+                        if (title.isNotBlank()) {
+                            val id = browseId.removePrefix("VL")
+                            into.putIfAbsent(id, YouTubePlaylist(playlistId = id, browseId = browseId, title = title, author = subtitle, thumbnailUrl = thumb))
+                        }
+                    }
+                }
+                for ((_, child) in obj.entrySet()) collectLibraryPlaylists(child, into)
+            }
+            root.isJsonArray -> root.asJsonArray.forEach { collectLibraryPlaylists(it, into) }
+        }
+    }
+
+    private fun findArrayLastUrl(element: JsonElement): String? {
+        val thumbs = findArray(element, "thumbnails") ?: return null
+        return thumbs.lastOrNull()?.asJsonObject?.get("url")?.asString
+    }
+
+    private fun findArray(element: JsonElement?, key: String): JsonArray? {
+        when {
+            element == null -> return null
+            element.isJsonObject -> {
+                val obj = element.asJsonObject
+                obj.get(key)?.takeIf { it.isJsonArray }?.let { return it.asJsonArray }
+                for ((_, child) in obj.entrySet()) findArray(child, key)?.let { return it }
+            }
+            element.isJsonArray -> for (child in element.asJsonArray) findArray(child, key)?.let { return it }
+        }
+        return null
+    }
+
+    /** The first string under [key] anywhere in [element]: here, a page's next continuation token. */
+    private fun findString(element: JsonElement?, key: String): String? {
+        when {
+            element == null -> return null
+            element.isJsonObject -> {
+                val obj = element.asJsonObject
+                obj.get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.let { return it.asString }
+                for ((_, child) in obj.entrySet()) findString(child, key)?.let { return it }
+            }
+            element.isJsonArray -> for (child in element.asJsonArray) findString(child, key)?.let { return it }
+        }
+        return null
+    }
+
+    private fun parseAccountMenu(root: JsonObject): YouTubeAccountInfo? {
+        val header = findObject(root, "activeAccountHeaderRenderer") ?: return null
+        fun text(key: String): String = header.get(key)?.let { element ->
+            if (!element.isJsonObject) return@let null
+            val obj = element.asJsonObject
+            obj.get("simpleText")?.asString
+                ?: obj.getAsJsonArray("runs")?.joinToString("") { it.asJsonObject.get("text")?.asString.orEmpty() }
+        }.orEmpty()
+        val avatar = header.getAsJsonObject("accountPhoto")?.getAsJsonArray("thumbnails")
+            ?.lastOrNull()?.asJsonObject?.get("url")?.asString
+        val name = text("accountName")
+        if (name.isBlank()) return null
+        return YouTubeAccountInfo(name = name, handle = text("channelHandle"), email = text("email"), avatarUrl = avatar)
+    }
+
+    /** The first object under [key] anywhere in [element], depth first. */
+    private fun findObject(element: com.google.gson.JsonElement?, key: String): JsonObject? {
+        when {
+            element == null -> return null
+            element.isJsonObject -> {
+                val obj = element.asJsonObject
+                obj.get(key)?.takeIf { it.isJsonObject }?.let { return it.asJsonObject }
+                for ((_, child) in obj.entrySet()) findObject(child, key)?.let { return it }
+            }
+            element.isJsonArray -> for (child in element.asJsonArray) findObject(child, key)?.let { return it }
+        }
+        return null
+    }
+
     private fun postInnerTube(url: String, payload: JsonObject): JsonObject? {
         val request = Request.Builder()
             .url(url)
@@ -1489,16 +1753,21 @@ open class YouTubeMusicClient(
         }
     }
 
-    suspend fun getYouTubePlaylistDetail(playlistId: String): Result<YouTubePlaylistDetail> = withContext(Dispatchers.IO) {
+    suspend fun getYouTubePlaylistDetail(
+        playlistId: String,
+        account: YouTubeAccount? = null
+    ): Result<YouTubePlaylistDetail> = withContext(Dispatchers.IO) {
         val raw = playlistId.trim()
         if (raw.isBlank()) return@withContext Result.failure(IllegalArgumentException("Blank playlist id"))
         val browseId = if (raw.startsWith("VL")) raw else "VL$raw"
-        playlistDetailCache.get(browseId)?.let { return@withContext Result.success(it) }
+        // A private playlist read as the listener is never cached for everyone.
+        if (account == null) playlistDetailCache.get(browseId)?.let { return@withContext Result.success(it) }
         try {
-            val root = fetchBrowseRoot(browseId) ?: return@withContext Result.failure(IOException("Empty playlist browse response"))
+            val root = fetchBrowseRoot(browseId, account = account)
+                ?: return@withContext Result.failure(IOException("Empty playlist browse response"))
             val detail = parseYouTubePlaylistDetail(root)
                 ?: return@withContext Result.failure(IllegalStateException("Unparseable playlist detail"))
-            playlistDetailCache.put(browseId, detail)
+            if (account == null) playlistDetailCache.put(browseId, detail)
             Result.success(detail)
         } catch (e: Throwable) {
             Log.w(TAG, "getYouTubePlaylistDetail failed for '$browseId': ${e.message}")
@@ -1515,13 +1784,15 @@ open class YouTubeMusicClient(
     open suspend fun getYouTubePlaylist(
         playlistId: String,
         onProgress: ((loaded: Int) -> Unit)? = null,
-        maxTracks: Int = 2000
+        maxTracks: Int = 2000,
+        /** Set to read the playlist as the listener: needed for private ones and Liked Music. */
+        account: YouTubeAccount? = null
     ): Result<YouTubePlaylistDetail> = withContext(Dispatchers.IO) {
         val raw = playlistId.trim()
         if (raw.isBlank()) return@withContext Result.failure(IllegalArgumentException("Blank playlist id"))
         val browseId = if (raw.startsWith("VL")) raw else "VL$raw"
         try {
-            val first = getYouTubePlaylistDetail(raw).getOrElse { return@withContext Result.failure(it) }
+            val first = getYouTubePlaylistDetail(raw, account).getOrElse { return@withContext Result.failure(it) }
             val all = LinkedHashMap<String, Track>()
             first.tracks.forEach { all[it.id] = it }
             onProgress?.invoke(all.size)
@@ -1530,7 +1801,7 @@ open class YouTubeMusicClient(
             var guard = 0
             while (!token.isNullOrBlank() && all.size < maxTracks && guard < 60) {
                 guard++
-                val pageResult = getYouTubeSongsContinuation(browseId, token)
+                val pageResult = getYouTubeSongsContinuation(browseId, token, account)
                 if (pageResult.isFailure) break
                 val page = pageResult.getOrThrow()
                 if (page.tracks.isEmpty()) break
@@ -1566,11 +1837,15 @@ open class YouTubeMusicClient(
         }
 
     /** Appends the next page of artist songs using the real continuation token. */
-    suspend fun getYouTubeSongsContinuation(browseId: String, continuation: String): Result<YouTubeSongsPage> =
+    suspend fun getYouTubeSongsContinuation(
+        browseId: String,
+        continuation: String,
+        account: YouTubeAccount? = null
+    ): Result<YouTubeSongsPage> =
         withContext(Dispatchers.IO) {
             if (continuation.isBlank()) return@withContext Result.success(YouTubeSongsPage())
             try {
-                val root = fetchBrowseRoot(browseId.trim(), null, continuation)
+                val root = fetchBrowseRoot(browseId.trim(), null, continuation, account)
                     ?: return@withContext Result.failure(IOException("Empty songs continuation response"))
                 Result.success(parseYouTubeSongsPage(root))
             } catch (e: Throwable) {
@@ -1621,8 +1896,17 @@ open class YouTubeMusicClient(
     private fun fetchBrowseRoot(
         browseId: String,
         params: String? = null,
-        continuation: String? = null
+        continuation: String? = null,
+        /** Set to browse as the listener: their library and private playlists. */
+        account: YouTubeAccount? = null
     ): JsonObject? {
+        if (account != null) {
+            return postSigned("browse", account) {
+                addProperty("browseId", browseId)
+                if (!params.isNullOrBlank()) addProperty("params", params)
+                if (!continuation.isNullOrBlank()) addProperty("continuation", continuation)
+            } ?: throw IOException("Signed browse refused")
+        }
         val payloadObj = JsonObject().apply {
             val contextObj = JsonObject().apply {
                 val clientObj = JsonObject().apply {
@@ -2486,3 +2770,6 @@ internal fun isGenericYouTubeArtist(value: String): Boolean {
         normalized == "youtube music - topic" ||
         normalized == "auto-generated by youtube"
 }
+
+/** Who a signed-in YouTube Music identity is, for the account row. */
+data class YouTubeAccountInfo(val name: String, val handle: String, val email: String, val avatarUrl: String?)

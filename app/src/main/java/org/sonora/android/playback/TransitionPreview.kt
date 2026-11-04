@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.sonora.android.playback.automix.BeatGrid
+import org.sonora.android.playback.automix.DeckSchedule
 import org.sonora.android.playback.automix.DjAudio
 import org.sonora.android.playback.automix.DjFilterProcessor
 import org.sonora.android.playback.automix.Loudness
@@ -98,6 +99,12 @@ internal class TransitionPreview(private val context: Context, private val scope
         b.prepare()
         inDeck.set(TransitionCurves.frame(request.recipe, 0f).incoming.filter)
         val gain = Loudness.gain(request.outgoingGainDb)
+        val swapWidth = (beatMs / request.mixMs).toFloat()
+        // With effects the outgoing deck plays its side on the song's own clock, as in the real mix.
+        val effects = request.recipe.hasEffects
+        if (effects) {
+            outDeck.schedule(DeckSchedule(request.recipe, request.exitMs.toDouble(), request.mixMs.toDouble(), beatMs, gain, swapWidth = swapWidth))
+        }
         _state.value = PreviewState(0f, playing = true)
 
         job = scope.launch {
@@ -122,21 +129,29 @@ internal class TransitionPreview(private val context: Context, private val scope
             while (true) {
                 val position = a.currentPosition
                 val p = ((position - request.exitMs).toFloat() / request.mixMs).coerceIn(0f, 1f)
-                val frame = TransitionCurves.frame(
-                    request.recipe, p, gain,
-                    swapWidth = (beatMs / request.mixMs).toFloat()
-                )
+                val frame = TransitionCurves.frame(request.recipe, p, gain, swapWidth = swapWidth)
                 if (joinedAt == 0L && b.isPlaying) joinedAt = SystemClock.elapsedRealtime()
                 val join = if (joinedAt == 0L) 0f else ((SystemClock.elapsedRealtime() - joinedAt) / 400f).coerceIn(0f, 1f)
-                a.volume = frame.outgoing.volume
-                outDeck.set(frame.outgoing.filter)
                 b.volume = frame.incoming.volume * if (p >= 1f) 1f else join
-                inDeck.set(frame.incoming.filter)
+                // Each deck processes well ahead of what is heard: its EQ and filters are set for the
+                // moment it is processing, so they change on their beat; faders act on what is heard.
+                fun ahead(aheadMs: Float) = TransitionCurves.frame(
+                    request.recipe, ((position + aheadMs - request.exitMs) / request.mixMs).coerceIn(0f, 1f), gain, swapWidth = swapWidth
+                )
+                val inAhead = inDeck.leadMs(b.currentPosition)?.let { it * a.playbackParameters.speed / b.playbackParameters.speed.coerceAtLeast(0.1f) } ?: 0f
+                inDeck.set(ahead(inAhead).incoming.filter)
+                if (effects) {
+                    a.volume = 1f
+                } else {
+                    a.volume = frame.outgoing.volume
+                    outDeck.set(ahead(outDeck.leadMs(position)?.toFloat() ?: 0f).outgoing.filter)
+                }
                 publish(position, startMs, span)
                 if (p >= 1f) break
                 delay(STEP_MS)
             }
-            a.pause()
+            // An effect's tail rings on over the incoming song; otherwise the outgoing one is done.
+            if (!effects) a.pause()
             // The incoming song goes on alone for a couple of bars at its own tempo.
             b.setPlaybackParameters(PlaybackParameters(1f))
             val tailStart = SystemClock.elapsedRealtime()

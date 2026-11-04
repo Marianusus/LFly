@@ -55,8 +55,41 @@ data class MixRecipe(
     val filterIn: FilterCurve = FilterCurve.NONE,
     val filterOut: FilterCurve = FilterCurve.NONE,
     /** The outgoing song builds up under a rising high-pass before the cut ([TransitionStyle.RISE]). */
-    val riser: Boolean = false
+    val riser: Boolean = false,
+    /** An echo, delay, reverb or noise on the outgoing song. */
+    val effect: EffectCurve = EffectCurve.NONE,
+    /** The outgoing song stops like a record. */
+    val jogwheel: JogwheelCurve = JogwheelCurve.NONE,
+    /** The outgoing song holds a loop. */
+    val loop: LoopCurve = LoopCurve.NONE
 ) {
+    /** True when the outgoing deck plays an effect, which runs on the song's own clock. */
+    val hasEffects: Boolean
+        get() = effect != EffectCurve.NONE || jogwheel != JogwheelCurve.NONE || loop != LoopCurve.NONE
+
+    /**
+     * Gson leaves a field it did not find null, whatever Kotlin says: a recipe saved before the effects
+     * existed comes back with them missing. Here every missing ingredient is none.
+     */
+    @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
+    fun repaired(): MixRecipe =
+        if (volume == null || eq == null || filterIn == null || filterOut == null ||
+            effect == null || jogwheel == null || loop == null
+        ) {
+            MixRecipe(
+                volume = volume ?: VolumeCurve.CROSSFADE,
+                eq = eq ?: EqCurve.NONE,
+                filterIn = filterIn ?: FilterCurve.NONE,
+                filterOut = filterOut ?: FilterCurve.NONE,
+                riser = riser,
+                effect = effect ?: EffectCurve.NONE,
+                jogwheel = jogwheel ?: JogwheelCurve.NONE,
+                loop = loop ?: LoopCurve.NONE
+            )
+        } else {
+            this
+        }
+
     /** True when both songs are heard together at full level, which needs the beats to line up. */
     val needsBeatMatch: Boolean
         get() = volume == VolumeCurve.OVERLAP || volume == VolumeCurve.SMOOTH_CROSSFADE ||
@@ -94,7 +127,19 @@ internal enum class TransitionStyle(val recipe: MixRecipe) {
     SLAM(MixRecipe(VolumeCurve.CENTER_CUT)),
 
     /** The outgoing song builds up with a rising high-pass, then cuts to the incoming song on a downbeat. */
-    RISE(MixRecipe(VolumeCurve.CENTER_CUT, riser = true))
+    RISE(MixRecipe(VolumeCurve.CENTER_CUT, riser = true)),
+
+    /**
+     * Off the beat, as a DJ does it when two tempos cannot meet: [FILTER], and the outgoing song,
+     * thinning out, is thrown into an echo that repeats on its own beat while the new song takes over.
+     */
+    ECHO_OUT(FILTER.recipe.copy(effect = EffectCurve.ECHO_1_OUT)),
+
+    /** A calm crossfade where the outgoing song dissolves into a reverb. */
+    REVERB_FADE(FADE.recipe.copy(effect = EffectCurve.REVERB_OUT_END)),
+
+    /** [BASS_SWAP] with a loop roll on the outgoing song over the last two bars, into the drop. */
+    ROLL_DROP(BASS_SWAP.recipe.copy(loop = LoopCurve.HALVING))
 }
 
 /** One deck at one instant: player volume (0..1) and the mixer settings. */
@@ -200,13 +245,21 @@ internal object TransitionCurves {
     }
 
     /**
-     * The style of one transition from the listener's [choice]. AUTO keeps calm songs on a plain
-     * fade; on the beat it builds to a drop when the incoming song's rise lands as the mix ends
-     * ([landsRise]) and blends with the EQ otherwise; off the beat it filters, since a filter hides
-     * drums that drift apart. The two full-level styles need the beats to line up, so off the beat
-     * they filter too. RISE is never picked by AUTO, since a hard cut only works when asked for.
+     * The style of one transition from the listener's [choice]. AUTO keeps calm songs on a fade that
+     * dissolves into a reverb; on the beat it builds to a drop when the incoming song's rise lands as
+     * the mix ends ([landsRise]), every other pair ([seed], see [pairSeed]) with a loop roll into it,
+     * and blends with the EQ otherwise; off the beat it filters, since a filter hides drums that drift
+     * apart, and echoes the outgoing song out. The two full-level styles need the beats to line up,
+     * so off the beat they filter too. RISE is never picked by AUTO, since a hard cut only works when
+     * asked for. Only AUTO plays effects: a style the listener picked plays as it is.
      */
-    fun resolve(choice: MixStyle, beatMatched: Boolean, calm: Boolean, landsRise: Boolean = false): TransitionStyle =
+    fun resolve(
+        choice: MixStyle,
+        beatMatched: Boolean,
+        calm: Boolean,
+        landsRise: Boolean = false,
+        seed: Int = 0
+    ): TransitionStyle =
         when (choice) {
             MixStyle.FADE -> TransitionStyle.FADE
             MixStyle.BASS_SWAP -> if (beatMatched) TransitionStyle.BASS_SWAP else TransitionStyle.FILTER
@@ -214,12 +267,18 @@ internal object TransitionCurves {
             MixStyle.FILTER -> TransitionStyle.FILTER
             MixStyle.RISE -> TransitionStyle.RISE
             MixStyle.AUTO -> when {
-                calm -> TransitionStyle.FADE
-                beatMatched && landsRise -> TransitionStyle.BASS_SWAP
+                calm -> TransitionStyle.REVERB_FADE
+                beatMatched && landsRise -> if (seed and 1 == 0) TransitionStyle.ROLL_DROP else TransitionStyle.BASS_SWAP
                 beatMatched -> TransitionStyle.EQ_SWAP
-                else -> TransitionStyle.FILTER
+                else -> TransitionStyle.ECHO_OUT
             }
         }
+
+    /**
+     * A number that stays the same for one pair of songs, so AUTO always mixes them the same way: in
+     * the editor's preview as in playback, today as tomorrow.
+     */
+    fun pairSeed(fromId: String, toId: String): Int = "$fromId>$toId".hashCode() ushr 1
 
     /** Outgoing and incoming fader at [p]. */
     private fun volumes(curve: VolumeCurve, p: Float, middle: Float, width: Float): Pair<Float, Float> {

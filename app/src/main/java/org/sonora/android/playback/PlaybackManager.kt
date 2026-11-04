@@ -26,8 +26,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -49,8 +52,10 @@ import org.sonora.android.data.MusicRepository
 import org.sonora.android.data.NetworkMonitor
 import org.sonora.android.party.SyncEngine
 import org.sonora.android.playback.automix.AutomixAnalyzer
+import org.sonora.android.playback.dj.DjSession
 import org.sonora.android.playback.automix.AutomixPlanner
 import org.sonora.android.playback.automix.MixAnalysis
+import org.sonora.android.playback.automix.MixAnalysisProgress
 import org.sonora.android.playback.automix.MixTransition
 import org.sonora.android.playback.automix.PlanFixes
 import org.sonora.android.playback.automix.EnergyProfile
@@ -318,7 +323,8 @@ class PlaybackManager private constructor(private val context: Context) {
         val next = peekNextTrack() ?: return null
         val key = current.id + ">" + next.id + "|" +
             System.identityHashCode(musicRepository.playlistMixes.value) + "|" +
-            System.identityHashCode(musicRepository.playlists.value)
+            System.identityHashCode(musicRepository.playlists.value) + "|" +
+            System.identityHashCode(musicRepository.mixes.value)
         if (key != pairTransitionKey) {
             pairTransitionValue = musicRepository.mixedTransition(current.id, next.id)
             pairTransitionKey = key
@@ -326,8 +332,10 @@ class PlaybackManager private constructor(private val context: Context) {
         return pairTransitionValue
     }
 
-    /** Automix runs when it is on in Settings, and always between two songs of a mixed playlist. */
-    private fun automixActive(pair: MixTransition?): Boolean = pair != null || musicRepository.automixEnabled.value
+    /** Automix runs when it is on in Settings, and always between two songs of a mixed playlist or of the DJ. */
+    private fun automixActive(pair: MixTransition?): Boolean =
+        pair != null || musicRepository.automixEnabled.value ||
+            _playbackState.value.sourceContext == DjSession.SOURCE_CONTEXT
 
     private fun fixesOf(pair: MixTransition?): PlanFixes? = pair?.let {
         if (it.bars == null && it.exitMs == null && it.entryMs == null) null
@@ -397,7 +405,10 @@ class PlaybackManager private constructor(private val context: Context) {
         val recipe = when {
             !automixOn -> TransitionStyle.FADE.recipe
             // Turned off on purpose: the listener's ingredients play as they are, beats or not.
-            pair != null && !pair.beatmatch -> pair.recipe ?: TransitionStyle.FILTER.recipe
+            pair != null && !pair.beatmatch -> pair.recipe ?: run {
+                val (outgoingEnergy, incomingEnergy) = automixEnergies()
+                automixStyle(beatMatched = false, outgoingEnergy, incomingEnergy).recipe
+            }
             // The beats could not be matched: full-level ingredients would flam, so they are filtered instead.
             pair?.recipe?.needsBeatMatch == false -> pair.recipe!!
             else -> {
@@ -405,7 +416,10 @@ class PlaybackManager private constructor(private val context: Context) {
                 automixStyle(beatMatched = false, outgoingEnergy, incomingEnergy).recipe
             }
         }
-        crossfade.start(p, handoffMs, fadeMs, _playbackSpeed.value, outgoingGainDb = gainDb, recipe = recipe) {
+        val beatMs = _playbackState.value.currentTrack
+            ?.let { automix.grid(it.id, AutomixAnalyzer.Part.TAIL) }
+            ?.beatSeconds?.times(1_000)
+        crossfade.start(p, handoffMs, fadeMs, _playbackSpeed.value, outgoingGainDb = gainDb, recipe = recipe, beatMs = beatMs) {
             advanceForCrossfade(p)
         }
     }
@@ -433,18 +447,26 @@ class PlaybackManager private constructor(private val context: Context) {
             automix.energy(next.id, AutomixAnalyzer.Part.HEAD)
     }
 
-    /** The listener's mix style for this transition; a calm edge on either side keeps AUTO on a fade. */
+    /**
+     * The listener's mix style for this transition; a calm edge on either side keeps AUTO on a fade.
+     * AUTO's choices for this pair of songs are the ones the playlist editor shows for it.
+     */
     private fun automixStyle(
         beatMatched: Boolean,
         outgoingEnergy: EnergyProfile?,
         incomingEnergy: EnergyProfile?,
         landsRise: Boolean = false
-    ): TransitionStyle = TransitionCurves.resolve(
-        musicRepository.automixStyle.value,
-        beatMatched = beatMatched,
-        calm = outgoingEnergy?.isCalm == true || incomingEnergy?.isCalm == true,
-        landsRise = landsRise
-    )
+    ): TransitionStyle {
+        val current = _playbackState.value.currentTrack
+        val next = peekNextTrack()
+        return TransitionCurves.resolve(
+            musicRepository.automixStyle.value,
+            beatMatched = beatMatched,
+            calm = outgoingEnergy?.isCalm == true || incomingEnergy?.isCalm == true,
+            landsRise = landsRise,
+            seed = if (current != null && next != null) TransitionCurves.pairSeed(current.id, next.id) else 0
+        )
+    }
 
     /** Level difference between this song's ending and the next song's start, when both were analysed. */
     private fun automixGainDb(): Double {
@@ -539,8 +561,93 @@ class PlaybackManager private constructor(private val context: Context) {
     internal suspend fun analyzeForMix(track: Track, part: AutomixAnalyzer.Part): MixAnalysis? {
         automix.analysis(track.id, part)?.let { return it }
         if (part == AutomixAnalyzer.Part.TAIL && track.durationMs < AutomixPlanner.MIN_SONG_MS) return null
-        val source = mixSourceFor(track) ?: return null
+        val source = mixSourceFor(track) ?: run {
+            automix.markUnavailable(track.id, part)
+            return null
+        }
         return automix.analyze(track.id, source, part, track.durationMs)
+    }
+
+    /** True when this end of the song could not be read lately, so it is not worth trying again yet. */
+    internal fun mixUnavailable(trackId: String, part: AutomixAnalyzer.Part): Boolean = automix.isUnavailable(trackId, part)
+
+    private val _playlistAnalysis = MutableStateFlow<MixAnalysisProgress?>(null)
+
+    /** The mixed playlist being analysed and how far it is; null when none is. */
+    val playlistAnalysis: StateFlow<MixAnalysisProgress?> = _playlistAnalysis.asStateFlow()
+
+    private val _analysedTracks = MutableSharedFlow<String>(extraBufferCapacity = 64)
+
+    /** Ids of songs a playlist analysis has just finished, so their tempo and key can be shown. */
+    val analysedTracks: SharedFlow<String> = _analysedTracks.asSharedFlow()
+
+    private var playlistAnalysisJob: Job? = null
+    private var playlistAnalysisKey: List<String>? = null
+
+    /**
+     * Analyses the ends of [tracks] a mixed playlist's transitions need: every song's start but the
+     * first's, every ending but the last's. It runs here rather than on the playlist's screen, so it
+     * goes on when the screen is closed or the app is left, as long as the app runs. Ends analysed
+     * before are skipped at once and ends that could not be read are left alone for a while, so
+     * opening the playlist again only does what is left. Each song's stream is found once for both ends.
+     */
+    internal fun analyzePlaylist(playlistId: String, tracks: List<Track>) {
+        val key = listOf(playlistId) + tracks.map { it.id }
+        if (playlistAnalysisJob?.isActive == true && playlistAnalysisKey == key) return
+        stopPlaylistAnalysis()
+        if (tracks.size < 2) return
+        playlistAnalysisKey = key
+        val job = managerScope.launch {
+            try {
+                tracks.forEachIndexed { index, track ->
+                    val needed = withContext(Dispatchers.IO) {
+                        buildList {
+                            if (index < tracks.size - 1) add(AutomixAnalyzer.Part.TAIL)
+                            if (index > 0) add(AutomixAnalyzer.Part.HEAD)
+                        }.filter { automix.analysis(track.id, it) == null && !automix.isUnavailable(track.id, it) }
+                    }
+                    if (needed.isEmpty()) return@forEachIndexed
+                    _playlistAnalysis.value = MixAnalysisProgress(playlistId, index, tracks.size)
+                    analyzeEnds(track, needed)
+                    _analysedTracks.tryEmit(track.id)
+                }
+            } finally {
+                if (playlistAnalysisJob === coroutineContext[Job]) {
+                    _playlistAnalysis.value = null
+                    playlistAnalysisKey = null
+                }
+            }
+        }
+        playlistAnalysisJob = job
+    }
+
+    /** Stops the playlist analysis; what it finished stays saved. */
+    internal fun stopPlaylistAnalysis() {
+        playlistAnalysisJob?.cancel()
+        playlistAnalysisJob = null
+        playlistAnalysisKey = null
+        _playlistAnalysis.value = null
+    }
+
+    /** Analyses [parts] of [track], finding its stream only once; an unreadable song is remembered as such. */
+    private suspend fun analyzeEnds(track: Track, parts: List<AutomixAnalyzer.Part>) {
+        val readable = parts.filter { it != AutomixAnalyzer.Part.TAIL || track.durationMs >= AutomixPlanner.MIN_SONG_MS }
+        if (readable.isEmpty()) return
+        val source = mixSourceFor(track)
+        if (source == null) {
+            Log.w(TAG, "Playlist analysis: no full stream for '${track.title}'")
+            readable.forEach { automix.markUnavailable(track.id, it) }
+            return
+        }
+        for (part in readable) {
+            try {
+                automix.analyze(track.id, source, part, track.durationMs)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Playlist analysis of '${track.title}' $part failed", e)
+            }
+        }
     }
 
     /** A playable source for [track] outside the queue: a download, a local file, or a freshly resolved stream. */
@@ -1158,6 +1265,7 @@ class PlaybackManager private constructor(private val context: Context) {
         // (original provider/id), not the Local file snapshot.
         val target = DownloadManager.canonicalTrackFor(requested) ?: requested
         val isFav = musicRepository.toggleFavorite(target)
+        org.sonora.android.account.YouTubeLibrarySync.getInstance(context).onFavoriteChanged(target, isFav)
         Log.i(TAG, "Toggled favorite for '${target.title}': $isFav")
         return isFav
     }
@@ -1937,7 +2045,8 @@ class PlaybackManager private constructor(private val context: Context) {
                     dislikedArtists = musicRepository.dislikedArtists.value
                 )
 
-                val recommendations = djTracks(seedTrack, excludedIds).ifEmpty {
+                // The DJ keeps its own rules on what may come back (a favourite, on purpose): only what is queued is off.
+                val recommendations = djTracks(seedTrack, queueIds).ifEmpty {
                     withContext(Dispatchers.IO) {
                         recommendationEngine.getRecommendedTracks(
                             currentTrack = seedTrack,
@@ -1996,7 +2105,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     /**
-     * The DJ's next songs for [seed], minus anything queued, recently played or disliked. Empty when
+     * The DJ's next songs for [seed], minus anything queued or disliked. Empty when
      * no DJ is on or it has nothing, so autoplay falls back to the recommendation engine.
      */
     private suspend fun djTracks(seed: Track, excludedIds: Set<String>): List<Track> {

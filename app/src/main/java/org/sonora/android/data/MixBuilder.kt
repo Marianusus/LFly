@@ -60,10 +60,8 @@ fun buildMixes(
             kind = MIX_KIND_ON_REPEAT,
             name = "On Repeat",
             tracks = onRepeatTracks,
-            updatedAt = now,
-            savedTracks = previousOnRepeat?.savedTracks,
-            savedAt = previousOnRepeat?.savedAt
-        )
+            updatedAt = now
+        ).keepingSavedCopy(previousOnRepeat)
     } else if (previousOnRepeat != null) {
         result += previousOnRepeat
     }
@@ -84,10 +82,8 @@ fun buildMixes(
                 genreKey = genre.id,
                 name = genre.displayName,
                 tracks = tracks,
-                updatedAt = now,
-                savedTracks = previous?.savedTracks,
-                savedAt = previous?.savedAt
-            )
+                updatedAt = now
+            ).keepingSavedCopy(previous)
         } else if (previous != null) {
             result += previous
         }

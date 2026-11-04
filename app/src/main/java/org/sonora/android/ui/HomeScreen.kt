@@ -239,10 +239,7 @@ fun HomeScreen(
                                 if (hasPersonalShelf) R.string.home_shelf_title
                                 else R.string.home_quick_picks_title
                             ),
-                            subtitle = stringResource(
-                                if (hasPersonalShelf) R.string.home_shelf_subtitle
-                                else R.string.home_quick_picks_subtitle_recent
-                            ),
+                            subtitle = null,
                             columns = columns,
                             currentTrackId = currentTrackId,
                             isPlaying = playbackState.isPlaying,

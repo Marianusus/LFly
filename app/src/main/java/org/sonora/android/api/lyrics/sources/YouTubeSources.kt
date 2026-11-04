@@ -3,7 +3,9 @@ package org.sonora.android.api.lyrics.sources
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import android.util.Log
 import org.sonora.android.api.YouTubeMusicClient
+import org.sonora.android.auth.YouTubeAuth
 import org.sonora.android.api.lyrics.LyricsHit
 import org.sonora.android.api.lyrics.Sheet
 import org.sonora.android.api.lyrics.SheetLine
@@ -21,7 +23,22 @@ internal object SourceYouTube {
         val endpoint = lyricsTab?.endpoint() ?: tabs.drop(1).firstNotNullOfOrNull { it.endpoint() }
             ?: return null
         val browseId = endpoint.string("browseId") ?: return null
-        val page = client.browseJson(browseId, endpoint.string("params")) ?: return null
+        val params = endpoint.string("params")
+        // Timed lines first: as the listener when signed in (YouTube keeps real-time lyrics for
+        // accounts), else as the Android app, which at least gets the lines one by one.
+        val account = YouTubeAuth.active
+        val timed = account?.let { client.browseAsAccount(browseId, params, it) }?.let(::timedLines)
+            ?: client.browseAndroidMusic(browseId, params)?.let(::timedLines)
+        if (timed != null) {
+            Log.d(TAG, "YouTube Music lyrics: ${timed.size} lines, ${if (timed.all { it.startMs != null }) "timed" else "untimed"}, signed ${account != null}")
+            val synced = timed.mapNotNull { line -> line.startMs?.let { SheetLine(it, line.endMs, line.text) } }
+            return if (synced.size == timed.size) {
+                lyricsHit(LyricsSource.YOUTUBE_MUSIC, query, Sheet.Synced(synced.sortedBy { it.startMs }.toMutableList()))
+            } else {
+                lyricsHit(LyricsSource.YOUTUBE_MUSIC, query, Sheet.Plain(timed.joinToString("\n") { it.text }))
+            }
+        }
+        val page = client.browseJson(browseId, params) ?: return null
         val shelf = page.objectsNamed("musicDescriptionShelfRenderer").firstOrNull() ?: return null
         val text = shelf.get("description")?.youtubeStrings()?.joinToString("").orEmpty().trim()
         if (text.isBlank()) return null
@@ -43,6 +60,27 @@ internal object SourceYouTube {
             lines.takeIf { it.isNotEmpty() }?.let { Sheet.Synced(it) },
         )
     }
+
+    private class TimedLine(val text: String, val startMs: Long?, val endMs: Long?)
+
+    /** The lines of a `timedLyricsModel`, with their times when it has them; null without one. */
+    private fun timedLines(page: JsonObject): List<TimedLine>? {
+        val data = page.objectsNamed("lyricsData").firstOrNull()?.getAsJsonArray("timedLyricsData") ?: return null
+        val lines = data.mapNotNull { element ->
+            val line = element as? JsonObject ?: return@mapNotNull null
+            val text = line.get("lyricLine")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
+            if (text.isEmpty()) return@mapNotNull null
+            val cue = line.getAsJsonObject("cueRange")
+            TimedLine(
+                text,
+                cue?.get("startTimeMilliseconds")?.asString?.toLongOrNull(),
+                cue?.get("endTimeMilliseconds")?.asString?.toLongOrNull()
+            )
+        }
+        return lines.takeIf { it.isNotEmpty() }
+    }
+
+    private const val TAG = "LyricsYouTube"
 
     private fun JsonObject.endpoint(): JsonObject? =
         objectsNamed("browseEndpoint").firstOrNull()
