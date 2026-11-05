@@ -78,6 +78,14 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        // The phone <-> watch protocol, shared with :wearos.
+        getByName("main") {
+            java.srcDir("../wearos/protocol")
+            // LFly Connect's wire protocol, shared with the desktop app.
+            java.srcDir("../connect/protocol")
+        }
+    }
     androidResources {
         // The model is copied to disk once; compressing it would only slow that copy.
         noCompress += "onnx"
@@ -144,6 +152,12 @@ dependencies {
     implementation("com.google.zxing:core:3.5.4")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
+    // Wear OS: the LFly watch app talks to the phone over the Wearable Data Layer.
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
+
+    // LFly Connect: each device serves a small WebSocket on the local network (pure Java, also on desktop).
+    implementation("org.java-websocket:Java-WebSocket:1.5.7")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
@@ -157,4 +171,35 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+}
+
+// The watch app travels inside the phone app, so Settings can install or update it on a paired
+// watch. Same build type on both sides: the Data Layer only connects apps with the same signature.
+abstract class BundleWatchApk : DefaultTask() {
+    @get:InputFiles
+    abstract val watchApks: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val dir = outputDir.get().asFile
+        dir.deleteRecursively()
+        dir.mkdirs()
+        val apk = watchApks.asFileTree.matching { include("*.apk") }.files.firstOrNull() ?: return
+        apk.copyTo(File(dir, "lfly-watch.apk"), overwrite = true)
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val type = variant.buildType ?: return@onVariants
+        val cap = type.replaceFirstChar { it.uppercase() }
+        val bundle = tasks.register<BundleWatchApk>("bundleWatchApk$cap") {
+            dependsOn(":wearos:assemble$cap")
+            watchApks.from(rootProject.layout.projectDirectory.dir("wearos/build/outputs/apk/$type"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(bundle, BundleWatchApk::outputDir)
+    }
 }

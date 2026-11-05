@@ -1,5 +1,10 @@
 package org.sonora.android.ui.components
 
+import androidx.compose.material.icons.filled.Watch
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.Earbuds
+import org.sonora.android.connect.ConnectManager
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -185,6 +190,11 @@ fun AudioOutputSheet(
     }
 }
 
+/**
+ * Where the music plays, laid out as Spotify's device picker: the current device on top with its
+ * volume, then every other place it can play (LFly devices on the network, this phone's Bluetooth or
+ * wired outputs, Cast). Picking an LFly device moves the music there (LFly Connect).
+ */
 @Composable
 private fun OutputsPage(
     outputs: List<AudioRouting.Device>,
@@ -194,6 +204,19 @@ private fun OutputsPage(
     onOpenCast: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
 ) {
+    val devices by ConnectManager.devices.collectAsStateWithLifecycle()
+    val following by ConnectManager.following.collectAsStateWithLifecycle()
+    val connecting by ConnectManager.connecting.collectAsStateWithLifecycle()
+    val pairing by ConnectManager.pairing.collectAsStateWithLifecycle()
+    val remoteVolume by ConnectManager.remoteVolume.collectAsStateWithLifecycle()
+    DisposableEffect(Unit) {
+        ConnectManager.startDiscovery()
+        onDispose { ConnectManager.stopDiscovery() }
+    }
+    val playingOn = following
+    val activeOutput = outputs.firstOrNull { it.isActive }
+    ConnectVolumeKeys()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -206,28 +229,80 @@ private fun OutputsPage(
             text = stringResource(R.string.audio_output_title),
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
             color = SonoraTextPrimary,
-            modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 10.dp),
+            modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 6.dp),
         )
 
-        if (outputs.isEmpty()) {
-            OutputRow(
-                icon = Icons.Default.Speaker,
-                title = stringResource(R.string.audio_output_other),
-                subtitle = stringResource(R.string.audio_output_no_devices),
-                enabled = false,
-                onClick = {},
+        // ---- Current device ----
+        SheetLabel(stringResource(R.string.connect_current_device))
+        if (playingOn != null) {
+            DeviceRow(
+                icon = connectIconFor(playingOn.kind),
+                title = playingOn.name,
+                subtitle = stringResource(R.string.connect_lfly_connect),
+                active = true,
+                onClick = {}
             )
+            if (remoteVolume >= 0) RemoteVolumeRow(remoteVolume)
         } else {
-            outputs.forEach { device ->
+            DeviceRow(
+                icon = Icons.Default.PhoneAndroid,
+                title = stringResource(R.string.connect_this_phone),
+                subtitle = when {
+                    castActiveName != null -> castActiveName
+                    activeOutput != null && activeOutput.kind != AudioRouting.Kind.PHONE -> labelFor(activeOutput)
+                    else -> null
+                },
+                active = true,
+                onClick = {}
+            )
+            VolumeRow(routeKey = outputs)
+        }
+
+        // ---- Everywhere else it can play ----
+        Spacer(Modifier.height(8.dp))
+        SheetLabel(stringResource(R.string.connect_select_device))
+        if (playingOn != null) {
+            DeviceRow(
+                icon = Icons.Default.PhoneAndroid,
+                title = stringResource(R.string.connect_this_phone),
+                subtitle = null,
+                active = false,
+                onClick = { ConnectManager.playHere() }
+            )
+        }
+        devices.filter { it.id != playingOn?.id }.forEach { device ->
+            val waitingCode = pairing?.takeIf { it.deviceName == device.name }?.code
+            DeviceRow(
+                icon = connectIconFor(device.kind),
+                title = device.name,
+                subtitle = when {
+                    waitingCode != null -> stringResource(R.string.connect_pair_waiting, waitingCode)
+                    device.sameAccount -> stringResource(R.string.connect_your_account)
+                    else -> stringResource(R.string.connect_lfly_connect)
+                },
+                active = false,
+                busy = connecting == device.id,
+                onClick = { ConnectManager.playOn(device) }
+            )
+        }
+        if (playingOn == null) {
+            // This phone's own outputs other than the one in use: headphones, Bluetooth, USB.
+            outputs.filter { !it.isActive && it.kind != AudioRouting.Kind.PHONE }.forEach { device ->
                 OutputRow(
-                    icon = iconFor(device.kind),
+                    icon = outputIconFor(device),
                     title = labelFor(device),
-                    active = device.isActive,
                     onClick = { onSelectOutput(device.id) },
                 )
             }
+            // Back to the phone's speaker from headphones.
+            outputs.firstOrNull { !it.isActive && it.kind == AudioRouting.Kind.PHONE }?.let { speaker ->
+                OutputRow(
+                    icon = Icons.Default.PhoneAndroid,
+                    title = stringResource(R.string.connect_phone_speaker),
+                    onClick = { onSelectOutput(speaker.id) },
+                )
+            }
         }
-
         if (castSupported) {
             OutputRow(
                 icon = if (castActiveName != null) Icons.Default.CastConnected else Icons.Default.Cast,
@@ -242,11 +317,17 @@ private fun OutputsPage(
                 onClick = onOpenCast,
             )
         }
+        if (devices.isEmpty()) {
+            Text(
+                text = stringResource(R.string.connect_none_found),
+                style = MaterialTheme.typography.labelMedium,
+                color = SonoraTextTertiary,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+            )
+        }
 
-        Spacer(Modifier.height(4.dp))
-        VolumeRow(routeKey = outputs)
-
-        if (onOpenEqualizer != null) {
+        if (onOpenEqualizer != null && playingOn == null) {
+            Spacer(Modifier.height(8.dp))
             OutputRow(
                 icon = Icons.Default.GraphicEq,
                 title = stringResource(R.string.player_equalizer_dsp),
@@ -255,6 +336,16 @@ private fun OutputsPage(
             )
         }
     }
+}
+
+@Composable
+private fun SheetLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+        color = SonoraTextSecondary,
+        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
+    )
 }
 
 @Composable
@@ -446,7 +537,7 @@ private fun writeVolume(manager: AudioManager, fraction: Float, max: Int) {
 }
 
 @Composable
-private fun rememberAudioOutputs(): List<AudioRouting.Device> {
+internal fun rememberAudioOutputs(): List<AudioRouting.Device> {
     val context = LocalContext.current
     val manager = remember(context) { AudioRouting.manager(context) }
     val selected by AudioRouting.selectedId.collectAsStateWithLifecycle()
@@ -604,6 +695,37 @@ private fun labelFor(device: AudioRouting.Device): String = when (device.kind) {
     AudioRouting.Kind.USB -> device.name.ifBlank { stringResource(R.string.audio_output_usb) }
     AudioRouting.Kind.HDMI -> device.name.ifBlank { stringResource(R.string.audio_output_hdmi) }
     AudioRouting.Kind.OTHER -> device.name.ifBlank { stringResource(R.string.audio_output_other) }
+}
+
+/** The icon of one of this phone's outputs, by its shape when it has one (earbuds, car, speaker). */
+internal fun outputIconFor(device: AudioRouting.Device): ImageVector = when (device.form) {
+    AudioRouting.Form.EARBUDS -> Icons.Default.Earbuds
+    AudioRouting.Form.HEADPHONES -> Icons.Default.Headphones
+    AudioRouting.Form.HEADSET -> Icons.Default.Headset
+    AudioRouting.Form.SPEAKER -> Icons.Default.Speaker
+    AudioRouting.Form.CAR -> Icons.Default.DirectionsCar
+    AudioRouting.Form.WATCH -> Icons.Default.Watch
+    AudioRouting.Form.DEFAULT -> iconFor(device.kind)
+}
+
+/**
+ * The icon for where the music is heard right now, for the player's output button: the LFly device
+ * it plays on, the Cast receiver, or this phone's active output (earbuds, headphones, car, speaker).
+ * Highlighted whenever that is not the phone's own speaker.
+ */
+@Composable
+internal fun rememberListeningIcon(): Pair<ImageVector, Boolean> {
+    val following by ConnectManager.following.collectAsStateWithLifecycle()
+    val castName by CastDiscovery.activeName.collectAsStateWithLifecycle()
+    val outputs = rememberAudioOutputs()
+    val playingOn = following
+    val active = outputs.firstOrNull { it.isActive }
+    return when {
+        playingOn != null -> connectIconFor(playingOn.kind) to true
+        castName != null -> Icons.Default.CastConnected to true
+        active != null && active.kind != AudioRouting.Kind.PHONE -> outputIconFor(active) to true
+        else -> Icons.Default.PhoneAndroid to false
+    }
 }
 
 private fun iconFor(kind: AudioRouting.Kind): ImageVector = when (kind) {

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_page_watch">Watch</string>
+    <string name="watch_section_title">LFly for Wear OS</string>
+    <string name="watch_section_footer">Controls, like, crown volume and queue from your wrist. The watch app updates from here.</string>
+    <string name="watch_none">No watch connected</string>
+    <string name="watch_none_hint">Pair a Wear OS watch with this phone</string>
+    <string name="watch_looking">Looking for your watch…</string>
+    <string name="watch_installed">LFly %1$s installed</string>
+    <string name="watch_not_installed">LFly isn\'t installed on the watch</string>
+    <string name="watch_install">Install on watch</string>
+    <string name="watch_sending">Sending to the watch…</string>
+    <string name="watch_sent">Sent: confirm the install on the watch</string>
+    <string name="watch_failed">Sending failed. Try again with the watch nearby.</string>
+    <string name="watch_up_to_date">Up to date</string>
+</resources>

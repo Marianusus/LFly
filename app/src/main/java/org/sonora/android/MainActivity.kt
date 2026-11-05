@@ -83,6 +83,8 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen(viewModel = viewModel)
                 }
+                // Another LFly asking to control this phone (LFly Connect).
+                org.sonora.android.ui.components.ConnectRequestDialog()
                 // Only on a fresh start, not when the screen is recreated (rotation, language).
                 var splashing by rememberSaveable { mutableStateOf(freshStart) }
                 if (splashing) {
@@ -90,6 +92,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** While the music plays on another LFly, the volume keys turn that device up or down (Connect). */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        val up = event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP
+        val down = event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+        if ((up || down) && org.sonora.android.connect.ConnectManager.following.value != null) {
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) org.sonora.android.connect.ConnectManager.nudgeRemoteVolume(up)
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun checkAndRequestNotificationPermission() {

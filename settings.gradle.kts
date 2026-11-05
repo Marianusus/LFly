@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SonoraAndroid"
 include(":app")
+include(":wearos")

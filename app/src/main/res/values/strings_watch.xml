@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_page_watch">Orologio</string>
+    <string name="watch_section_title">LFly per Wear OS</string>
+    <string name="watch_section_footer">Comandi, cuore, volume con la corona e coda dal polso. L\'app sull\'orologio si aggiorna da qui.</string>
+    <string name="watch_none">Nessun orologio collegato</string>
+    <string name="watch_none_hint">Associa un orologio Wear OS a questo telefono</string>
+    <string name="watch_looking">Ricerca dell\'orologio…</string>
+    <string name="watch_installed">LFly %1$s installata</string>
+    <string name="watch_not_installed">LFly non è installata sull\'orologio</string>
+    <string name="watch_install">Installa sull\'orologio</string>
+    <string name="watch_sending">Invio all\'orologio…</string>
+    <string name="watch_sent">Inviata: conferma l\'installazione sull\'orologio</string>
+    <string name="watch_failed">Invio non riuscito. Riprova con l\'orologio vicino.</string>
+    <string name="watch_up_to_date">Già aggiornata</string>
+</resources>

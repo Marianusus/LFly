@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_page_playback">Riproduzione</string>
+    <string name="settings_page_audio">Audio ed equalizzatore</string>
+    <string name="settings_page_downloads">Download</string>
+    <string name="settings_page_lyrics">Testi</string>
+    <string name="settings_page_language">Lingua e Paese</string>
+    <string name="settings_page_data">Dati e spazio</string>
+    <string name="settings_page_advanced">Avanzate</string>
+    <string name="settings_page_about">Info su LFly</string>
+    <string name="settings_page_account_signed_out">Libreria, Mi piace e playlist</string>
+</resources>

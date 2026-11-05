@@ -12,6 +12,10 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.composed
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +38,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Watch
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material3.CircularProgressIndicator
 import org.sonora.android.playback.dj.piper.PiperCatalog
@@ -166,33 +173,100 @@ import org.sonora.android.ui.theme.LiquidGlassCardBorder
 import org.sonora.android.ui.theme.AccentPalette
 import org.sonora.android.ui.components.backdrop.isRenderEffectSupported
 
-private enum class SettingsTab(@StringRes val labelRes: Int) {
-    GENERAL(R.string.settings_tab_general),
+/** One page of Settings: the root list, or one topic opened from it. */
+private enum class SettingsPage(@StringRes val titleRes: Int) {
+    ROOT(R.string.settings_header_title),
+    ACCOUNT(R.string.yt_account_section_title),
+    PLAYBACK(R.string.settings_page_playback),
+    AUDIO(R.string.settings_page_audio),
+    DOWNLOADS(R.string.settings_page_downloads),
+    LYRICS(R.string.settings_page_lyrics),
     APPEARANCE(R.string.settings_tab_appearance),
-    MUSIC(R.string.settings_tab_music),
-    API(R.string.settings_tab_api)
+    LANGUAGE(R.string.settings_page_language),
+    WATCH(R.string.settings_page_watch),
+    DATA(R.string.settings_page_data),
+    ADVANCED(R.string.settings_page_advanced),
+    ABOUT(R.string.settings_page_about)
 }
 
+/** The groups of the root list rise in one after the other. */
+private fun Modifier.settingsStagger(index: Int, reduceMotion: Boolean): Modifier = composed {
+    val progress = remember { androidx.compose.animation.core.Animatable(if (reduceMotion) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (!reduceMotion) {
+            kotlinx.coroutines.delay(40L * index)
+            progress.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 380f))
+        }
+    }
+    graphicsLayer {
+        alpha = progress.value.coerceIn(0f, 1f)
+        translationY = (1f - progress.value) * 24.dp.toPx()
+    }
+}
+
+/** The root list, as in iOS Settings: the account first, then topics, each opening its page. */
 @Composable
-private fun SettingsTabs(
-    selected: SettingsTab,
-    onSelect: (SettingsTab) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val labels = mapOf(
-        SettingsTab.GENERAL to stringResource(R.string.settings_tab_general),
-        SettingsTab.APPEARANCE to stringResource(R.string.settings_tab_appearance),
-        SettingsTab.MUSIC to stringResource(R.string.settings_tab_music),
-        SettingsTab.API to stringResource(R.string.settings_tab_api)
-    )
-    SegmentedPills(
-        items = SettingsTab.entries,
-        selected = selected,
-        onSelect = onSelect,
-        label = { labels.getValue(it) },
-        modifier = modifier,
-        slidingIndicator = true
-    )
+private fun SettingsRootList(reduceMotion: Boolean, onOpen: (SettingsPage) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val store = remember { org.sonora.android.auth.GoogleAccountStore.getInstance(context) }
+    val accounts by store.state.collectAsState()
+    val active = accounts.active
+    @Composable
+    fun row(page: SettingsPage, icon: androidx.compose.ui.graphics.vector.ImageVector, tile: Color) =
+        SettingsRow(title = stringResource(page.titleRes), icon = icon, tile = tile, showChevron = true, onClick = { onOpen(page) })
+
+    SettingsGroups {
+        SettingsGroup(modifier = Modifier.settingsStagger(0, reduceMotion)) {
+            SettingsRow(
+                title = active?.name?.ifBlank { null } ?: stringResource(R.string.yt_account_section_title),
+                subtitle = if (active != null) stringResource(R.string.yt_account_section_title)
+                else stringResource(R.string.settings_page_account_signed_out),
+                leading = {
+                    Box(
+                        modifier = Modifier.size(30.dp).clip(CircleShape).background(SettingsTile.Red),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val avatar = active?.avatarUrl
+                        if (avatar != null) {
+                            coil.compose.AsyncImage(
+                                model = avatar,
+                                contentDescription = null,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        } else {
+                            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(19.dp))
+                        }
+                    }
+                },
+                showChevron = true,
+                onClick = { onOpen(SettingsPage.ACCOUNT) }
+            )
+        }
+        SettingsGroup(modifier = Modifier.settingsStagger(1, reduceMotion)) {
+            row(SettingsPage.PLAYBACK, Icons.Default.PlayArrow, SettingsTile.Red)
+            SettingsRowDivider(hasLeading = true)
+            row(SettingsPage.AUDIO, Icons.Default.GraphicEq, SettingsTile.Orange)
+            SettingsRowDivider(hasLeading = true)
+            row(SettingsPage.DOWNLOADS, Icons.Default.Download, SettingsTile.Green)
+            SettingsRowDivider(hasLeading = true)
+            row(SettingsPage.LYRICS, Icons.Default.Lyrics, SettingsTile.Purple)
+        }
+        SettingsGroup(modifier = Modifier.settingsStagger(2, reduceMotion)) {
+            row(SettingsPage.APPEARANCE, Icons.Default.Palette, SettingsTile.Blue)
+            SettingsRowDivider(hasLeading = true)
+            row(SettingsPage.LANGUAGE, Icons.Default.Language, SettingsTile.Indigo)
+            SettingsRowDivider(hasLeading = true)
+            row(SettingsPage.WATCH, Icons.Default.Watch, SettingsTile.Purple)
+        }
+        SettingsGroup(modifier = Modifier.settingsStagger(3, reduceMotion)) {
+            row(SettingsPage.DATA, Icons.Default.Storage, SettingsTile.Teal)
+            SettingsRowDivider(hasLeading = true)
+            row(SettingsPage.ADVANCED, Icons.Default.Tune, SettingsTile.Graphite)
+            SettingsRowDivider(hasLeading = true)
+            row(SettingsPage.ABOUT, Icons.Default.Info, SettingsTile.Graphite)
+        }
+    }
 }
 
 @Composable
@@ -276,7 +350,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     var cacheClearedMessage by remember { mutableStateOf(false) }
-    var selectedTab by rememberSaveable { mutableStateOf(SettingsTab.GENERAL) }
+    var page by rememberSaveable { mutableStateOf(SettingsPage.ROOT) }
+    androidx.activity.compose.BackHandler(enabled = page != SettingsPage.ROOT) { page = SettingsPage.ROOT }
     var lyricsSourcesOpen by remember { mutableStateOf(false) }
     if (lyricsSourcesOpen) {
         LyricsSourcesDialog(
@@ -304,178 +379,198 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize(),
         color = if (SonoraTheme.colors.isLiquidGlass) Color.Transparent else SonoraAmoledBlack
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = LocalBottomChromeInset.current + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            // Header Bar
-            item {
-                Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
-                    if (showBack) {
-                        IconButton(onClick = onBackClick, modifier = Modifier.offset(x = (-12).dp)) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = stringResource(R.string.settings_back_content_description),
-                                tint = SonoraTheme.colors.primaryAccent
-                            )
-                        }
-                    }
-                    Text(
-                        text = stringResource(R.string.settings_header_title),
-                        style = MaterialTheme.typography.headlineLarge.copy(
-                            fontSize = 34.sp,
-                            lineHeight = 41.sp,
-                            color = SonoraTextPrimary
-                        )
-                    )
+        // Pages slide in from the right and back out, as a pushed screen does; Reduce Motion fades.
+        androidx.compose.animation.AnimatedContent(
+            targetState = page,
+            transitionSpec = {
+                val forward = targetState != SettingsPage.ROOT
+                if (reduceMotion) {
+                    androidx.compose.animation.fadeIn(tween(150)) togetherWith androidx.compose.animation.fadeOut(tween(150))
+                } else {
+                    val dir = if (forward) 1 else -1
+                    (androidx.compose.animation.slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { w -> dir * w / 3 } +
+                        androidx.compose.animation.fadeIn(tween(220, delayMillis = 60))) togetherWith
+                        (androidx.compose.animation.slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { w -> -dir * w / 4 } +
+                            androidx.compose.animation.fadeOut(tween(160)))
                 }
-            }
-
-            // Tab selector
-            item {
-                SettingsTabs(
-                    selected = selectedTab,
-                    onSelect = { selectedTab = it },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            when (selectedTab) {
-                SettingsTab.GENERAL -> {
-                    item {
-                        SettingsGroup {
-                            LanguageSection(
-                                appLanguage = appLanguage,
-                                onAppLanguageChange = onAppLanguageChange
-                            )
-                            SettingsRowDivider(hasLeading = true)
-                            CountrySection(
-                                currentCountryCode = homeCountryCode,
-                                onCountryChange = onHomeCountryChange
-                            )
-                        }
-                    }
-                    item { org.sonora.android.ui.settings.DataBackupSection() }
-                    item { DeveloperSection() }
-                    item { AboutSonoraSection() }
-                }
-
-                SettingsTab.APPEARANCE -> {
-                    item {
-                        AppearanceSection(
-                            appearanceMode = appearanceMode,
-                            onAppearanceModeChange = onAppearanceModeChange,
-                            reduceMotion = reduceMotion,
-                            onReduceMotionChange = onReduceMotionChange,
-                            ambientRotationEnabled = ambientRotationEnabled,
-                            onAmbientRotationChange = onAmbientRotationChange,
-                            liquidGlass = liquidGlass,
-                            onLiquidGlassChange = onLiquidGlassChange
-                        )
-                    }
-                    item {
-                        AccentColorSection(
-                            accentColor = accentColor,
-                            onAccentColorChange = onAccentColorChange
-                        )
-                    }
-                }
-
-                SettingsTab.MUSIC -> {
-                    item { org.sonora.android.ui.settings.YouTubeAccountSection() }
-                    item {
-                        StreamingSourceSection(
-                            currentSource = sourcePreference,
-                            onSourceSelected = onSourcePreferenceChange
-                        )
-                    }
-                    item {
-                        AudioQualitySection(
-                            currentQuality = currentAudioQuality,
-                            onQualitySelected = onAudioQualityChange
-                        )
-                    }
-                    item {
-                        DownloadSettingsSection(
-                            currentQuality = downloadQuality,
-                            onQualitySelected = onDownloadQualityChange,
-                            wifiOnly = downloadWifiOnly,
-                            onWifiOnlyChange = onDownloadWifiOnlyChange,
-                            downloadLyrics = downloadLyrics,
-                            onDownloadLyricsChange = onDownloadLyricsChange,
-                            onOpenOfflineLyrics = onOpenOfflineLyrics,
-                            sizeBytes = downloadsSizeBytes,
-                            onClearDownloads = onClearDownloads
-                        )
-                    }
-                    item {
-                        EqualizerSettingsSection(
-                            equalizerState = equalizerState,
-                            onOpenEqualizer = onOpenEqualizerClick
-                        )
-                    }
-                    item {
-                        PlaybackSection(
-                            isAutoplayEnabled = isAutoplayEnabled,
-                            onAutoplayChange = onAutoplayChange,
-                            crossfadeSeconds = crossfadeSeconds,
-                            onCrossfadeSecondsChange = onCrossfadeSecondsChange,
-                            automixEnabled = automixEnabled,
-                            onAutomixChange = onAutomixChange,
-                            automixStyle = automixStyle,
-                            onAutomixStyleChange = onAutomixStyleChange,
-                            djVoice = DjVoiceSettings(
-                                selected = djVoiceName,
-                                voices = djVoices,
-                                onSelect = onDjVoiceChange,
-                                onLoad = onLoadDjVoices,
-                                onPreview = onPreviewDjVoice,
-                                language = djLanguage,
-                                piperStatus = piperStatus,
-                                onDownload = onDownloadPiperVoice,
-                                onDelete = onDeletePiperVoice
-                            )
-                        )
-                    }
-                    item {
-                        TranslationSection(
-                            translateLyrics = translateLyrics,
-                            onTranslateLyricsChange = onTranslateLyricsChange,
-                            targetLang = translationTargetLang,
-                            onTargetLangChange = onTranslationTargetLangChange,
-                            highlightMode = lyricsHighlightMode,
-                            onHighlightModeChange = onLyricsHighlightModeChange,
-                            musixmatchEnabled = lyricsProviderMusixmatch,
-                            onMusixmatchChange = onLyricsProviderMusixmatchChange,
-                            lrclibEnabled = lyricsProviderLrclib,
-                            onLrclibChange = onLyricsProviderLrclibChange,
-                            sources = lyricsSources,
-                            onOpenSources = { lyricsSourcesOpen = true },
-                            onClearTranslationModels = onClearTranslationModels
-                        )
-                    }
-                    item {
-                        CacheSection(
-                            cacheSizeBytes = cacheSizeBytes,
-                            cacheCleared = cacheClearedMessage,
-                            onClearCache = {
-                                onClearCacheClick()
-                                cacheClearedMessage = true
+            },
+            label = "settingsPage"
+        ) { shown ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = LocalBottomChromeInset.current + 24.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Header Bar
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
+                        val atRoot = shown == SettingsPage.ROOT
+                        if (showBack || !atRoot) {
+                            IconButton(
+                                onClick = { if (atRoot) onBackClick() else page = SettingsPage.ROOT },
+                                modifier = Modifier.offset(x = (-12).dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.settings_back_content_description),
+                                    tint = SonoraTheme.colors.primaryAccent
+                                )
                             }
+                        }
+                        Text(
+                            text = stringResource(shown.titleRes),
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontSize = 34.sp,
+                                lineHeight = 41.sp,
+                                color = SonoraTextPrimary
+                            )
                         )
                     }
                 }
 
-                SettingsTab.API -> {
-                    item {
-                        ApiHealthSection(
-                            healthList = healthList,
-                            isRefreshing = isRefreshingApis,
-                            onRefresh = onRefreshApisClick,
-                            onViewDiagnostics = onViewDiagnosticsClick
-                        )
+                when (shown) {
+                    SettingsPage.ROOT -> item { SettingsRootList(reduceMotion = reduceMotion, onOpen = { page = it }) }
+                    SettingsPage.ACCOUNT -> item { org.sonora.android.ui.settings.YouTubeAccountSection() }
+                    SettingsPage.PLAYBACK -> {
+                        item {
+                            PlaybackSection(
+                                isAutoplayEnabled = isAutoplayEnabled,
+                                onAutoplayChange = onAutoplayChange,
+                                crossfadeSeconds = crossfadeSeconds,
+                                onCrossfadeSecondsChange = onCrossfadeSecondsChange,
+                                automixEnabled = automixEnabled,
+                                onAutomixChange = onAutomixChange,
+                                automixStyle = automixStyle,
+                                onAutomixStyleChange = onAutomixStyleChange,
+                                djVoice = DjVoiceSettings(
+                                    selected = djVoiceName,
+                                    voices = djVoices,
+                                    onSelect = onDjVoiceChange,
+                                    onLoad = onLoadDjVoices,
+                                    onPreview = onPreviewDjVoice,
+                                    language = djLanguage,
+                                    piperStatus = piperStatus,
+                                    onDownload = onDownloadPiperVoice,
+                                    onDelete = onDeletePiperVoice
+                                )
+                            )
+                        }
                     }
+                    SettingsPage.AUDIO -> {
+                        item {
+                            StreamingSourceSection(
+                                currentSource = sourcePreference,
+                                onSourceSelected = onSourcePreferenceChange
+                            )
+                        }
+                        item {
+                            AudioQualitySection(
+                                currentQuality = currentAudioQuality,
+                                onQualitySelected = onAudioQualityChange
+                            )
+                        }
+                        item {
+                            EqualizerSettingsSection(
+                                equalizerState = equalizerState,
+                                onOpenEqualizer = onOpenEqualizerClick
+                            )
+                        }
+                    }
+                    SettingsPage.DOWNLOADS -> {
+                        item {
+                            DownloadSettingsSection(
+                                currentQuality = downloadQuality,
+                                onQualitySelected = onDownloadQualityChange,
+                                wifiOnly = downloadWifiOnly,
+                                onWifiOnlyChange = onDownloadWifiOnlyChange,
+                                downloadLyrics = downloadLyrics,
+                                onDownloadLyricsChange = onDownloadLyricsChange,
+                                onOpenOfflineLyrics = onOpenOfflineLyrics,
+                                sizeBytes = downloadsSizeBytes,
+                                onClearDownloads = onClearDownloads
+                            )
+                        }
+                    }
+                    SettingsPage.LYRICS -> {
+                        item {
+                            TranslationSection(
+                                translateLyrics = translateLyrics,
+                                onTranslateLyricsChange = onTranslateLyricsChange,
+                                targetLang = translationTargetLang,
+                                onTargetLangChange = onTranslationTargetLangChange,
+                                highlightMode = lyricsHighlightMode,
+                                onHighlightModeChange = onLyricsHighlightModeChange,
+                                musixmatchEnabled = lyricsProviderMusixmatch,
+                                onMusixmatchChange = onLyricsProviderMusixmatchChange,
+                                lrclibEnabled = lyricsProviderLrclib,
+                                onLrclibChange = onLyricsProviderLrclibChange,
+                                sources = lyricsSources,
+                                onOpenSources = { lyricsSourcesOpen = true },
+                                onClearTranslationModels = onClearTranslationModels
+                            )
+                        }
+                    }
+                    SettingsPage.APPEARANCE -> {
+                        item {
+                            AppearanceSection(
+                                appearanceMode = appearanceMode,
+                                onAppearanceModeChange = onAppearanceModeChange,
+                                reduceMotion = reduceMotion,
+                                onReduceMotionChange = onReduceMotionChange,
+                                ambientRotationEnabled = ambientRotationEnabled,
+                                onAmbientRotationChange = onAmbientRotationChange,
+                                liquidGlass = liquidGlass,
+                                onLiquidGlassChange = onLiquidGlassChange
+                            )
+                        }
+                        item {
+                            AccentColorSection(
+                                accentColor = accentColor,
+                                onAccentColorChange = onAccentColorChange
+                            )
+                        }
+                    }
+                    SettingsPage.LANGUAGE -> {
+                        item {
+                            SettingsGroup {
+                                LanguageSection(
+                                    appLanguage = appLanguage,
+                                    onAppLanguageChange = onAppLanguageChange
+                                )
+                                SettingsRowDivider(hasLeading = true)
+                                CountrySection(
+                                    currentCountryCode = homeCountryCode,
+                                    onCountryChange = onHomeCountryChange
+                                )
+                            }
+                        }
+                    }
+                    SettingsPage.DATA -> {
+                        item { org.sonora.android.ui.settings.DataBackupSection() }
+                        item {
+                            CacheSection(
+                                cacheSizeBytes = cacheSizeBytes,
+                                cacheCleared = cacheClearedMessage,
+                                onClearCache = {
+                                    onClearCacheClick()
+                                    cacheClearedMessage = true
+                                }
+                            )
+                        }
+                    }
+                    SettingsPage.ADVANCED -> {
+                        item {
+                            ApiHealthSection(
+                                healthList = healthList,
+                                isRefreshing = isRefreshingApis,
+                                onRefresh = onRefreshApisClick,
+                                onViewDiagnostics = onViewDiagnosticsClick
+                            )
+                        }
+                        item { DeveloperSection() }
+                    }
+                    SettingsPage.WATCH -> item { org.sonora.android.ui.settings.WatchSection() }
+                    SettingsPage.ABOUT -> item { AboutSonoraSection() }
                 }
             }
         }

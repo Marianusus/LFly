@@ -83,6 +83,11 @@ class SonoraApp : Application() {
         // 1c. The YouTube Music account, if the listener signed in: API clients read it from YouTubeAuth.
         org.sonora.android.auth.GoogleAccountStore.getInstance(this)
 
+        // 1d. The LFly watch app, if one is paired: idle without Wear OS.
+        org.sonora.android.wear.WearBridge.start(this)
+        // 1e. LFly Connect: this phone as a player others on the network can see and control.
+        org.sonora.android.connect.ConnectManager.start(this)
+
         // 2. Eagerly load persistent data from internal storage & audio DSP settings
         musicRepository
         equalizerManager

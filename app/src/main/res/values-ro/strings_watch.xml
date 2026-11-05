@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_page_watch">Ceas</string>
+    <string name="watch_section_title">LFly pentru Wear OS</string>
+    <string name="watch_section_footer">Comenzi, aprecieri, volum din coroană și coada, de la încheietură. Aplicația de pe ceas se actualizează de aici.</string>
+    <string name="watch_none">Niciun ceas conectat</string>
+    <string name="watch_none_hint">Asociază un ceas Wear OS cu acest telefon</string>
+    <string name="watch_looking">Se caută ceasul…</string>
+    <string name="watch_installed">LFly %1$s instalat</string>
+    <string name="watch_not_installed">LFly nu este instalat pe ceas</string>
+    <string name="watch_install">Instalează pe ceas</string>
+    <string name="watch_sending">Se trimite la ceas…</string>
+    <string name="watch_sent">Trimis: confirmă instalarea pe ceas</string>
+    <string name="watch_failed">Trimiterea a eșuat. Încearcă din nou cu ceasul aproape.</string>
+    <string name="watch_up_to_date">Actualizat</string>
+</resources>

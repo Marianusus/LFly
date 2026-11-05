@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connect_devices_title">Dispozitive</string>
+    <string name="connect_this_phone">Acest telefon</string>
+    <string name="connect_playing_here">Se redă aici</string>
+    <string name="connect_playing_there">Se redă acolo · controlat de pe acest telefon</string>
+    <string name="connect_your_account">Contul tău</string>
+    <string name="connect_on_network">Pe aceeași rețea</string>
+    <string name="connect_none_found">Niciun alt dispozitiv cu LFly pe acest Wi‑Fi.</string>
+    <string name="connect_pair_waiting">Confirmă codul %1$s pe celălalt dispozitiv</string>
+    <string name="connect_request_title">%1$s vrea să controleze LFly</string>
+    <string name="connect_request_body">Dacă celălalt dispozitiv arată același cod, acceptă. Va fi ținut minte data viitoare.</string>
+    <string name="connect_request_accept">Acceptă</string>
+    <string name="connect_request_refuse">Refuză</string>
+    <string name="connect_current_device">Dispozitiv curent</string>
+    <string name="connect_select_device">Alege un dispozitiv</string>
+    <string name="connect_phone_speaker">Difuzorul telefonului</string>
+</resources>

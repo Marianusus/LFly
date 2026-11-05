@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_page_playback">Redare</string>
+    <string name="settings_page_audio">Audio și egalizator</string>
+    <string name="settings_page_downloads">Descărcări</string>
+    <string name="settings_page_lyrics">Versuri</string>
+    <string name="settings_page_language">Limbă și țară</string>
+    <string name="settings_page_data">Date și spațiu</string>
+    <string name="settings_page_advanced">Avansat</string>
+    <string name="settings_page_about">Despre LFly</string>
+    <string name="settings_page_account_signed_out">Bibliotecă, aprecieri și playlisturi</string>
+</resources>

@@ -75,6 +75,17 @@ import java.util.concurrent.atomic.AtomicLong
 /** Transport actions a Party guest forwards to its host instead of playing locally. */
 enum class PartyTransportAction { PLAY_PAUSE, PLAY, PAUSE, NEXT, PREVIOUS, SEEK }
 
+/** A change to the queue or play mode, sent to the LFly device this app controls. */
+sealed interface RemoteEdit {
+    data class Add(val tracks: List<Track>) : RemoteEdit
+    data class Next(val track: Track) : RemoteEdit
+    data class Remove(val index: Int) : RemoteEdit
+    data class Move(val from: Int, val to: Int) : RemoteEdit
+    data object ClearUpcoming : RemoteEdit
+    data class Shuffle(val on: Boolean) : RemoteEdit
+    data class Repeat(val mode: RepeatMode) : RemoteEdit
+}
+
 /**
  * Central singleton managing player state, track queues, playback controls,
  * stream resolution integration, and reactive [StateFlow] updates for the UI.
@@ -710,7 +721,71 @@ class PlaybackManager private constructor(private val context: Context) {
 
     private fun forwardToParty(action: PartyTransportAction, positionMs: Long = 0L): Boolean {
         if (partyApplyingRemote) return false
+        if (connectTransportHandler?.invoke(action, positionMs) == true) return true
         return partyTransportHandler?.invoke(action, positionMs) == true
+    }
+
+    // ==========================================
+    // LFly Connect: controlling another device
+    // ==========================================
+
+    /** While this app controls another LFly, transport goes there instead of the local player. */
+    var connectTransportHandler: ((PartyTransportAction, Long) -> Boolean)? = null
+
+    /** While this app controls another LFly, a new queue starts there. */
+    var connectPlayHandler: ((List<Track>, Int) -> Boolean)? = null
+
+    /** While this app controls another LFly, a tap in the queue plays that row there. */
+    var connectSkipHandler: ((Int) -> Boolean)? = null
+
+    /** While this app controls another LFly, shuffle, repeat and queue edits go there. */
+    var connectEditHandler: ((RemoteEdit) -> Boolean)? = null
+
+    /**
+     * Shows what another device is playing, as if it played here, without touching the local
+     * player (which stays paused while another device plays).
+     */
+    fun showRemoteState(
+        queue: List<Track>,
+        index: Int,
+        playing: Boolean,
+        positionMs: Long,
+        durationMs: Long,
+        shuffle: Boolean = _playbackState.value.isShuffle,
+        repeat: RepeatMode = _playbackState.value.repeatMode
+    ) {
+        val track = queue.getOrNull(index)
+        _playbackState.update {
+            it.copy(
+                isShuffle = shuffle,
+                repeatMode = repeat,
+                queue = queue,
+                currentIndex = if (track != null) index else -1,
+                currentTrack = track ?: it.currentTrack,
+                userQueueSize = queue.size,
+                isPlaying = playing,
+                isLoading = false,
+                isBuffering = false,
+                positionMs = positionMs,
+                durationMs = if (durationMs > 0) durationMs else track?.durationMs ?: it.durationMs,
+                error = null
+            )
+        }
+    }
+
+    /** Plays [tracks] here from [index] at [positionMs]: the music has just moved to this device. */
+    fun playHandedOver(tracks: List<Track>, index: Int, positionMs: Long, play: Boolean) {
+        if (tracks.isEmpty()) return
+        val sanitized = tracks.map { sanitizeTrack(it) }
+        val start = index.coerceIn(0, sanitized.lastIndex)
+        _playbackState.update { it.copy(queue = sanitized, currentIndex = start, userQueueSize = sanitized.size) }
+        rebuildShuffleList(sanitized.size, start)
+        playFromQueueIndex(start, resumePositionMs = positionMs.coerceAtLeast(0L))
+        if (!play) managerScope.launch {
+            // Let the stream start, then hold it where it was, as the other device had it.
+            kotlinx.coroutines.delay(1_500)
+            player?.pause()
+        }
     }
 
     /**
@@ -1018,6 +1093,7 @@ class PlaybackManager private constructor(private val context: Context) {
      * Replaces the active queue and starts playback from [startIndex].
      */
     fun playQueue(tracks: List<Track>, startIndex: Int = 0, context: String? = null) {
+        if (tracks.isNotEmpty() && connectPlayHandler?.invoke(tracks.map { sanitizeTrack(it) }, startIndex) == true) return
         cancelCrossfade()
         if (tracks.isEmpty()) {
             clearQueue()
@@ -1280,6 +1356,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun setRepeatMode(mode: RepeatMode) {
+        if (connectEditHandler?.invoke(RemoteEdit.Repeat(mode)) == true) return
         _playbackState.update { it.copy(repeatMode = mode) }
         applyRepeatModeToPlayer(mode)
     }
@@ -1289,6 +1366,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun toggleShuffle() {
+        if (connectEditHandler?.invoke(RemoteEdit.Shuffle(!_playbackState.value.isShuffle)) == true) return
         val newShuffle = !_playbackState.value.isShuffle
         _playbackState.update { it.copy(isShuffle = newShuffle) }
         if (newShuffle) {
@@ -1309,6 +1387,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun addToQueue(track: Track) {
+        if (connectEditHandler?.invoke(RemoteEdit.Add(listOf(sanitizeTrack(track)))) == true) return
         val sanitized = sanitizeTrack(track)
         val wasEmpty = _playbackState.value.queue.isEmpty() || _playbackState.value.currentTrack == null
         // Append to the END of the user queue, i.e. just before any autoplay/radio tracks.
@@ -1362,6 +1441,7 @@ class PlaybackManager private constructor(private val context: Context) {
 
     fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
+        if (connectEditHandler?.invoke(RemoteEdit.Add(tracks.map { sanitizeTrack(it) })) == true) return
         val sanitized = tracks.map { sanitizeTrack(it) }
         val wasEmpty = _playbackState.value.queue.isEmpty() || _playbackState.value.currentTrack == null
         val insertAt = _playbackState.value.userQueueSize
@@ -1421,6 +1501,7 @@ class PlaybackManager private constructor(private val context: Context) {
      * next track), keeping it inside the user queue. Used by the "Riproduci dopo" action.
      */
     fun addNext(track: Track) {
+        if (connectEditHandler?.invoke(RemoteEdit.Next(sanitizeTrack(track))) == true) return
         val sanitized = sanitizeTrack(track)
         val state = _playbackState.value
         if (state.queue.isEmpty() || state.currentTrack == null) {
@@ -1465,6 +1546,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun removeFromQueue(index: Int) {
+        if (connectEditHandler?.invoke(RemoteEdit.Remove(index)) == true) return
         val state = _playbackState.value
         if (index !in state.queue.indices) return
 
@@ -1514,6 +1596,7 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     fun moveQueueItem(from: Int, to: Int) {
+        if (connectEditHandler?.invoke(RemoteEdit.Move(from, to)) == true) return
         val state = _playbackState.value
         val queue = state.queue
         if (from !in queue.indices || to !in queue.indices || from == to) return
@@ -1598,6 +1681,7 @@ class PlaybackManager private constructor(private val context: Context) {
      * one. The playing track and the radio/autoplay tail stay in place.
      */
     fun clearUserQueue() {
+        if (connectEditHandler?.invoke(RemoteEdit.ClearUpcoming) == true) return
         val state = _playbackState.value
         val result = clearUserUpcoming(state.queue, state.currentIndex, state.userQueueSize)
             ?: return
@@ -1643,6 +1727,7 @@ class PlaybackManager private constructor(private val context: Context) {
     fun playFromQueueIndex(index: Int, resumePositionMs: Long = 0L) {
         val state = _playbackState.value
         if (index !in state.queue.indices) return
+        if (connectSkipHandler?.invoke(index) == true) return
         cancelCrossfade()
 
         // A direct tap can jump anywhere in the queue: keep the shuffle cursor in sync so

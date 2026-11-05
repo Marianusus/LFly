@@ -12,6 +12,7 @@ local.properties
 
 # App build outputs
 app/build/
+wearos/build/
 app/release/
 *.apk
 *.aab
@@ -44,3 +45,8 @@ keystore.properties
 # graphify knowledge-graph artifacts
 /graphify-out/
 /graphify.json
+
+# Trasferimento su nuovo computer (chiavi e chat: mai committare)
+/_trasloco/
+/RIPRENDI_CHAT.txt
+/AMBIENTE_SVILUPPO.txt

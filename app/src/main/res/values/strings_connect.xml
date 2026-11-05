@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connect_devices_title">Dispositivi</string>
+    <string name="connect_this_phone">Questo telefono</string>
+    <string name="connect_playing_here">In riproduzione qui</string>
+    <string name="connect_playing_there">In riproduzione lì · controllato da questo telefono</string>
+    <string name="connect_your_account">Il tuo account</string>
+    <string name="connect_on_network">Sulla stessa rete</string>
+    <string name="connect_none_found">Nessun altro dispositivo con LFly su questa Wi‑Fi.</string>
+    <string name="connect_pair_waiting">Conferma il codice %1$s sull\'altro dispositivo</string>
+    <string name="connect_request_title">%1$s vuole controllare LFly</string>
+    <string name="connect_request_body">Se sull\'altro dispositivo vedi lo stesso codice, accetta. Lo ricorderò per le prossime volte.</string>
+    <string name="connect_request_accept">Accetta</string>
+    <string name="connect_request_refuse">Rifiuta</string>
+    <string name="connect_current_device">Dispositivo attuale</string>
+    <string name="connect_select_device">Seleziona un dispositivo</string>
+    <string name="connect_phone_speaker">Altoparlante del telefono</string>
+    <string name="connect_lfly_connect" translatable="false">LFly Connect</string>
+</resources>

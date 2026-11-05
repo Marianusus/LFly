@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_page_playback">Playback</string>
+    <string name="settings_page_audio">Audio &amp; equalizer</string>
+    <string name="settings_page_downloads">Downloads</string>
+    <string name="settings_page_lyrics">Lyrics</string>
+    <string name="settings_page_language">Language &amp; region</string>
+    <string name="settings_page_data">Data &amp; storage</string>
+    <string name="settings_page_advanced">Advanced</string>
+    <string name="settings_page_about">About LFly</string>
+    <string name="settings_page_account_signed_out">Library, likes and playlists</string>
+</resources>

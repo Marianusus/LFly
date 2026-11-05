@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">LFly</string>
+    <string name="wear_connecting">Connessione al telefono…</string>
+    <string name="wear_no_phone">Telefono non raggiungibile. Apri LFly sul telefono.</string>
+    <string name="wear_retry">Riprova</string>
+    <string name="wear_nothing_playing">Niente in riproduzione. Avvia un brano su LFly.</string>
+    <string name="wear_up_next">In coda</string>
+    <string name="wear_play">Riproduci</string>
+    <string name="wear_pause">Pausa</string>
+    <string name="wear_next">Successivo</string>
+    <string name="wear_previous">Precedente</string>
+    <string name="wear_like">Mi piace</string>
+    <string name="wear_queue">Coda</string>
+    <string name="wear_playing_now">In riproduzione</string>
+</resources>

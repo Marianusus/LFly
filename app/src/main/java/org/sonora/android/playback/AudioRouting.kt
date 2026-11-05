@@ -9,10 +9,13 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Local audio outputs available to the player. Ported from BitChord's
- * AudioRouting (GPLv3), trimmed to the sinks Sonora can route to.
+ * AudioRouting (GPLv3), trimmed to the sinks Sonora can route to; the output forms are LFly's own.
  */
 object AudioRouting {
     enum class Kind { PHONE, WIRED, USB, BLUETOOTH, HDMI, OTHER }
+
+    /** What the output physically is, for its icon: earbuds, over-ear headphones, a car, a speaker. */
+    enum class Form { DEFAULT, EARBUDS, HEADPHONES, HEADSET, SPEAKER, CAR, WATCH }
 
     data class Device(
         val id: Int,
@@ -20,6 +23,7 @@ object AudioRouting {
         val name: String,
         val kind: Kind,
         val isActive: Boolean = false,
+        val form: Form = Form.DEFAULT,
     )
 
     private val _selectedId = MutableStateFlow<Int?>(null)
@@ -57,6 +61,7 @@ object AudioRouting {
                     name = nameOf(info, kind),
                     kind = kind,
                     isActive = info.id == active?.id,
+                    form = formOf(context, info, kind),
                 )
             }
             .groupBy { it.name to it.kind }
@@ -97,6 +102,62 @@ object AudioRouting {
         AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER -> 1
         else -> 2
     }
+
+    /**
+     * The output's shape. Bluetooth says it in the paired device's class (headphones, car audio,
+     * loudspeaker, watch); earbuds report themselves as headphones, so their name tells them apart.
+     */
+    private fun formOf(context: Context, info: AudioDeviceInfo, kind: Kind): Form {
+        when (info.type) {
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET -> return Form.HEADSET
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> return Form.HEADPHONES
+            AudioDeviceInfo.TYPE_BLE_SPEAKER -> return Form.SPEAKER
+            AudioDeviceInfo.TYPE_HEARING_AID -> return Form.EARBUDS
+        }
+        if (kind != Kind.BLUETOOTH) return Form.DEFAULT
+        val name = info.productName?.toString().orEmpty()
+        val byName = formByName(name)
+        val major = bluetoothClassOf(context, info)
+        val byClass = when (major) {
+            android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_HANDSFREE,
+            android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_CAR_AUDIO -> Form.CAR
+            android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_LOUDSPEAKER,
+            android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_PORTABLE_AUDIO,
+            android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_HIFI_AUDIO -> Form.SPEAKER
+            android.bluetooth.BluetoothClass.Device.WEARABLE_WRIST_WATCH -> Form.WATCH
+            android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_WEARABLE_HEADSET,
+            android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_HEADPHONES -> Form.HEADPHONES
+            else -> null
+        }
+        return when {
+            // Earbuds call themselves headphones: the name is the better clue.
+            byName == Form.EARBUDS && (byClass == null || byClass == Form.HEADPHONES) -> Form.EARBUDS
+            byClass != null -> byClass
+            byName != null -> byName
+            else -> Form.HEADPHONES
+        }
+    }
+
+    internal fun formByName(name: String): Form? {
+        val n = name.lowercase()
+        return when {
+            listOf("buds", "pods", "earbud", "wf-", "tws", "elite", "freebuds", "liberty", "ear (", "nothing ear").any { it in n } -> Form.EARBUDS
+            listOf("car", "auto", "carplay", "sync", "uconnect", "mylink", "bmw", "audi", "vw ", "toyota", "ford", "fiat", "mercedes").any { it in n } -> Form.CAR
+            listOf("speaker", "boom", "flip", "charge", "soundlink", "soundbar", "home", "nest", "echo", "sonos").any { it in n } -> Form.SPEAKER
+            listOf("watch").any { it in n } -> Form.WATCH
+            listOf("headphone", "wh-", "qc", "momentum", "studio", "solo").any { it in n } -> Form.HEADPHONES
+            else -> null
+        }
+    }
+
+    /** The paired device's class, by address; null without the Bluetooth permission or address. */
+    @Suppress("MissingPermission")
+    private fun bluetoothClassOf(context: Context, info: AudioDeviceInfo): Int? = runCatching {
+        if (android.os.Build.VERSION.SDK_INT < 28) return null
+        val address = info.address.takeIf { it.isNotBlank() } ?: return null
+        val adapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter ?: return null
+        adapter.bondedDevices?.firstOrNull { it.address.equals(address, ignoreCase = true) }?.bluetoothClass?.deviceClass
+    }.getOrNull()
 
     private fun nameOf(info: AudioDeviceInfo, kind: Kind): String = when (kind) {
         Kind.PHONE, Kind.WIRED -> ""

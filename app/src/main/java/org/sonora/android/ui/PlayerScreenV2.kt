@@ -1,5 +1,7 @@
 package org.sonora.android.ui
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.filled.Speaker
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -1360,10 +1362,13 @@ private fun PlayerActionRow(
                     }
                 } else {
                     Pill {
+                        // Where the music is heard: earbuds, headphones, car, speaker, Cast, another LFly.
+                        val (listeningIcon, elsewhere) = org.sonora.android.ui.components.rememberListeningIcon()
                         PillSegment(
-                            icon = Icons.Default.Headphones,
+                            icon = listeningIcon,
                             description = stringResource(R.string.audio_output_title),
-                            tint = inkSecondary,
+                            tint = if (elsewhere) accent else inkSecondary,
+                            highlighted = elsewhere,
                             onClick = onOpenOutput,
                         )
                         PillDivider(ink)

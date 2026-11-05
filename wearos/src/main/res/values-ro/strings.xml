@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">LFly</string>
+    <string name="wear_connecting">Se conectează la telefon…</string>
+    <string name="wear_no_phone">Telefonul nu poate fi accesat. Deschide LFly pe telefon.</string>
+    <string name="wear_retry">Reîncearcă</string>
+    <string name="wear_nothing_playing">Nu rulează nimic. Pornește o melodie în LFly.</string>
+    <string name="wear_up_next">Urmează</string>
+    <string name="wear_play">Redă</string>
+    <string name="wear_pause">Pauză</string>
+    <string name="wear_next">Următoarea</string>
+    <string name="wear_previous">Anterioara</string>
+    <string name="wear_like">Îmi place</string>
+    <string name="wear_queue">Coadă</string>
+    <string name="wear_playing_now">Se redă acum</string>
+</resources>
