@@ -188,7 +188,7 @@ internal fun DiscordSection() {
         )
     }
     if (editAppId) {
-        var text by remember { mutableStateOf(state.applicationId) }
+        var text by remember { mutableStateOf(state.applicationId.takeUnless { it == DiscordPresence.LFLY_APPLICATION_ID }.orEmpty()) }
         AlertDialog(
             onDismissRequest = { editAppId = false },
             title = { Text(stringResource(R.string.discord_app_id)) },
@@ -269,7 +269,7 @@ internal fun DiscordSection() {
         SettingsGroup {
             SettingsRow(
                 title = stringResource(R.string.discord_app_id),
-                value = state.applicationId.ifBlank { stringResource(R.string.discord_app_id_none) },
+                value = if (state.applicationId == DiscordPresence.LFLY_APPLICATION_ID) stringResource(R.string.discord_app_id_none) else state.applicationId,
                 icon = Icons.Default.Image,
                 tile = SettingsTile.Graphite,
                 showChevron = true,

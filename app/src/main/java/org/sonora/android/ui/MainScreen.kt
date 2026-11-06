@@ -706,8 +706,12 @@ fun MainScreen(
         val glassBackdropBrush = remember(glassScheme) {
             Brush.verticalGradient(glassScheme.gradient)
         }
+        // The glass records this screen to refract it. Its own gradient would paint over the moving
+        // cover, so in that mode the cover is drawn inside the recording instead (below).
+        val coverBackdrop = org.sonora.android.ui.theme.LocalAppearanceMode.current ==
+            org.sonora.android.ui.theme.AppearanceMode.DYNAMIC_COVER
         val appBackdrop = rememberLayerBackdrop(onDraw = {
-            drawRect(brush = glassBackdropBrush)
+            if (!coverBackdrop) drawRect(brush = glassBackdropBrush)
             drawContent()
         })
 
@@ -725,6 +729,9 @@ fun MainScreen(
                     .then(if (glassActive) Modifier.layerBackdrop(appBackdrop) else Modifier)
                     .then(if (glassActive) Modifier.nestedScroll(glassScrollState.connection) else Modifier)
             ) {
+            if (glassActive && coverBackdrop) {
+                org.sonora.android.ui.theme.DynamicCoverBackdrop(org.sonora.android.ui.theme.LocalBackdropCover.current)
+            }
             Scaffold(
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),

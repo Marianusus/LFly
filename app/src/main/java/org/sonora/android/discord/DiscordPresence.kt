@@ -44,8 +44,8 @@ data class DiscordState(
     val user: DiscordUser? = null,
     val enabled: Boolean = true,
     val style: DiscordPresenceStyle = DiscordPresenceStyle.LFLY,
-    /** Optional: a Discord application of the listener's, which lets Discord show the covers. */
-    val applicationId: String = "",
+    /** The Discord application the presence names (LFly's own unless the listener set another): it lets Discord show the covers. */
+    val applicationId: String = DiscordPresence.LFLY_APPLICATION_ID,
     val expired: Boolean = false
 )
 
@@ -63,6 +63,8 @@ object DiscordPresence {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_STYLE = "style"
     private const val KEY_APP_ID = "application_id"
+    /** LFly's own Discord application ("LFly", with the app's icon). */
+    const val LFLY_APPLICATION_ID = "1568331550532173974"
     private const val API = "https://discord.com/api/v9"
     /** Discord's own client, as the REST calls present themselves. */
     private const val CLIENT_BUILD = 314013
@@ -115,7 +117,7 @@ object DiscordPresence {
             user = user,
             enabled = prefs.getBoolean(KEY_ENABLED, true),
             style = runCatching { DiscordPresenceStyle.valueOf(prefs.getString(KEY_STYLE, null)!!) }.getOrDefault(DiscordPresenceStyle.LFLY),
-            applicationId = prefs.getString(KEY_APP_ID, "").orEmpty()
+            applicationId = prefs.getString(KEY_APP_ID, null)?.takeIf { it.isNotBlank() } ?: LFLY_APPLICATION_ID
         )
 
         val player = PlaybackManager.getInstance(app)
@@ -286,12 +288,14 @@ object DiscordPresence {
         _state.value = _state.value.copy(style = style)
     }
 
+    /** A blank id goes back to LFly's own application. */
     fun setApplicationId(id: String) {
         val clean = id.filter { it.isDigit() }
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_APP_ID, clean).apply()
         artwork.clear()
-        _state.value = _state.value.copy(applicationId = clean)
+        _state.value = _state.value.copy(applicationId = clean.ifBlank { LFLY_APPLICATION_ID })
     }
+
 
     private fun onAuthFailed() {
         closeGateway()

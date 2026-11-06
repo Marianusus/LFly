@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -32,7 +33,11 @@ fun SonoraBackground(
     val mode = LocalAppearanceMode.current
     val motion = LocalMotionPreferences.current
     val userAccent = LocalUserAccent.current
-    val coverAccent = if (mode.isDynamic) rememberCoverAccent(coverUrl) else null
+    // A screen without a cover of its own keeps the one behind it (the playing song), so the
+    // cover backdrop does not drop to a flat gradient on such pages.
+    val inherited = LocalBackdropCover.current
+    val cover = if (mode == AppearanceMode.DYNAMIC_COVER) coverUrl ?: inherited else coverUrl
+    val coverAccent = if (mode.isDynamic) rememberCoverAccent(cover) else null
     val scheme = remember(mode, coverAccent, userAccent) {
         if (mode.isDynamic) {
             // Cover-derived accent when available; otherwise the user's chosen accent,
@@ -50,13 +55,15 @@ fun SonoraBackground(
     // Ambient accent glow (static; only for dynamic modes so AMOLED stays pure black,
     // PURE_WHITE stays clean). Animated on accent change, snapped under Reduce Motion.
     val glowColor by animateColorAsState(scheme.accent, tween(motion.backgroundMs), label = "glow")
-    CompositionLocalProvider(LocalBackgroundScheme provides scheme) {
+    CompositionLocalProvider(LocalBackgroundScheme provides scheme, LocalBackdropCover provides cover) {
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(brush),
         ) {
-            if (mode.isDynamic) {
+            if (mode == AppearanceMode.DYNAMIC_COVER) {
+                DynamicCoverBackdrop(cover)
+            } else if (mode.isDynamic) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -83,3 +90,6 @@ private fun animatedCanvasBrush(stops: List<Color>, durationMs: Int): Brush {
     val c2 by animateColorAsState(stops[2], tween(durationMs), label = "canvas2")
     return remember(c0, c1, c2) { Brush.verticalGradient(listOf(c0, c1, c2)) }
 }
+
+/** The cover the nearest [SonoraBackground] shows, for nested pages that have none of their own. */
+internal val LocalBackdropCover = staticCompositionLocalOf<String?> { null }

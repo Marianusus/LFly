@@ -72,6 +72,11 @@ fun chromeSurface(scheme: BackgroundScheme): ChromeSurface = when (scheme.mode) 
         tint = mixColor(Color(0xF0101016), scheme.accent, 0.10f).copy(alpha = 0.94f),
         border = Color(0x30FFFFFF)
     )
+    // Over the moving cover: a little more of the artwork's colour shows through.
+    AppearanceMode.DYNAMIC_COVER -> ChromeSurface(
+        tint = mixColor(Color(0xF00A0A10), scheme.accent, 0.16f).copy(alpha = 0.90f),
+        border = Color(0x33FFFFFF)
+    )
     AppearanceMode.DYNAMIC_LIGHT -> ChromeSurface(
         tint = mixColor(Color(0xF2FFFFFF), scheme.accent, 0.12f).copy(alpha = 0.94f),
         border = Color(0x22000000)

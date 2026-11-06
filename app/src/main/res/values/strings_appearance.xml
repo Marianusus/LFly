@@ -7,4 +7,6 @@
     <string name="appearance_dynamic_dark_subtitle">Sfondo scuro derivato dalla copertina in riproduzione</string>
     <string name="appearance_dynamic_light_title">Dinamico chiaro</string>
     <string name="appearance_dynamic_light_subtitle">Sfondo chiaro pastello derivato dalla copertina</string>
+    <string name="appearance_dynamic_cover_title">Copertina dinamica</string>
+    <string name="appearance_dynamic_cover_subtitle">La copertina in riproduzione, sfocata e in movimento, come sfondo dell\'app</string>
 </resources>

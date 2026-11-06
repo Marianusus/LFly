@@ -145,7 +145,8 @@ object BackgroundSchemeFactory {
                 isLight = true
             )
 
-            AppearanceMode.DYNAMIC_DARK -> {
+            // The cover mode draws the artwork on top of this; the dark scheme is its base and text colours.
+            AppearanceMode.DYNAMIC_DARK, AppearanceMode.DYNAMIC_COVER -> {
                 val g0 = clampLumaDark(mixColor(Color.Black, primary, 0.55f), 0.29f)
                 val g1 = clampLumaDark(mixColor(Color.Black, secondary, 0.34f), 0.19f)
                 BackgroundScheme(

@@ -32,14 +32,14 @@
     <string name="discord_presence">“Listening to” status</string>
     <string name="discord_presence_subtitle">The song, the artist and the time left; gone while paused</string>
     <string name="discord_style_title">Show as</string>
-    <string name="discord_style_footer">As Spotify, Discord shows Spotify\'s green card. Covers of songs imported from Spotify always show; others only with an application ID.</string>
+    <string name="discord_style_footer">As Spotify, Discord shows Spotify\'s green card.</string>
     <string name="discord_style_lfly">LFly</string>
     <string name="discord_style_lfly_subtitle">“Listening to LFly”</string>
     <string name="discord_style_spotify">Spotify</string>
     <string name="discord_style_spotify_subtitle">“Listening to Spotify”</string>
     <string name="discord_app_id">Application ID</string>
-    <string name="discord_app_id_none">None</string>
-    <string name="discord_app_id_body">To show covers, create an application at discord.com/developers (name it LFly) and paste its Application ID here. Without it the status shows, without a cover.</string>
+    <string name="discord_app_id_none">LFly</string>
+    <string name="discord_app_id_body">LFly already uses its own Discord application to show covers and its icon. To use one of yours, paste its Application ID here; leave it empty to go back to LFly\'s.</string>
     <string name="discord_save">Save</string>
     <string name="discord_disconnect">Disconnect Discord</string>
     <string name="discord_disconnect_confirm_title">Disconnect Discord?</string>

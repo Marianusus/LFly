@@ -7,4 +7,6 @@
     <string name="appearance_dynamic_dark_subtitle">Dark background derived from the playing cover</string>
     <string name="appearance_dynamic_light_title">Dynamic light</string>
     <string name="appearance_dynamic_light_subtitle">Pastel light background derived from the cover</string>
+    <string name="appearance_dynamic_cover_title">Dynamic cover</string>
+    <string name="appearance_dynamic_cover_subtitle">The playing cover, blurred and slowly moving, as the app background</string>
 </resources>

@@ -430,6 +430,7 @@ class MusicRepository(
             migrateOnRepeatPlaylist()
             loadFollowedArtists()
             loadPlaylistMixes()
+            healMissingLocalCovers()
             libraryLoaded.complete(Unit)
             syncLocalMusic()
             refreshMixes()
@@ -561,6 +562,63 @@ class MusicRepository(
                 saveToFile(FILE_FAVORITES, snapshot)
                 Log.i(TAG, "Repaired ${snapshot.size} favorite tracks to catalog identity")
             }
+        }
+    }
+
+    /**
+     * Covers that point at a local file which no longer exists (a reinstall or "clear data" wipes
+     * the app's music folder, while a restored backup still names those files) show as empty
+     * squares, and a mix shows its first song's. Each such cover is swapped for the same song's
+     * online cover found anywhere in the library (same id, else same title and artist), or dropped.
+     * Only the cover changes: the songs and their places stay as they are.
+     */
+    fun healMissingLocalCovers() {
+        fun dead(url: String?): Boolean =
+            url != null && url.startsWith("file://") && !File(url.removePrefix("file://")).exists()
+        fun key(track: Track) = "${track.title.trim().lowercase()}|${track.artist.trim().lowercase()}"
+
+        val all = _favorites.value + _history.value + _playlists.value.flatMap { it.tracks } +
+            _playStats.value.map { it.track } + _mixes.value.flatMap { it.tracks + it.savedTracks.orEmpty() } + _localTracks.value
+        if (all.none { dead(it.coverUrl) }) return
+        val online = all.filter { it.coverUrl?.startsWith("http", ignoreCase = true) == true }
+        val byId = online.associate { it.id to it.coverUrl }
+        val byName = online.associate { key(it) to it.coverUrl }
+        fun heal(track: Track): Track =
+            if (!dead(track.coverUrl)) track else track.copy(coverUrl = byId[track.id] ?: byName[key(track)])
+        fun healAll(tracks: List<Track>): List<Track> = tracks.map(::heal)
+
+        var healed = 0
+        synchronized(this) {
+            healed = all.count { dead(it.coverUrl) }
+            _favorites.value.let { old -> healAll(old).takeIf { it != old }?.let { _favorites.value = it } }
+            _history.value.let { old -> healAll(old).takeIf { it != old }?.let { _history.value = it } }
+            _playlists.value.let { old ->
+                old.map { it.copy(tracks = healAll(it.tracks), coverUrl = it.coverUrl.takeUnless(::dead)) }
+                    .takeIf { it != old }?.let { _playlists.value = it }
+            }
+            _playStats.value.let { old -> old.map { it.copy(track = heal(it.track)) }.takeIf { it != old }?.let { _playStats.value = it } }
+            _mixes.value.let { old ->
+                old.map { mix ->
+                    mix.copy(
+                        tracks = healAll(mix.tracks),
+                        savedTracks = mix.savedTracks?.let(::healAll),
+                        savedCover = mix.savedCover.takeUnless(::dead)
+                    )
+                }.takeIf { it != old }?.let { _mixes.value = it }
+            }
+        }
+        Log.i(TAG, "Healed $healed covers pointing at deleted local files")
+        val favorites = _favorites.value
+        val history = _history.value
+        val playlists = _playlists.value
+        val stats = _playStats.value
+        val mixes = _mixes.value
+        repositoryScope.launch {
+            favoritesMutex.withLock { saveToFile(FILE_FAVORITES, favorites) }
+            historyMutex.withLock { saveToFile(FILE_HISTORY, history) }
+            playlistsMutex.withLock { saveToFile(FILE_PLAYLISTS, playlists) }
+            playStatsMutex.withLock { saveToFile(FILE_PLAY_STATS, stats) }
+            mixesMutex.withLock { saveToFile(FILE_MIXES, mixes) }
         }
     }
 

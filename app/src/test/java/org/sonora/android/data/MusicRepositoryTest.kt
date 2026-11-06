@@ -59,6 +59,26 @@ class MusicRepositoryTest {
         tempDir.deleteRecursively()
     }
 
+    @Test
+    fun testCoversOfDeletedLocalFilesAreHealed() {
+        val online = track1.copy(id = "129632340", title = "Let Me Love You", artist = "DJ Snake")
+        val wiped = online.copy(
+            id = "local_1",
+            provider = "Local",
+            coverUrl = "file://${tempDir.absolutePath}/music/gone.jpg"
+        )
+        val alsoWipedSameId = online.copy(provider = "Local", coverUrl = "file://${tempDir.absolutePath}/music/gone2.jpg")
+        repository.addFavorite(online)
+        val playlist = repository.createPlaylistWithTracks(name = "Mix", tracks = listOf(wiped, alsoWipedSameId))
+
+        repository.healMissingLocalCovers()
+
+        val healed = repository.getPlaylist(playlist.id)!!.tracks
+        assertEquals("same title and artist", online.coverUrl, healed[0].coverUrl)
+        assertEquals("same id", online.coverUrl, healed[1].coverUrl)
+        assertEquals("the songs themselves stay", listOf("local_1", "129632340"), healed.map { it.id })
+    }
+
     // ==========================================
     // Playlist CRUD Tests
     // ==========================================

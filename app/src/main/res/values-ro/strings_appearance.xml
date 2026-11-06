@@ -7,4 +7,6 @@
     <string name="appearance_dynamic_dark_subtitle">Fundal închis derivat din coperta în redare</string>
     <string name="appearance_dynamic_light_title">Dinamic deschis</string>
     <string name="appearance_dynamic_light_subtitle">Fundal deschis pastel derivat din copertă</string>
+    <string name="appearance_dynamic_cover_title">Copertă dinamică</string>
+    <string name="appearance_dynamic_cover_subtitle">Coperta în redare, estompată și în mișcare, ca fundal al aplicației</string>
 </resources>

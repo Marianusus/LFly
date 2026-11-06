@@ -32,14 +32,14 @@
     <string name="discord_presence">Stato «In ascolto»</string>
     <string name="discord_presence_subtitle">Il brano, l\'artista e quanto manca; in pausa sparisce</string>
     <string name="discord_style_title">Mostra come</string>
-    <string name="discord_style_footer">Come Spotify, Discord mostra la scheda verde di Spotify. Le copertine dei brani importati da Spotify si vedono sempre; le altre solo con un ID applicazione.</string>
+    <string name="discord_style_footer">Come Spotify, Discord mostra la scheda verde di Spotify.</string>
     <string name="discord_style_lfly">LFly</string>
     <string name="discord_style_lfly_subtitle">«Sta ascoltando LFly»</string>
     <string name="discord_style_spotify">Spotify</string>
     <string name="discord_style_spotify_subtitle">«Sta ascoltando Spotify»</string>
     <string name="discord_app_id">ID applicazione</string>
-    <string name="discord_app_id_none">Nessuno</string>
-    <string name="discord_app_id_body">Per mostrare le copertine, crea un\'applicazione su discord.com/developers (chiamala LFly) e incolla qui il suo Application ID. Senza, lo stato si vede ma senza copertina.</string>
+    <string name="discord_app_id_none">LFly</string>
+    <string name="discord_app_id_body">LFly usa già la sua applicazione Discord per mostrare copertine e icona. Se vuoi usarne una tua, incolla qui il suo Application ID; lascia vuoto per tornare a quella di LFly.</string>
     <string name="discord_save">Salva</string>
     <string name="discord_disconnect">Scollega Discord</string>
     <string name="discord_disconnect_confirm_title">Scollegare Discord?</string>

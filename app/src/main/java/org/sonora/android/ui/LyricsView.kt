@@ -186,7 +186,13 @@ fun LyricsView(
                 onClick = {} // Intercept click gestures so they don't leak to player controls beneath
             )
     ) {
-        if (!track?.artworkUrl.isNullOrBlank()) {
+        // With the Dynamic cover look the lyrics flow over the same moving artwork as the app; the
+        // scrim stays light enough to let it show and dark enough for the white lines.
+        val coverLook = org.sonora.android.ui.theme.LocalAppearanceMode.current ==
+            org.sonora.android.ui.theme.AppearanceMode.DYNAMIC_COVER
+        if (coverLook) {
+            org.sonora.android.ui.theme.DynamicCoverBackdrop(track?.artworkUrl, veil = false)
+        } else if (!track?.artworkUrl.isNullOrBlank()) {
             AsyncImage(
                 model = track.artworkUrl,
                 contentDescription = null,
@@ -200,11 +206,19 @@ fun LyricsView(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.58f),
-                        0.45f to Color.Black.copy(alpha = 0.72f),
-                        1f to Color.Black.copy(alpha = 0.88f)
-                    )
+                    if (coverLook) {
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.40f),
+                            0.45f to Color.Black.copy(alpha = 0.52f),
+                            1f to Color.Black.copy(alpha = 0.74f)
+                        )
+                    } else {
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.58f),
+                            0.45f to Color.Black.copy(alpha = 0.72f),
+                            1f to Color.Black.copy(alpha = 0.88f)
+                        )
+                    }
                 )
         )
 

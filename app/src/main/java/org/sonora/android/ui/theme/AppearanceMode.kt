@@ -29,11 +29,16 @@ enum class AppearanceMode(
     DYNAMIC_LIGHT(
         titleRes = R.string.appearance_dynamic_light_title,
         subtitleRes = R.string.appearance_dynamic_light_subtitle
+    ),
+    /** The playing cover itself, blurred and slowly flowing, behind the whole app ([DynamicCoverBackdrop]). */
+    DYNAMIC_COVER(
+        titleRes = R.string.appearance_dynamic_cover_title,
+        subtitleRes = R.string.appearance_dynamic_cover_subtitle
     );
 
     /** Dynamic modes derive their gradient from the contextual cover artwork. */
     val isDynamic: Boolean
-        get() = this == DYNAMIC_DARK || this == DYNAMIC_LIGHT
+        get() = this == DYNAMIC_DARK || this == DYNAMIC_LIGHT || this == DYNAMIC_COVER
 
     /** Light canvas modes require dark-on-light text/iconography. */
     val isLight: Boolean

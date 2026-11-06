@@ -172,7 +172,6 @@ internal fun AmbientScreen(
         label = "ambientControls"
     )
     val controlsPresent by remember { derivedStateOf { controlsAlpha.value > 0f } }
-    val readControlsAlpha = remember { { controlsAlpha.value } }
     val toggleControls = remember { { controlsVisible = !controlsVisible } }
     val touchControl: (() -> Unit) -> Unit = { action ->
         controlsTouches++
@@ -210,7 +209,26 @@ internal fun AmbientScreen(
                         .padding(32.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    AmbientCover(track?.artworkUrl)
+                    // A tap brings the controls up over the cover, so the lyric beside it stays readable.
+                    Box(modifier = Modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
+                        AmbientCover(track?.artworkUrl)
+                        if (controlsPresent) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = controlsAlpha.value }
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color.Black.copy(alpha = 0.46f))
+                            )
+                            TransportControls(
+                                isPlaying = playbackState.isPlaying,
+                                onPrevious = { touchControl(onPlayPrevious) },
+                                onPlayPause = { touchControl(onPlayPause) },
+                                onNext = { touchControl(onPlayNext) },
+                                modifier = Modifier.graphicsLayer { alpha = controlsAlpha.value }
+                            )
+                        }
+                    }
                 }
                 Box(
                     modifier = Modifier
@@ -224,7 +242,6 @@ internal fun AmbientScreen(
                         lyricLines = lyrics?.lines.orEmpty(),
                         highlightMode = highlightMode,
                         readPositionMs = readPositionMs,
-                        readControlsAlpha = readControlsAlpha,
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(bottom = ProgressLineHeight + ProgressLineGap)
@@ -233,18 +250,6 @@ internal fun AmbientScreen(
                         readProgress = readProgress,
                         modifier = Modifier.align(Alignment.BottomStart)
                     )
-                    if (controlsPresent) {
-                        TransportControls(
-                            isPlaying = playbackState.isPlaying,
-                            onPrevious = { touchControl(onPlayPrevious) },
-                            onPlayPause = { touchControl(onPlayPause) },
-                            onNext = { touchControl(onPlayNext) },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = ProgressLineHeight + 4.dp)
-                                .graphicsLayer { alpha = controlsAlpha.value }
-                        )
-                    }
                 }
             }
             if (controlsPresent) {
@@ -345,7 +350,6 @@ private fun NowPlayingColumn(
     lyricLines: List<LyricLine>,
     highlightMode: HighlightMode,
     readPositionMs: () -> Long,
-    readControlsAlpha: () -> Float,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -365,8 +369,6 @@ private fun NowPlayingColumn(
                 lines = lyricLines,
                 highlightMode = highlightMode,
                 readPositionMs = readPositionMs,
-                // The controls sit where the lyric sits on phone heights: they trade places.
-                modifier = Modifier.graphicsLayer { alpha = 1f - readControlsAlpha() }
             )
         }
     }
@@ -539,7 +541,10 @@ private const val AMBIENT_BLUR_FALLBACK_PX = 24
  */
 @Composable
 private fun AmbientHeroBackground(artworkUrl: String?) {
-    if (!artworkUrl.isNullOrBlank()) {
+    if (org.sonora.android.ui.theme.LocalAppearanceMode.current == org.sonora.android.ui.theme.AppearanceMode.DYNAMIC_COVER) {
+        // The Dynamic cover look: the same moving artwork as the app, under the readability scrim.
+        org.sonora.android.ui.theme.DynamicCoverBackdrop(artworkUrl, veil = false)
+    } else if (!artworkUrl.isNullOrBlank()) {
         val context = LocalContext.current
         // Modifier.blur does nothing before Android 12: a tiny image scaled up gives the same wash.
         val model: Any = remember(artworkUrl) {
