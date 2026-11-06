@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connected_disconnect">Scollega</string>
+
+    <string name="spotify_section_title">Spotify</string>
+    <string name="spotify_section_footer">Collega Spotify per portare in LFly le tue playlist; i brani che ti piacciono diventano i Preferiti. Le canzoni vengono riprodotte da LFly, non da Spotify. Si accede sulla pagina di Spotify: la password non passa da LFly.</string>
+    <string name="spotify_connect">Collega Spotify</string>
+    <string name="spotify_connect_subtitle">Importa le tue playlist</string>
+    <string name="spotify_connect_title">Accedi a Spotify</string>
+    <string name="spotify_connect_hint">Accedi con il tuo account Spotify. Appena entri, LFly si collega da solo.</string>
+    <string name="spotify_connected">Spotify collegato</string>
+    <string name="spotify_account_unnamed">Account Spotify</string>
+    <string name="spotify_expired">Accesso scaduto: accedi di nuovo</string>
+    <string name="spotify_sync">Importa playlist</string>
+    <string name="spotify_sync_subtitle">Porta in LFly tutte le tue playlist</string>
+    <string name="spotify_sync_starting">Leggo la libreria…</string>
+    <string name="spotify_sync_done">%1$d playlist · %2$d preferiti · %3$s</string>
+    <string name="spotify_liked_songs">Brani che ti piacciono</string>
+    <string name="spotify_disconnect">Scollega Spotify</string>
+    <string name="spotify_disconnect_confirm_title">Scollegare Spotify?</string>
+    <string name="spotify_disconnect_confirm_body">Le playlist già importate restano in LFly.</string>
+
+    <string name="discord_section_title">Discord</string>
+    <string name="discord_section_footer">Mostra sul tuo profilo Discord cosa ascolti. Discord non ha un modo ufficiale per farlo da un\'app: LFly usa la tua sessione come farebbe l\'app di Discord, una cosa che Discord non permette. Usala a tuo rischio.</string>
+    <string name="discord_connect">Collega Discord</string>
+    <string name="discord_connect_subtitle">Mostra cosa ascolti sul tuo profilo</string>
+    <string name="discord_connect_failed">Accesso non riuscito: tocca per riprovare</string>
+    <string name="discord_connect_title">Accedi a Discord</string>
+    <string name="discord_connect_hint">Accedi con il tuo account Discord. Appena entri, LFly si collega da solo.</string>
+    <string name="discord_connected">Discord collegato</string>
+    <string name="discord_expired">Accesso scaduto: accedi di nuovo</string>
+    <string name="discord_presence">Stato «In ascolto»</string>
+    <string name="discord_presence_subtitle">Il brano, l\'artista e quanto manca; in pausa sparisce</string>
+    <string name="discord_style_title">Mostra come</string>
+    <string name="discord_style_footer">Come Spotify, Discord mostra la scheda verde di Spotify. Le copertine dei brani importati da Spotify si vedono sempre; le altre solo con un ID applicazione.</string>
+    <string name="discord_style_lfly">LFly</string>
+    <string name="discord_style_lfly_subtitle">«Sta ascoltando LFly»</string>
+    <string name="discord_style_spotify">Spotify</string>
+    <string name="discord_style_spotify_subtitle">«Sta ascoltando Spotify»</string>
+    <string name="discord_app_id">ID applicazione</string>
+    <string name="discord_app_id_none">Nessuno</string>
+    <string name="discord_app_id_body">Per mostrare le copertine, crea un\'applicazione su discord.com/developers (chiamala LFly) e incolla qui il suo Application ID. Senza, lo stato si vede ma senza copertina.</string>
+    <string name="discord_save">Salva</string>
+    <string name="discord_disconnect">Scollega Discord</string>
+    <string name="discord_disconnect_confirm_title">Scollegare Discord?</string>
+    <string name="discord_disconnect_confirm_body">Lo stato sparisce dal tuo profilo e LFly dimentica l\'accesso.</string>
+</resources>

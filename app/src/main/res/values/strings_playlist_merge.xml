@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_merge_menu">Unisci playlist</string>
+    <string name="playlist_merge_title">Unisci in «%1$s»</string>
+    <string name="playlist_merge_body">Scegli le playlist da aggiungere: i loro brani vanno in fondo, senza doppioni.</string>
+    <string name="playlist_merge_body_new">Questa playlist si aggiorna da sola con l\'import: l\'unione diventa una nuova playlist con lo stesso nome.</string>
+    <string name="playlist_merge_none">Non ci sono altre playlist da unire.</string>
+    <string name="playlist_merge_delete">Elimina le playlist unite</string>
+    <string name="playlist_merge_action">Unisci</string>
+    <plurals name="playlist_merge_done">
+        <item quantity="one">%d brano aggiunto</item>
+        <item quantity="other">%d brani aggiunti</item>
+    </plurals>
+</resources>

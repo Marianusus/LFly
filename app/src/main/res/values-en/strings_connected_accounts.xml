@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connected_disconnect">Disconnect</string>
+
+    <string name="spotify_section_title">Spotify</string>
+    <string name="spotify_section_footer">Connect Spotify to bring your playlists into LFly; your Liked Songs become your Favourites. Songs are played by LFly, not by Spotify. You sign in on Spotify\'s own page: your password never passes through LFly.</string>
+    <string name="spotify_connect">Connect Spotify</string>
+    <string name="spotify_connect_subtitle">Import your playlists</string>
+    <string name="spotify_connect_title">Sign in to Spotify</string>
+    <string name="spotify_connect_hint">Sign in with your Spotify account. As soon as you are in, LFly connects on its own.</string>
+    <string name="spotify_connected">Spotify connected</string>
+    <string name="spotify_account_unnamed">Spotify account</string>
+    <string name="spotify_expired">Sign-in expired: sign in again</string>
+    <string name="spotify_sync">Import playlists</string>
+    <string name="spotify_sync_subtitle">Bring all your playlists into LFly</string>
+    <string name="spotify_sync_starting">Reading your library…</string>
+    <string name="spotify_sync_done">%1$d playlists · %2$d favourites · %3$s</string>
+    <string name="spotify_liked_songs">Liked Songs</string>
+    <string name="spotify_disconnect">Disconnect Spotify</string>
+    <string name="spotify_disconnect_confirm_title">Disconnect Spotify?</string>
+    <string name="spotify_disconnect_confirm_body">Playlists already imported stay in LFly.</string>
+
+    <string name="discord_section_title">Discord</string>
+    <string name="discord_section_footer">Shows what you listen to on your Discord profile. Discord has no official way for an app to do this: LFly uses your session as the Discord app would, which Discord does not allow. Use at your own risk.</string>
+    <string name="discord_connect">Connect Discord</string>
+    <string name="discord_connect_subtitle">Show what you listen to on your profile</string>
+    <string name="discord_connect_failed">Sign-in failed: tap to try again</string>
+    <string name="discord_connect_title">Sign in to Discord</string>
+    <string name="discord_connect_hint">Sign in with your Discord account. As soon as you are in, LFly connects on its own.</string>
+    <string name="discord_connected">Discord connected</string>
+    <string name="discord_expired">Sign-in expired: sign in again</string>
+    <string name="discord_presence">“Listening to” status</string>
+    <string name="discord_presence_subtitle">The song, the artist and the time left; gone while paused</string>
+    <string name="discord_style_title">Show as</string>
+    <string name="discord_style_footer">As Spotify, Discord shows Spotify\'s green card. Covers of songs imported from Spotify always show; others only with an application ID.</string>
+    <string name="discord_style_lfly">LFly</string>
+    <string name="discord_style_lfly_subtitle">“Listening to LFly”</string>
+    <string name="discord_style_spotify">Spotify</string>
+    <string name="discord_style_spotify_subtitle">“Listening to Spotify”</string>
+    <string name="discord_app_id">Application ID</string>
+    <string name="discord_app_id_none">None</string>
+    <string name="discord_app_id_body">To show covers, create an application at discord.com/developers (name it LFly) and paste its Application ID here. Without it the status shows, without a cover.</string>
+    <string name="discord_save">Save</string>
+    <string name="discord_disconnect">Disconnect Discord</string>
+    <string name="discord_disconnect_confirm_title">Disconnect Discord?</string>
+    <string name="discord_disconnect_confirm_body">The status leaves your profile and LFly forgets the sign-in.</string>
+</resources>

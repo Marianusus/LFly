@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_merge_menu">Merge playlists</string>
+    <string name="playlist_merge_title">Merge into “%1$s”</string>
+    <string name="playlist_merge_body">Pick the playlists to add: their songs go at the end, without duplicates.</string>
+    <string name="playlist_merge_body_new">This playlist is kept up to date by the import: the merge becomes a new playlist with the same name.</string>
+    <string name="playlist_merge_none">There are no other playlists to merge.</string>
+    <string name="playlist_merge_delete">Delete the merged playlists</string>
+    <string name="playlist_merge_action">Merge</string>
+    <plurals name="playlist_merge_done">
+        <item quantity="one">%d song added</item>
+        <item quantity="other">%d songs added</item>
+    </plurals>
+</resources>

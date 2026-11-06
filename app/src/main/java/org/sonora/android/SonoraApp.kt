@@ -96,6 +96,27 @@ class SonoraApp : Application() {
         playbackManager.streamResolver = streamResolver
         playbackManager.recommendationEngine = recommendationEngine
 
+        // 3a. Spotify (for its playlists) and the Discord presence, if the listener connected them.
+        org.sonora.android.auth.SpotifyAuth.init(this)
+        org.sonora.android.discord.DiscordPresence.start(this)
+        // An Instagram sign-in saved by a build that had the Instagram Note: forgotten for good, in the
+        // app and in the in-app browser. Once: the settings file it left is the marker.
+        if (java.io.File(dataDir, "shared_prefs/instagram_note.xml").exists()) {
+            org.sonora.android.auth.SecurePrefs(this, "lfly_credentials").putString("instagram_cookies", null)
+            runCatching {
+                val cookies = android.webkit.CookieManager.getInstance()
+                listOf("https://www.instagram.com", "https://instagram.com").forEach { origin ->
+                    cookies.getCookie(origin)?.split(';')?.map { it.substringBefore('=').trim() }?.filter { it.isNotEmpty() }?.forEach { name ->
+                        cookies.setCookie(origin, "$name=; Max-Age=0; Path=/")
+                        cookies.setCookie(origin, "$name=; Max-Age=0; Path=/; Domain=.instagram.com")
+                    }
+                }
+                android.webkit.WebStorage.getInstance().deleteOrigin("https://www.instagram.com")
+                cookies.flush()
+            }
+            deleteSharedPreferences("instagram_note")
+        }
+
         // 4. Start MediaSessionService to bind lockscreen / notification controls
         startMediaSessionService()
 

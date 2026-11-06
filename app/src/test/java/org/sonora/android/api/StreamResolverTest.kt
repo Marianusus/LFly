@@ -477,9 +477,7 @@ class StreamResolverTest {
                 isPreview = false
             )
         )
-        var visionCalled = false
         resolver.youTubeMusicResolverOverride = {
-            visionCalled = true
             StreamSource(
                 url = "https://example.com/visionos_stream.mp3",
                 format = "audio/mp4",
@@ -493,8 +491,84 @@ class StreamResolverTest {
         val resolved = resolver.resolveStream(ytTrack)
 
         assertNotNull(resolved)
+        // AUTO races both sources: YouTube is asked too, but a lossless match ready in time wins.
         assertTrue("Reliable Monochrome match must win", resolved!!.provider.contains("Monochrome"))
-        assertFalse("VISIONOS must not be reached when Monochrome matches", visionCalled)
+    }
+
+    @Test
+    fun testUnreachableMonochromeIsPausedForLaterSongs() = runBlocking {
+        val ytTrack = Track(
+            id = "yt_dQw4w9WgXcQ",
+            title = "Never Gonna Give You Up",
+            artist = "Rick Astley",
+            album = "YouTube",
+            durationMs = 213_000L,
+            coverUrl = null,
+            streamUrl = null,
+            provider = "YouTube"
+        )
+        fakeMonochrome.resultToReturn = Result.failure(MonochromeUnreachableException("down"))
+        resolver.youTubeMusicResolverOverride = {
+            StreamSource(
+                url = "https://example.com/visionos_stream.mp3",
+                format = "audio/mp4",
+                quality = AudioQuality.HIGH,
+                provider = "YouTube Music",
+                bitrate = 131,
+                isPreview = false
+            )
+        }
+
+        assertTrue(resolver.resolveStream(ytTrack)!!.provider.contains("YouTube"))
+        resolver.clearCache()
+        assertTrue(resolver.resolveStream(ytTrack)!!.provider.contains("YouTube"))
+
+        assertEquals("A Monochrome that does not answer is not asked again for every song", 1, fakeMonochrome.resolveCount)
+    }
+
+    @Test
+    fun testYouTubeWinsWhenMonochromeMissesTheGrace() = runBlocking {
+        val ytTrack = Track(
+            id = "yt_dQw4w9WgXcQ",
+            title = "Never Gonna Give You Up",
+            artist = "Rick Astley",
+            album = "YouTube",
+            durationMs = 213_000L,
+            coverUrl = null,
+            streamUrl = null,
+            provider = "YouTube"
+        )
+        fakeMonochrome.delayMs = StreamResolver.LOSSLESS_GRACE_MS + 1_500L
+        fakeMonochrome.resultToReturn = Result.success(
+            StreamSource(
+                url = "https://tracks.monochrome.st/track/12345",
+                format = "audio/flac",
+                quality = AudioQuality.ULTRA,
+                provider = "Monochrome HiFi",
+                bitrate = 1411,
+                isPreview = false
+            )
+        )
+        resolver.youTubeMusicResolverOverride = {
+            StreamSource(
+                url = "https://example.com/visionos_stream.mp3",
+                format = "audio/mp4",
+                quality = AudioQuality.HIGH,
+                provider = "YouTube Music",
+                bitrate = 131,
+                isPreview = false
+            )
+        }
+
+        val started = System.currentTimeMillis()
+        val resolved = resolver.resolveStream(ytTrack)
+
+        assertNotNull(resolved)
+        assertTrue("A slow lossless lookup must not hold playback", resolved!!.provider.contains("YouTube"))
+        assertTrue(
+            "YouTube should play once the grace ends, not after Monochrome",
+            System.currentTimeMillis() - started < StreamResolver.LOSSLESS_GRACE_MS + 1_200L
+        )
     }
 
     @Test
@@ -662,6 +736,7 @@ class StreamResolverTest {
         var resolveCount = 0
         var lastTitleQueried: String? = null
         var lastArtistQueried: String? = null
+        var delayMs = 0L
 
         override suspend fun resolveStream(
             title: String,
@@ -670,6 +745,7 @@ class StreamResolverTest {
             durationMs: Long?,
             isrc: String?
         ): Result<StreamSource> {
+            if (delayMs > 0) kotlinx.coroutines.delay(delayMs)
             resolveCount++
             lastTitleQueried = title
             lastArtistQueried = artist

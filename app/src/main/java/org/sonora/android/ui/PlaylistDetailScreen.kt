@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
@@ -165,6 +166,7 @@ fun PlaylistDetailScreen(
 
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showMergeDialog by remember { mutableStateOf(false) }
     var editName by remember(playlist.name) { mutableStateOf(playlist.name) }
     var editDescription by remember(playlist.description) { mutableStateOf(playlist.description ?: "") }
     var editCoverUrl by remember(playlist.coverUrl) { mutableStateOf(playlist.coverUrl ?: "") }
@@ -276,6 +278,18 @@ fun PlaylistDetailScreen(
                                         editDescription = playlist.description ?: ""
                                         editCoverUrl = playlist.coverUrl ?: ""
                                         showEditDialog = true
+                                    },
+                                )
+                            }
+                            if (!readOnly && !isMix) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.playlist_merge_menu), color = scheme.onBackground) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.CallMerge, contentDescription = null, tint = scheme.onBackgroundSecondary)
+                                    },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        showMergeDialog = true
                                     },
                                 )
                             }
@@ -638,6 +652,10 @@ fun PlaylistDetailScreen(
                 }
             },
         )
+    }
+
+    if (showMergeDialog) {
+        org.sonora.android.ui.components.MergePlaylistsDialog(target = playlist, onDismiss = { showMergeDialog = false })
     }
 
     if (showDeleteConfirmDialog) {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_merge_menu">Unește playlisturi</string>
+    <string name="playlist_merge_title">Unește în „%1$s”</string>
+    <string name="playlist_merge_body">Alege playlisturile de adăugat: melodiile lor merg la final, fără duplicate.</string>
+    <string name="playlist_merge_body_new">Acest playlist se actualizează singur la import: unirea devine un playlist nou cu același nume.</string>
+    <string name="playlist_merge_none">Nu există alte playlisturi de unit.</string>
+    <string name="playlist_merge_delete">Șterge playlisturile unite</string>
+    <string name="playlist_merge_action">Unește</string>
+    <plurals name="playlist_merge_done">
+        <item quantity="one">%d melodie adăugată</item>
+        <item quantity="few">%d melodii adăugate</item>
+        <item quantity="other">%d de melodii adăugate</item>
+    </plurals>
+</resources>

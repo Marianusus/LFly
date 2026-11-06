@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connected_disconnect">Deconectează</string>
+
+    <string name="spotify_section_title">Spotify</string>
+    <string name="spotify_section_footer">Conectează Spotify ca să aduci în LFly playlisturile; melodiile apreciate devin Favorite. Melodiile sunt redate de LFly, nu de Spotify. Te conectezi pe pagina Spotify: parola nu trece prin LFly.</string>
+    <string name="spotify_connect">Conectează Spotify</string>
+    <string name="spotify_connect_subtitle">Importă playlisturile tale</string>
+    <string name="spotify_connect_title">Conectează-te la Spotify</string>
+    <string name="spotify_connect_hint">Conectează-te cu contul Spotify. Imediat ce intri, LFly se conectează singur.</string>
+    <string name="spotify_connected">Spotify conectat</string>
+    <string name="spotify_account_unnamed">Cont Spotify</string>
+    <string name="spotify_expired">Conectarea a expirat: conectează-te din nou</string>
+    <string name="spotify_sync">Importă playlisturi</string>
+    <string name="spotify_sync_subtitle">Adu toate playlisturile în LFly</string>
+    <string name="spotify_sync_starting">Citesc biblioteca…</string>
+    <string name="spotify_sync_done">%1$d playlisturi · %2$d favorite · %3$s</string>
+    <string name="spotify_liked_songs">Melodii apreciate</string>
+    <string name="spotify_disconnect">Deconectează Spotify</string>
+    <string name="spotify_disconnect_confirm_title">Deconectezi Spotify?</string>
+    <string name="spotify_disconnect_confirm_body">Playlisturile deja importate rămân în LFly.</string>
+
+    <string name="discord_section_title">Discord</string>
+    <string name="discord_section_footer">Arată pe profilul Discord ce asculți. Discord nu are o cale oficială pentru asta: LFly folosește sesiunea ta cum ar face aplicația Discord, lucru pe care Discord nu îl permite. Folosește pe propriul risc.</string>
+    <string name="discord_connect">Conectează Discord</string>
+    <string name="discord_connect_subtitle">Arată ce asculți pe profil</string>
+    <string name="discord_connect_failed">Conectare eșuată: atinge pentru a reîncerca</string>
+    <string name="discord_connect_title">Conectează-te la Discord</string>
+    <string name="discord_connect_hint">Conectează-te cu contul Discord. Imediat ce intri, LFly se conectează singur.</string>
+    <string name="discord_connected">Discord conectat</string>
+    <string name="discord_expired">Conectarea a expirat: conectează-te din nou</string>
+    <string name="discord_presence">Starea „Ascultă”</string>
+    <string name="discord_presence_subtitle">Melodia, artistul și timpul rămas; dispare în pauză</string>
+    <string name="discord_style_title">Afișează ca</string>
+    <string name="discord_style_footer">Ca Spotify, Discord arată cardul verde Spotify. Copertele melodiilor importate din Spotify apar mereu; celelalte doar cu un ID de aplicație.</string>
+    <string name="discord_style_lfly">LFly</string>
+    <string name="discord_style_lfly_subtitle">„Ascultă LFly”</string>
+    <string name="discord_style_spotify">Spotify</string>
+    <string name="discord_style_spotify_subtitle">„Ascultă Spotify”</string>
+    <string name="discord_app_id">ID aplicație</string>
+    <string name="discord_app_id_none">Niciunul</string>
+    <string name="discord_app_id_body">Pentru coperte, creează o aplicație pe discord.com/developers (numește-o LFly) și lipește aici Application ID. Fără el, starea apare fără copertă.</string>
+    <string name="discord_save">Salvează</string>
+    <string name="discord_disconnect">Deconectează Discord</string>
+    <string name="discord_disconnect_confirm_title">Deconectezi Discord?</string>
+    <string name="discord_disconnect_confirm_body">Starea dispare de pe profil și LFly uită conectarea.</string>
+</resources>

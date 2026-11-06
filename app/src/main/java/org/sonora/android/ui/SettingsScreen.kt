@@ -430,7 +430,11 @@ fun SettingsScreen(
 
                 when (shown) {
                     SettingsPage.ROOT -> item { SettingsRootList(reduceMotion = reduceMotion, onOpen = { page = it }) }
-                    SettingsPage.ACCOUNT -> item { org.sonora.android.ui.settings.YouTubeAccountSection() }
+                    SettingsPage.ACCOUNT -> {
+                        item { org.sonora.android.ui.settings.YouTubeAccountSection() }
+                        item { org.sonora.android.ui.settings.SpotifyAccountSection() }
+                        item { org.sonora.android.ui.settings.SettingsGroups { org.sonora.android.ui.settings.DiscordSection() } }
+                    }
                     SettingsPage.PLAYBACK -> {
                         item {
                             PlaybackSection(

@@ -66,6 +66,7 @@ open class MonochromeApiClient(
         val candidateInstances = instances.ifEmpty { listOf(DEFAULT_BASE_URL) }
 
         var lastError: String? = null
+        var answered = false
         for (instance in candidateInstances) {
             val start = System.currentTimeMillis()
             try {
@@ -77,6 +78,7 @@ open class MonochromeApiClient(
                 for (query in queries) {
                     val searchResult = searchTracks(query, limit = 8, baseUrl = instance)
                     if (searchResult.isSuccess) {
+                        answered = true
                         val candidates = searchResult.getOrNull() ?: emptyList()
                         for (candidate in candidates) {
                             val score = scoreCandidate(candidate, title, artist, durationMs, isrc)
@@ -121,6 +123,9 @@ open class MonochromeApiClient(
             }
         }
 
+        if (!answered) {
+            return@withContext Result.failure(MonochromeUnreachableException("No Monochrome instance answered (${lastError ?: "no instances"})"))
+        }
         Result.failure(IOException(lastError ?: "Monochrome stream resolution failed across all instances"))
     }
 
@@ -377,3 +382,6 @@ open class MonochromeApiClient(
                 lower.contains("acoustic") || lower.contains("instrumental")
     }
 }
+
+/** Not one Monochrome instance answered a search: the service is down or out of reach, not merely missing the song. */
+class MonochromeUnreachableException(message: String) : IOException(message)

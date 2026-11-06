@@ -1,7 +1,12 @@
 package org.sonora.android.api
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Request
@@ -200,6 +205,15 @@ open class StreamResolver(
         const val BLACKOUT_THRESHOLD_MS = 3500L
         const val TIER_TIMEOUT_MS = 6000L
 
+        /**
+         * In [PlaybackSource.AUTO] YouTube Music and Monochrome are asked together: once YouTube has a
+         * stream, lossless still wins if it arrives within this long.
+         */
+        const val LOSSLESS_GRACE_MS = 1500L
+
+        /** How long Monochrome is left alone once it stops answering, so no song waits for it meanwhile. */
+        const val MONOCHROME_PAUSE_MS = 10 * 60_000L
+
         @Volatile
         private var instance: StreamResolver? = null
 
@@ -281,19 +295,11 @@ open class StreamResolver(
                 directStream = resolveViaYouTubeMusic(track)
             } else {
                 // Primary tiers ordered by the effective source (per-track override > global > AUTO default).
-                val primaryOrder = when (effectiveSource) {
-                    PlaybackSource.YOUTUBE_MUSIC -> listOf(PlaybackSource.YOUTUBE_MUSIC, PlaybackSource.MONOCHROME)
-                    else -> listOf(PlaybackSource.MONOCHROME, PlaybackSource.YOUTUBE_MUSIC)
-                }
-                for (source in primaryOrder) {
-                    if (directStream != null) break
-                    directStream = when (source) {
-                        PlaybackSource.MONOCHROME ->
-                            resolveMonochromeChain(cleanTitle, cleanArtist, track.durationMs)
-                        PlaybackSource.YOUTUBE_MUSIC -> resolveViaYouTubeMusic(track)
-                        PlaybackSource.AUTO -> null
-                    }
-                }
+                directStream = resolvePrimary(
+                    effectiveSource,
+                    monochrome = { resolveMonochromeChain(cleanTitle, cleanArtist, track.durationMs) },
+                    youTube = { resolveViaYouTubeMusic(track) }
+                )
             }
 
             // D. JioSaavn full stream (only if YouTube Music did not resolve)
@@ -446,13 +452,58 @@ open class StreamResolver(
     /**
      * Monochrome HiFi resolution chain for a single track: lossless FLAC first, then high quality.
      */
+    /**
+     * One Monochrome lookup. It used to be repeated at HIGH after ULTRA, but the client runs the very
+     * same searches for both and returns the lossless stream either way: the second pass only doubled
+     * the wait when the song is not in the catalogue.
+     */
     private suspend fun resolveMonochromeChain(
         cleanTitle: String,
         cleanArtist: String,
         durationMs: Long
-    ): StreamSource? {
-        return resolveMonochromeDirect(cleanTitle, cleanArtist, durationMs, AudioQuality.ULTRA)
-            ?: resolveMonochromeDirect(cleanTitle, cleanArtist, durationMs, AudioQuality.HIGH)
+    ): StreamSource? = resolveMonochromeDirect(cleanTitle, cleanArtist, durationMs, AudioQuality.ULTRA)
+
+    @Volatile
+    private var monochromePausedUntil = 0L
+
+    private val monochromePaused: Boolean get() = System.currentTimeMillis() < monochromePausedUntil
+
+    /** Lookups that keep running after the race has picked a winner; their answer is simply dropped. */
+    private val raceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * The two primary sources, as [source] orders them. [PlaybackSource.AUTO] races them: YouTube
+     * Music answers by video id in about a second, Monochrome has to search its catalogue first, so
+     * waiting for Monochrome before even asking YouTube made every miss cost seconds. Lossless still
+     * wins whenever it is ready within [LOSSLESS_GRACE_MS] of YouTube.
+     */
+    private suspend fun resolvePrimary(
+        source: PlaybackSource,
+        monochrome: suspend () -> StreamSource?,
+        youTube: suspend () -> StreamSource?
+    ): StreamSource? = when (source) {
+        PlaybackSource.YOUTUBE_MUSIC -> youTube() ?: monochrome()
+        PlaybackSource.MONOCHROME -> monochrome() ?: youTube()
+        // While Monochrome is down there is nothing to race: no grace period to wait out.
+        PlaybackSource.AUTO -> if (monochromePaused) youTube() else race(monochrome, youTube)
+    }
+
+    private suspend fun race(monochrome: suspend () -> StreamSource?, youTube: suspend () -> StreamSource?): StreamSource? {
+        val start = System.currentTimeMillis()
+        val lossless: Deferred<StreamSource?> = raceScope.async { runCatching { monochrome() }.getOrNull() }
+        val fast: Deferred<StreamSource?> = raceScope.async { runCatching { youTube() }.getOrNull() }
+        val losslessFirst = select<Boolean> {
+            lossless.onAwait { true }
+            fast.onAwait { false }
+        }
+        val winner = if (losslessFirst) {
+            lossless.await()?.also { fast.cancel() } ?: fast.await()
+        } else {
+            val youTubeStream = fast.await() ?: return lossless.await()
+            withTimeoutOrNull(LOSSLESS_GRACE_MS) { lossless.await() } ?: youTubeStream.also { lossless.cancel() }
+        }
+        Log.i(TAG, "Race won by ${winner?.provider ?: "nobody"} in ${System.currentTimeMillis() - start}ms")
+        return winner
     }
 
     /**
@@ -466,6 +517,7 @@ open class StreamResolver(
         durationMs: Long,
         quality: AudioQuality
     ): StreamSource? {
+        if (monochromePaused) return null
         return try {
             val healthy = apiHealthManager.getHealthyEndpoints(EndpointType.MONOCHROME).map { it.baseUrl }
             if (healthy.isNotEmpty()) {
@@ -478,6 +530,10 @@ open class StreamResolver(
                     preferredQuality = quality,
                     durationMs = durationMs
                 )
+            }
+            if (result == null || result.exceptionOrNull() is MonochromeUnreachableException) {
+                monochromePausedUntil = System.currentTimeMillis() + MONOCHROME_PAUSE_MS
+                Log.w(TAG, "Monochrome is not answering (${result?.exceptionOrNull()?.message ?: "timeout"}): YouTube only for ${MONOCHROME_PAUSE_MS / 60_000} min")
             }
             if (result != null && result.isSuccess) {
                 val stream = result.getOrNull()
@@ -584,14 +640,7 @@ open class StreamResolver(
             }
         }
 
-        val primaryOrder = when (source) {
-            PlaybackSource.YOUTUBE_MUSIC -> listOf(tryYouTube, tryMonochrome)
-            else -> listOf(tryMonochrome, tryYouTube)
-        }
-        for (primary in primaryOrder) {
-            val stream = primary()
-            if (stream != null) return stream
-        }
+        resolvePrimary(source, monochrome = tryMonochrome, youTube = tryYouTube)?.let { return it }
 
         // D. JioSaavn full stream
         resolveJioSaavnDirect(cleanTitle, cleanArtist)?.let { return it }
@@ -891,7 +940,10 @@ open class StreamResolver(
         return try {
             val source = withTimeoutOrNull(TIER_TIMEOUT_MS) { youTubeMusicClient.resolveStream(track) }
             val latency = System.currentTimeMillis() - start
-            if (source != null && source.url.isNotBlank() && isStreamPlayable(source.url)) {
+            // The client has just probed this very URL with the user agent it was issued for: a second
+            // probe here only added a round trip (tests that inject a prober still get it).
+            val probed = streamProber == null && dynamicStreamProber == null
+            if (source != null && source.url.isNotBlank() && (probed || isStreamPlayable(source.url))) {
                 apiHealthManager.recordSuccess(endpointUrl, latency)
                 Log.i(TAG, "★ FULL STREAM RESOLVED [YouTube Music InnerTube /player in ${latency}ms]: -> ${source.url} (${source.bitrate}kbps)")
                 source.copy(isPreview = false, provider = "YouTube Music")
