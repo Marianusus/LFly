@@ -4,6 +4,32 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.7] — 2026-11-06
+
+**Your watch, your other devices, Spotify and Discord, and a living background.** Updates directly over v1.3.1–v1.6.1 and keeps your data.
+
+### Added
+
+- **Wear OS app**, bundled with the phone app: a Spotify-style player with the cover, controls, volume on the crown, your library and playlists, the queue, the device picker, and a tile. The watch can also play the music itself on Bluetooth earbuds.
+- **LFly Connect**: see the other LFly players on your network and move the music between them, as with Spotify Connect.
+- **Spotify account** (Settings → Account): sign in on Spotify's own page and import every playlist; your Liked Songs join your favourites. A second import updates the playlists instead of copying them.
+- **Discord**: show what you are listening to on your profile, as LFly or as Spotify, with the cover.
+- **Merge playlists**: from a playlist's menu, add the songs of other playlists, without duplicates.
+- **Dynamic cover** appearance: the playing cover, blurred and slowly flowing behind the whole app, the lyrics and Ambient.
+
+### Changed
+
+- **Settings** rebuilt like the iPhone's: a short list of topics, each on its own page.
+- **Songs start faster**: YouTube Music and the lossless source are asked together, and a lossless source that does not answer is left alone for ten minutes instead of making every song wait.
+- **Ambient**: a tap brings the controls up over the cover, so the lyric stays readable.
+- **Output icons** show the kind of device you are playing on.
+
+### Fixed
+
+- Covers that went blank after reinstalling LFly (songs whose downloaded files were deleted) come back from the internet.
+
+> The Spotify and Discord features use your own session, as their web and mobile apps do. Neither service offers an official way for an app like LFly to do this, so use them at your own risk.
+
 ## [1.6.1] — 2026-11-04
 
 **Move your data between installs.** Updates directly over v1.3.1–v1.6.
