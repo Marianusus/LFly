@@ -198,6 +198,18 @@ class PlaybackManager private constructor(private val context: Context) {
         AudioRouting.select(deviceId)
     }
 
+    /**
+     * Makes the player open a new audio track where it stands, so a changed output setting (the
+     * USB DAC's mixer) applies to the song playing now rather than from the next one.
+     */
+    fun refreshAudioOutput() {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            val p = player ?: return@post
+            if (externalSpeaker != null || p.mediaItemCount == 0) return@post
+            p.seekTo(p.currentPosition)
+        }
+    }
+
     fun audioOutputs(): List<AudioRouting.Device> =
         AudioRouting.outputs(context, AudioRouting.selectedId.value)
 

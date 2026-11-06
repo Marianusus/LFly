@@ -55,6 +55,7 @@ object CastDiscovery {
                 .addOnSuccessListener { ctx ->
                     castContext = ctx
                     router = MediaRouter.getInstance(app)
+                    CastSpeaker.bind(app, ctx)
                     selector = ctx.mergedSelector
                     _supported.value = true
                     if (discovering) attach()
@@ -83,9 +84,14 @@ object CastDiscovery {
     }
 
     fun disconnect() {
+        // The listener chose another output: the song goes on on the phone.
+        CastSpeaker.handBack()
         runCatching { castContext?.sessionManager?.endCurrentSession(true) }
         publish()
     }
+
+    /** Re-reads which device is casting (a session started, ended or failed). */
+    internal fun refresh() = publish()
 
     private fun attach() {
         if (!discovering || callback != null) return

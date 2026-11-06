@@ -99,6 +99,7 @@ class SonoraApp : Application() {
         // 3a. Spotify (for its playlists) and the Discord presence, if the listener connected them.
         org.sonora.android.auth.SpotifyAuth.init(this)
         org.sonora.android.discord.DiscordPresence.start(this)
+        org.sonora.android.playback.UsbDacOutput.init(this)
         // An Instagram sign-in saved by a build that had the Instagram Note: forgotten for good, in the
         // app and in the in-app browser. Once: the settings file it left is the marker.
         if (java.io.File(dataDir, "shared_prefs/instagram_note.xml").exists()) {

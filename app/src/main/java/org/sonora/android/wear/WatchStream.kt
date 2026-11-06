@@ -4,10 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.annotation.OptIn
-import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DataSpec
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.Wearable
@@ -15,14 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import org.sonora.android.api.Track
-import org.sonora.android.playback.AudioCacheManager
-import org.sonora.android.playback.DownloadManager
-import org.sonora.android.playback.PlaybackManager
-import java.io.Closeable
+import org.sonora.android.playback.SongBytes
 import java.io.DataOutputStream
-import java.io.File
-import java.io.FileInputStream
 import java.io.IOException
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
@@ -49,51 +40,6 @@ internal object WatchStream {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val open: MutableSet<ChannelClient.Channel> = ConcurrentHashMap.newKeySet()
-
-    /** One readable copy of the song, from a byte offset. */
-    private interface Source : Closeable {
-        /** Bytes from the offset to the end, or -1 when unknown. */
-        val length: Long
-        val mime: String
-
-        /** Like [java.io.InputStream.read]: -1 at the end. */
-        fun read(buffer: ByteArray): Int
-    }
-
-    private class FileSource(file: File, offset: Long) : Source {
-        private val input = FileInputStream(file).also { it.channel.position(offset) }
-        override val length = (file.length() - offset).coerceAtLeast(0L)
-        override val mime = ""
-        override fun read(buffer: ByteArray): Int = input.read(buffer)
-        override fun close() = input.close()
-    }
-
-    /** Through the player's own cache: the next song's prefetched head is there already. */
-    private class WebSource(context: Context, url: String, offset: Long) : Source {
-        private val data: DataSource = AudioCacheManager.getCacheDataSourceFactory(context).createDataSource()
-        override val length: Long
-        override val mime: String
-
-        init {
-            val opened = try {
-                data.open(DataSpec.Builder().setUri(Uri.parse(url)).setPosition(offset).build())
-            } catch (e: IOException) {
-                runCatching { data.close() }
-                throw e
-            }
-            length = if (opened == C.LENGTH_UNSET.toLong()) -1L else opened
-            mime = data.responseHeaders.entries
-                .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
-                ?.value?.firstOrNull().orEmpty()
-        }
-
-        override fun read(buffer: ByteArray): Int {
-            val read = data.read(buffer, 0, buffer.size)
-            return if (read == C.RESULT_END_OF_INPUT) -1 else read
-        }
-
-        override fun close() = data.close()
-    }
 
     /** The upstream gave out mid-song more often than [REOPENS]. */
     private class UpstreamLost(cause: IOException) : IOException(cause)
@@ -127,10 +73,10 @@ internal object WatchStream {
         val from = query.getQueryParameter(QUERY_FROM)?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
         val raw = Tasks.await(Wearable.getChannelClient(app).getOutputStream(channel))
         val out = DataOutputStream(raw)
-        var source: Source? = null
+        var source: SongBytes.Source? = null
         try {
             val track = WatchSpeaker.trackFor(id)
-            source = track?.let { openSource(app, it, from, fresh = false) }
+            source = track?.let { SongBytes.open(app, it, from, fresh = false) }
             if (track == null || source == null) {
                 Log.w(TAG, "No stream for '$id'")
                 writeHeader(out, P.STREAM_FAILED, -1L, "")
@@ -142,7 +88,7 @@ internal object WatchStream {
             var offset = from
             var reopens = 0
             while (true) {
-                val current: Source = source ?: break
+                val current: SongBytes.Source = source ?: break
                 val read = try {
                     current.read(buffer)
                 } catch (e: IOException) {
@@ -150,7 +96,7 @@ internal object WatchStream {
                     runCatching { current.close() }
                     source = null
                     if (++reopens > REOPENS) throw UpstreamLost(e)
-                    source = openSource(app, track, offset, fresh = reopens > 1) ?: throw UpstreamLost(e)
+                    source = SongBytes.open(app, track, offset, fresh = reopens > 1) ?: throw UpstreamLost(e)
                     continue
                 }
                 if (read < 0) break
@@ -178,50 +124,5 @@ internal object WatchStream {
         out.writeLong(length)
         out.writeUTF(mime)
         out.flush()
-    }
-
-    /**
-     * Opens [track] at [offset] the way the player would: the file or URL it plays from, a
-     * download, else a fresh resolution. A failing URL (signed links expire) is resolved again once.
-     */
-    private suspend fun openSource(app: Context, track: Track, offset: Long, fresh: Boolean): Source? {
-        val remembered = track.streamUrl?.takeIf { !fresh }
-        if (remembered != null && PlaybackManager.isLocalStreamUrl(remembered)) {
-            File(remembered.removePrefix("file://")).takeIf { it.isFile }?.let { return FileSource(it, offset) }
-        }
-        val web = remembered?.takeIf { isFullWebStream(track, it) }
-        if (web == null) {
-            DownloadManager.localPathFor(track.id)?.let { path ->
-                File(path).takeIf { it.isFile }?.let { return FileSource(it, offset) }
-            }
-        }
-        var url = web ?: resolve(app, track, fresh)
-        repeat(2) { attempt ->
-            val target = url ?: return null
-            if (PlaybackManager.isLocalStreamUrl(target)) {
-                return File(target.removePrefix("file://")).takeIf { it.isFile }?.let { FileSource(it, offset) }
-            }
-            try {
-                return WebSource(app, target, offset)
-            } catch (e: IOException) {
-                Log.w(TAG, "Could not open '${track.title}' (${e.message})")
-                url = if (attempt == 0) resolve(app, track, fresh = true) else null
-            }
-        }
-        return null
-    }
-
-    private fun isFullWebStream(track: Track, url: String): Boolean =
-        (url.startsWith("https://") || url.startsWith("http://")) &&
-            !PlaybackManager.isPreviewUrl(url) &&
-            !track.provider.equals("Deezer", ignoreCase = true)
-
-    /** A full stream from the phone's resolver; never a 30 s preview, which would end the song early. */
-    private suspend fun resolve(app: Context, track: Track, fresh: Boolean): String? {
-        val resolver = PlaybackManager.getInstance(app).streamResolver
-        if (fresh) resolver.invalidateCache(track.id, track.title, track.artist)
-        val stream = runCatching { resolver.resolveStream(track) }.getOrNull() ?: return null
-        if (stream.isPreview || PlaybackManager.isPreviewUrl(stream.url)) return null
-        return stream.url
     }
 }

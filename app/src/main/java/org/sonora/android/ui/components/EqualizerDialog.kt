@@ -62,10 +62,12 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -221,9 +223,18 @@ private fun EqualizerDialogContent(
                     onStrengthChange = onBassBoostChange
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
 
-                // 5. Bottom Actions: Reset to Flat & Apply/Done
+        // 5. Straight to a USB DAC: not dimmed with the equalizer, it is about the output.
+        UsbDacSection(equalizerFlat = !state.isEnabled || (state.bands.all { kotlin.math.abs(it.gainDb) < 0.05f } && state.bassBoostStrength == 0))
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Box {
+            Column {
+                // 6. Bottom Actions: Reset to Flat & Apply/Done
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -275,6 +286,64 @@ private fun EqualizerDialogContent(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+}
+
+// ==========================================
+// USB DAC output
+// ==========================================
+
+/**
+ * The direct output to a USB DAC (Android 14+): a switch, and what the DAC receives now. Bit-perfect
+ * needs the equalizer flat; with it on, the DAC still gets the song at its own sample rate.
+ */
+@Composable
+private fun UsbDacSection(equalizerFlat: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val dac by org.sonora.android.playback.UsbDacOutput.state.collectAsState()
+    if (!dac.supported) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.equalizer_usb_dac_title),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = SonoraTextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                val line = when {
+                    dac.dac == null -> stringResource(R.string.equalizer_usb_dac_none)
+                    !dac.enabled -> stringResource(R.string.equalizer_usb_dac_connected, dac.dac!!)
+                    dac.format == null -> stringResource(R.string.equalizer_usb_dac_waiting, dac.dac!!)
+                    dac.bitPerfect && equalizerFlat -> stringResource(R.string.equalizer_usb_dac_bit_perfect, dac.format!!)
+                    else -> stringResource(R.string.equalizer_usb_dac_native_rate, dac.format!!)
+                }
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (dac.enabled && dac.format != null) SonoraEmerald else SonoraTextSecondary
+                )
+            }
+            Switch(
+                checked = dac.enabled,
+                onCheckedChange = { org.sonora.android.playback.UsbDacOutput.setEnabled(context, it) },
+                colors = SwitchDefaults.colors(checkedTrackColor = SonoraEmerald, checkedThumbColor = Color.Black)
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(
+                if (dac.enabled && !equalizerFlat) R.string.equalizer_usb_dac_eq_note else R.string.equalizer_usb_dac_note
+            ),
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+            color = SonoraTextTertiary
+        )
     }
 }
 
@@ -760,6 +829,9 @@ private fun VerticalEqualizerBandSlider(
         val thumbHeight = 20.dp
         val thumbRadius = 10.dp
 
+        val latestGain by rememberUpdatedState(band.gainDb)
+        val latestOnChange by rememberUpdatedState(onGainChange)
+
         // Interactive Vertical Slider Track & Thumb
         BoxWithConstraints(
             modifier = Modifier
@@ -773,14 +845,14 @@ private fun VerticalEqualizerBandSlider(
                     detectTapGestures(
                         onDoubleTap = {
                             // Double tap resets band to 0 dB
-                            onGainChange(0f)
+                            latestOnChange(0f)
                         },
                         onTap = { offset ->
                             val touchY = (offset.y - thumbRadiusPx).coerceIn(0f, usableTrackHeight)
                             val fraction = 1f - (touchY / usableTrackHeight)
                             val newGain = -15f + (fraction * 30f)
                             val rounded = (newGain * 2f).roundToInt() / 2f
-                            onGainChange(rounded.coerceIn(-15f, 15f))
+                            latestOnChange(rounded.coerceIn(-15f, 15f))
                         }
                     )
                 }
@@ -789,13 +861,17 @@ private fun VerticalEqualizerBandSlider(
                     val density = this
                     val thumbRadiusPx = with(density) { thumbRadius.toPx() }
                     val usableTrackHeight = (size.height - (2f * thumbRadiusPx)).coerceAtLeast(1f)
-                    detectVerticalDragGestures { change, dragAmount ->
+                    // The gain follows the finger from where the drag started: the band read inside
+                    // this gesture would be the one from when it was set up, and each small move,
+                    // rounded on its own, would round back to where it was.
+                    var dragGain = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { dragGain = latestGain }
+                    ) { change, dragAmount ->
                         change.consume()
-                        val deltaFraction = -dragAmount / usableTrackHeight
-                        val deltaGain = deltaFraction * 30f
-                        val updatedGain = (band.gainDb + deltaGain).coerceIn(-15f, 15f)
-                        val rounded = (updatedGain * 2f).roundToInt() / 2f
-                        onGainChange(rounded)
+                        dragGain = (dragGain - dragAmount / usableTrackHeight * 30f).coerceIn(-15f, 15f)
+                        val rounded = (dragGain * 2f).roundToInt() / 2f
+                        if (rounded != latestGain) latestOnChange(rounded)
                     }
                 },
             contentAlignment = Alignment.TopCenter
@@ -1074,16 +1150,21 @@ private fun BassBoostRotaryKnob(
     onStrengthChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val latestStrength by rememberUpdatedState(strength)
+    val latestOnStrength by rememberUpdatedState(onStrengthChange)
     Box(
         modifier = modifier
             .pointerInput(isEnabled) {
                 if (!isEnabled) return@pointerInput
-                detectVerticalDragGestures { change, dragAmount ->
+                // Drag up increases, drag down decreases, from the strength the drag started at.
+                var dragStrength = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { dragStrength = latestStrength.toFloat() }
+                ) { change, dragAmount ->
                     change.consume()
-                    // Drag up increases, drag down decreases
-                    val deltaStrength = (-dragAmount * 8f).roundToInt()
-                    val newStrength = (strength + deltaStrength).coerceIn(0, 1000)
-                    onStrengthChange(newStrength)
+                    dragStrength = (dragStrength - dragAmount * 8f).coerceIn(0f, 1000f)
+                    val next = dragStrength.roundToInt()
+                    if (next != latestStrength) latestOnStrength(next)
                 }
             },
         contentAlignment = Alignment.Center

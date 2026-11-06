@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="equalizer_title">Equalizzatore</string>
-    <string name="equalizer_status_native_dsp_active">DSP nativo attivo</string>
+    <string name="equalizer_status_native_dsp_active">DSP di LFly attivo</string>
     <string name="equalizer_status_ready">Pronto (5 bande)</string>
     <string name="equalizer_status_bypassed">Disattivato</string>
     <string name="equalizer_close_content_description">Chiudi</string>
@@ -18,4 +18,12 @@
     <string name="equalizer_reset_to_flat">Ripristina flat</string>
     <string name="equalizer_done">Fatto</string>
     <string name="equalizer_bass_label">BASSI</string>
+    <string name="equalizer_usb_dac_title">Uscita USB DAC</string>
+    <string name="equalizer_usb_dac_none">Nessun DAC USB collegato</string>
+    <string name="equalizer_usb_dac_connected">%1$s collegato</string>
+    <string name="equalizer_usb_dac_waiting">%1$s · si attiva con il prossimo brano</string>
+    <string name="equalizer_usb_dac_bit_perfect">Bit-perfect · %1$s</string>
+    <string name="equalizer_usb_dac_native_rate">Frequenza originale · %1$s</string>
+    <string name="equalizer_usb_dac_note">Il brano arriva al DAC nel suo formato, senza ricampionamento. Bit-perfect con l\'equalizzatore su Flat: il volume lo regola il DAC, abbassalo prima di attivare.</string>
+    <string name="equalizer_usb_dac_eq_note">Con l\'equalizzatore attivo il DAC riceve il brano alla sua frequenza originale, ma non bit-perfect. Mettilo su Flat per il bit-perfect.</string>
 </resources>

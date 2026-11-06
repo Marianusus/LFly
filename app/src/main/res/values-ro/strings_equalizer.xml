@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="equalizer_title">Egalizator</string>
-    <string name="equalizer_status_native_dsp_active">DSP nativ activ</string>
+    <string name="equalizer_status_native_dsp_active">DSP LFly activ</string>
     <string name="equalizer_status_ready">Pregătit (5 benzi)</string>
     <string name="equalizer_status_bypassed">Dezactivat</string>
     <string name="equalizer_close_content_description">Închide</string>
@@ -18,4 +18,12 @@
     <string name="equalizer_reset_to_flat">Resetează la plat</string>
     <string name="equalizer_done">Gata</string>
     <string name="equalizer_bass_label">BASS</string>
+    <string name="equalizer_usb_dac_title">Ieșire USB DAC</string>
+    <string name="equalizer_usb_dac_none">Niciun DAC USB conectat</string>
+    <string name="equalizer_usb_dac_connected">%1$s conectat</string>
+    <string name="equalizer_usb_dac_waiting">%1$s · pornește cu următoarea melodie</string>
+    <string name="equalizer_usb_dac_bit_perfect">Bit-perfect · %1$s</string>
+    <string name="equalizer_usb_dac_native_rate">Frecvență originală · %1$s</string>
+    <string name="equalizer_usb_dac_note">Melodiile ajung la DAC în formatul lor, fără reeșantionare. Bit-perfect cu egalizatorul pe Flat: volumul îl reglează DAC-ul, micșorează-l înainte de activare.</string>
+    <string name="equalizer_usb_dac_eq_note">Cu egalizatorul pornit, DAC-ul primește melodia la frecvența originală, dar nu bit-perfect. Pune-l pe Flat pentru bit-perfect.</string>
 </resources>

@@ -15,6 +15,8 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioTrackProvider
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import java.nio.ByteBuffer
+import org.sonora.android.playback.EqualizerProcessor
+import org.sonora.android.playback.UsbDacOutput
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
@@ -645,7 +647,8 @@ internal object DjAudio {
                 DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(enableFloatOutput)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessors(arrayOf<AudioProcessor>(processor))
+                    // The deck, then the listener's equalizer, so the EQ shapes the mixed sound.
+                    .setAudioProcessors(arrayOf<AudioProcessor>(processor, EqualizerProcessor()))
                     .setAudioTrackProvider(TrackingAudioTrackProvider(processor))
                     .build(),
                 processor
@@ -663,7 +666,11 @@ private class TrackingAudioTrackProvider(private val deck: DjFilterProcessor) : 
         audioAttributes: androidx.media3.common.AudioAttributes,
         audioSessionId: Int,
         context: Context?
-    ): AudioTrack = platform.getAudioTrack(audioTrackConfig, audioAttributes, audioSessionId, context).also(deck::attach)
+    ): AudioTrack {
+        // A USB DAC gets a mixer at this song's own format before the track is made (Android 14+).
+        UsbDacOutput.beforeTrack(context, audioTrackConfig, audioAttributes)
+        return platform.getAudioTrack(audioTrackConfig, audioAttributes, audioSessionId, context).also(deck::attach)
+    }
 
     override fun getAudioTrackChannelConfig(channelCount: Int): Int = platform.getAudioTrackChannelConfig(channelCount)
 }
