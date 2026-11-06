@@ -4,6 +4,20 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.7.1] — 2026-11-06
+
+**Cast that plays, an equalizer that works everywhere, and USB DACs.** Updates directly over v1.3.1–v1.7 and keeps your data.
+
+### Added
+
+- **USB DAC output** (Android 14+, at the bottom of the equalizer): songs reach the DAC in their own format, without Android's resampling, bit-perfect when the equalizer is on Flat. The DAC sets the volume: turn it down before enabling.
+
+### Fixed
+
+- **Cast**: choosing a Chromecast or Cast speaker now moves the music there. The phone keeps the queue (next, previous, shuffle, autoplay) and serves each song to the Cast device over your Wi-Fi, downloads included; play, pause and seek work from the app, and picking the phone again brings the music back. No second Cast notification, and disconnecting closes the player on the TV.
+- **Equalizer**: the band sliders and the bass knob follow your finger instead of jumping or sticking.
+- **Equalizer**: the sound is now shaped by LFly itself instead of the phone's audio effects, which some phones (Samsung's among them) overrode; it sounds the same on every output, rounds off loud peaks instead of distorting, and on Flat leaves the audio untouched.
+
 ## [1.7] — 2026-11-06
 
 **Your watch, your other devices, Spotify and Discord, and a living background.** Updates directly over v1.3.1–v1.6.1 and keeps your data.
