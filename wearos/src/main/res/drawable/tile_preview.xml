@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The tile picker's picture of the now-playing tile: cover, title, artist and the three controls. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="192dp"
+    android:height="192dp"
+    android:viewportWidth="192"
+    android:viewportHeight="192">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M0,96a96,96 0,1 0,192 0a96,96 0,1 0,-192 0z" />
+    <!-- Cover -->
+    <path
+        android:fillColor="#FF4F8DFF"
+        android:pathData="M86,27h20a8,8 0,0 1,8 8v20a8,8 0,0 1,-8 8h-20a8,8 0,0 1,-8 -8v-20a8,8 0,0 1,8 -8z" />
+    <!-- Title and artist -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M60,69h72a4,4 0,0 1,0 8h-72a4,4 0,0 1,0 -8z" />
+    <path
+        android:fillColor="#FF8E8E93"
+        android:pathData="M73,83h46a3,3 0,0 1,0 6h-46a3,3 0,0 1,0 -6z" />
+    <!-- Previous, play/pause, next -->
+    <path
+        android:fillColor="#FF262626"
+        android:pathData="M24,126a20,20 0,1 0,40 0a20,20 0,1 0,-40 0zM128,126a20,20 0,1 0,40 0a20,20 0,1 0,-40 0z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M70,126a26,26 0,1 0,52 0a26,26 0,1 0,-52 0z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M89,116h5v20h-5zM98,116h5v20h-5z" />
+    <path
+        android:fillColor="#FF4F8DFF"
+        android:pathData="M38.5,121.5h2v9h-2zM42,126l7,-4.5v9zM143,121.5l7,4.5l-7,4.5zM151.5,121.5h2v9h-2z" />
+</vector>

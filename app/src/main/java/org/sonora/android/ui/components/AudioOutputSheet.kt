@@ -93,6 +93,8 @@ import org.sonora.android.ui.theme.SonoraSurfaceHighlight
 import org.sonora.android.ui.theme.SonoraTextPrimary
 import org.sonora.android.ui.theme.SonoraTextSecondary
 import org.sonora.android.ui.theme.SonoraTextTertiary
+import org.sonora.android.wear.WatchSpeaker
+import org.sonora.android.wear.WearBridge
 
 private enum class AudioSheetPage { OUTPUTS, CAST }
 
@@ -192,8 +194,9 @@ fun AudioOutputSheet(
 
 /**
  * Where the music plays, laid out as Spotify's device picker: the current device on top with its
- * volume, then every other place it can play (LFly devices on the network, this phone's Bluetooth or
- * wired outputs, Cast). Picking an LFly device moves the music there (LFly Connect).
+ * volume, then every other place it can play (LFly devices on the network, the LFly watch, this
+ * phone's Bluetooth or wired outputs, Cast). Picking an LFly device moves the music there (LFly
+ * Connect); picking the watch makes it the speaker while this phone keeps the queue.
  */
 @Composable
 private fun OutputsPage(
@@ -209,11 +212,15 @@ private fun OutputsPage(
     val connecting by ConnectManager.connecting.collectAsStateWithLifecycle()
     val pairing by ConnectManager.pairing.collectAsStateWithLifecycle()
     val remoteVolume by ConnectManager.remoteVolume.collectAsStateWithLifecycle()
+    val nearbyWatch by WearBridge.watch.collectAsStateWithLifecycle()
+    val watchSpeaking by WatchSpeaker.watch.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     DisposableEffect(Unit) {
         ConnectManager.startDiscovery()
         onDispose { ConnectManager.stopDiscovery() }
     }
     val playingOn = following
+    val speakingOn = watchSpeaking
     val activeOutput = outputs.firstOrNull { it.isActive }
     ConnectVolumeKeys()
 
@@ -243,6 +250,20 @@ private fun OutputsPage(
                 onClick = {}
             )
             if (remoteVolume >= 0) RemoteVolumeRow(remoteVolume)
+        } else if (speakingOn != null) {
+            DeviceRow(
+                icon = Icons.Default.Watch,
+                title = speakingOn.name,
+                subtitle = stringResource(R.string.watch_speaker_active),
+                active = true,
+                onClick = {}
+            )
+            Text(
+                text = stringResource(R.string.watch_speaker_volume_hint),
+                style = MaterialTheme.typography.labelMedium,
+                color = SonoraTextTertiary,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+            )
         } else {
             DeviceRow(
                 icon = Icons.Default.PhoneAndroid,
@@ -261,13 +282,23 @@ private fun OutputsPage(
         // ---- Everywhere else it can play ----
         Spacer(Modifier.height(8.dp))
         SheetLabel(stringResource(R.string.connect_select_device))
-        if (playingOn != null) {
+        if (playingOn != null || speakingOn != null) {
             DeviceRow(
                 icon = Icons.Default.PhoneAndroid,
                 title = stringResource(R.string.connect_this_phone),
                 subtitle = null,
                 active = false,
-                onClick = { ConnectManager.playHere() }
+                onClick = { if (speakingOn != null) WatchSpeaker.stop() else ConnectManager.playHere() }
+            )
+        }
+        // The LFly watch, while one is in reach: the music plays on it, the queue stays here.
+        nearbyWatch?.takeIf { speakingOn == null }?.let { watch ->
+            DeviceRow(
+                icon = Icons.Default.Watch,
+                title = watch.name,
+                subtitle = stringResource(R.string.watch_speaker_row),
+                active = false,
+                onClick = { WatchSpeaker.start(context, watch) }
             )
         }
         devices.filter { it.id != playingOn?.id }.forEach { device ->
@@ -285,7 +316,7 @@ private fun OutputsPage(
                 onClick = { ConnectManager.playOn(device) }
             )
         }
-        if (playingOn == null) {
+        if (playingOn == null && speakingOn == null) {
             // This phone's own outputs other than the one in use: headphones, Bluetooth, USB.
             outputs.filter { !it.isActive && it.kind != AudioRouting.Kind.PHONE }.forEach { device ->
                 OutputRow(
@@ -303,7 +334,7 @@ private fun OutputsPage(
                 )
             }
         }
-        if (castSupported) {
+        if (castSupported && speakingOn == null) {
             OutputRow(
                 icon = if (castActiveName != null) Icons.Default.CastConnected else Icons.Default.Cast,
                 title = castActiveName ?: stringResource(R.string.audio_output_cast),
@@ -326,7 +357,7 @@ private fun OutputsPage(
             )
         }
 
-        if (onOpenEqualizer != null && playingOn == null) {
+        if (onOpenEqualizer != null && playingOn == null && speakingOn == null) {
             Spacer(Modifier.height(8.dp))
             OutputRow(
                 icon = Icons.Default.GraphicEq,
@@ -709,18 +740,20 @@ internal fun outputIconFor(device: AudioRouting.Device): ImageVector = when (dev
 }
 
 /**
- * The icon for where the music is heard right now, for the player's output button: the LFly device
- * it plays on, the Cast receiver, or this phone's active output (earbuds, headphones, car, speaker).
+ * The icon for where the music is heard right now, for the player's output button: the LFly watch
+ * or device it plays on, the Cast receiver, or this phone's active output (earbuds, headphones, car, speaker).
  * Highlighted whenever that is not the phone's own speaker.
  */
 @Composable
 internal fun rememberListeningIcon(): Pair<ImageVector, Boolean> {
     val following by ConnectManager.following.collectAsStateWithLifecycle()
     val castName by CastDiscovery.activeName.collectAsStateWithLifecycle()
+    val watchSpeaking by WatchSpeaker.watch.collectAsStateWithLifecycle()
     val outputs = rememberAudioOutputs()
     val playingOn = following
     val active = outputs.firstOrNull { it.isActive }
     return when {
+        watchSpeaking != null -> Icons.Default.Watch to true
         playingOn != null -> connectIconFor(playingOn.kind) to true
         castName != null -> Icons.Default.CastConnected to true
         active != null && active.kind != AudioRouting.Kind.PHONE -> outputIconFor(active) to true

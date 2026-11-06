@@ -187,7 +187,10 @@ class SonoraMediaSessionService : MediaLibraryService() {
                     ignoreSessionPlayUntilMs = 0L
                     return
                 }
-                PlaybackManager.getInstance(this@SonoraMediaSessionService).play()
+                val manager = PlaybackManager.getInstance(this@SonoraMediaSessionService)
+                // With the watch as the speaker this player stays paused, so the notification always
+                // offers play: a press there means play or pause, whichever the watch needs.
+                if (manager.externalSpeaker != null) manager.togglePlayPause() else manager.play()
             }
 
             override fun pause() {

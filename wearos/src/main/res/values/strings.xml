@@ -11,6 +11,21 @@
     <string name="wear_next">Successivo</string>
     <string name="wear_previous">Precedente</string>
     <string name="wear_like">Mi piace</string>
-    <string name="wear_queue">Coda</string>
     <string name="wear_playing_now">In riproduzione</string>
+    <string name="wear_shuffle">Casuale</string>
+    <string name="wear_repeat">Ripeti</string>
+    <string name="wear_queue_empty">La coda è vuota.</string>
+    <string name="wear_no_outputs">Nessun dispositivo trovato.</string>
+    <string name="wear_output_this_watch">Questo orologio</string>
+    <string name="wear_output_phone">Telefono</string>
+    <string name="wear_library_empty">La libreria sul telefono è vuota.</string>
+    <string name="wear_collection_empty">Nessun brano qui.</string>
+    <string name="wear_shuffle_play">Riproduzione casuale</string>
+    <string name="wear_volume">Volume</string>
+    <string name="wear_devices">Dispositivi</string>
+    <string name="wear_swipe_library">Scorri a sinistra per la libreria</string>
+    <string name="wear_your_library">La tua libreria</string>
+    <string name="wear_now_playing_on">In ascolto su</string>
+    <string name="wear_select_device">Seleziona un dispositivo</string>
+    <string name="wear_next_up">Prossimi</string>
 </resources>

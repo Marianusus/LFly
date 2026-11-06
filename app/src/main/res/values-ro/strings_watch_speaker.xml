@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="watch_speaker_row">LFly pe ceas</string>
+    <string name="watch_speaker_active">Difuzorul ceasului</string>
+    <string name="watch_speaker_volume_hint">Volumul se reglează din coroana ceasului</string>
+    <plurals name="watch_collection_songs">
+        <item quantity="one">%1$d melodie</item>
+        <item quantity="few">%1$d melodii</item>
+        <item quantity="other">%1$d de melodii</item>
+    </plurals>
+</resources>

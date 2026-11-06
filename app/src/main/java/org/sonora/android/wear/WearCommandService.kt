@@ -3,6 +3,7 @@ package org.sonora.android.wear
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
 import org.sonora.android.playback.PlaybackManager
@@ -10,23 +11,37 @@ import org.sonora.android.wear.WearProtocol as P
 
 /**
  * The watch's buttons, run on the phone's player. Woken by Play services for messages under
- * [P.PATH_COMMAND], even with LFly closed.
+ * [P.PATH_COMMAND], even with LFly closed; also hears the watch as the speaker
+ * ([P.PATH_SPEAKER_STATUS]) and serves it the audio ([P.PATH_STREAM] channels, [WatchStream]).
  */
 class WearCommandService : WearableListenerService() {
     private val main = Handler(Looper.getMainLooper())
 
     override fun onMessageReceived(event: MessageEvent) {
+        if (event.path == P.PATH_SPEAKER_STATUS) {
+            WearBridge.start(this)
+            WearBridge.onWatchSeen()
+            WatchSpeaker.onStatus(this, event.sourceNodeId, event.data)
+            return
+        }
         if (!event.path.startsWith(P.PATH_COMMAND + "/")) return
         val command = event.path.substringAfterLast('/')
         val argument = event.data?.decodeToString().orEmpty()
+        val node = event.sourceNodeId
         WearBridge.start(this)
         WearBridge.onWatchSeen()
         Log.d("LFlyWear", "Watch: $command $argument")
         // The player lives on the main thread.
-        main.post { run(command, argument) }
+        main.post { run(command, argument, node) }
     }
 
-    private fun run(command: String, argument: String) {
+    override fun onChannelOpened(channel: ChannelClient.Channel) {
+        if (!channel.path.startsWith(P.PATH_STREAM)) return
+        WearBridge.start(this)
+        WatchStream.serve(this, channel)
+    }
+
+    private fun run(command: String, argument: String, node: String) {
         val manager = PlaybackManager.getInstance(this)
         when (command) {
             P.CMD_SYNC -> WearBridge.sync()
@@ -41,6 +56,13 @@ class WearCommandService : WearableListenerService() {
             P.CMD_QUEUE -> WearBridge.publishQueue()
             P.CMD_SKIP_TO -> argument.toIntOrNull()?.let { manager.playFromQueueIndex(it) }
             P.CMD_SEEK -> argument.toLongOrNull()?.let { manager.seekTo(it) }
+            P.CMD_SHUFFLE -> manager.toggleShuffle()
+            P.CMD_REPEAT -> manager.toggleRepeatMode()
+            P.CMD_OUTPUTS -> WatchOutputs.publish(this, node)
+            P.CMD_SELECT_OUTPUT -> WatchOutputs.select(this, argument.trim(), node)
+            P.CMD_LIBRARY -> WatchLibrary.publishLibrary(this)
+            P.CMD_OPEN_COLLECTION -> WatchLibrary.publishCollection(this, argument.trim())
+            P.CMD_PLAY_COLLECTION -> WatchLibrary.play(this, argument)
         }
     }
 }

@@ -14,16 +14,19 @@ import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
+import org.sonora.android.wear.speaker.Speaker
 import org.sonora.android.wear.WearProtocol as P
 
 /**
  * Wakes on each now-playing write from the phone and keeps [WatchFaceChip] in step with it.
  * Nothing runs between writes: the phone only writes on track, play and pause changes.
- * Also the watch's end of updating the watch app from the phone ([WatchInstaller]).
+ * Also the watch's end of updating the watch app from the phone ([WatchInstaller]), and of the
+ * watch as the speaker ([Speaker]).
  */
 class NowPlayingListener : WearableListenerService() {
     override fun onMessageReceived(event: MessageEvent) {
         if (event.path == P.PATH_WATCH_VERSION_ASK) WatchInstaller.publishVersion(this)
+        if (event.path.startsWith(P.PATH_SPEAKER + "/")) Speaker.onMessage(this, event.path, event.data)
     }
 
     override fun onChannelOpened(channel: ChannelClient.Channel) {
@@ -40,6 +43,7 @@ class NowPlayingListener : WearableListenerService() {
             if (event.type == DataEvent.TYPE_CHANGED && event.dataItem.uri.path == P.PATH_NOW_PLAYING) latest = event
         }
         val map = latest?.let { DataMapItem.fromDataItem(it.dataItem).dataMap } ?: return
+        org.sonora.android.wear.tile.NowPlayingTileService.refresh(this)
         val playing = map.getBoolean(P.KEY_HAS_TRACK) && map.getBoolean(P.KEY_PLAYING)
         if (playing) {
             WatchFaceChip.post(this, map.getString(P.KEY_TITLE).orEmpty(), map.getString(P.KEY_ARTIST).orEmpty())

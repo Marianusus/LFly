@@ -1,6 +1,7 @@
 package org.sonora.android.ui.components
 
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -252,20 +253,26 @@ fun MiniPlayer(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    // Playing on another LFly: say where, as Spotify's green device line does.
+                    // Playing on another LFly or on the watch: say where, as Spotify's green device line does.
                     val playingOn by org.sonora.android.connect.ConnectManager.following.collectAsState()
-                    val device = playingOn
-                    if (device != null) {
+                    val watchSpeaking by org.sonora.android.wear.WatchSpeaker.watch.collectAsState()
+                    val onWatch = watchSpeaking
+                    val deviceName = playingOn?.name ?: onWatch?.name
+                    if (deviceName != null) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Speaker,
+                                imageVector = if (playingOn == null && onWatch != null) {
+                                    androidx.compose.material.icons.Icons.Default.Watch
+                                } else {
+                                    androidx.compose.material.icons.Icons.Default.Speaker
+                                },
                                 contentDescription = null,
                                 tint = org.sonora.android.ui.theme.SonoraEmerald,
                                 modifier = Modifier.size(13.dp)
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = device.name,
+                                text = deviceName,
                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
                                 color = org.sonora.android.ui.theme.SonoraEmerald,
                                 maxLines = 1,

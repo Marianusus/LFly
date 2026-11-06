@@ -289,6 +289,7 @@ class PlaybackManager private constructor(private val context: Context) {
     private fun stopForSleep() {
         cancelCrossfade()
         player?.pause()
+        externalSpeaker?.transport(PartyTransportAction.PAUSE, 0L)
     }
 
     /** Changes tempo, keeping the pitch. A Party guest stays at the host's normal speed. */
@@ -722,7 +723,88 @@ class PlaybackManager private constructor(private val context: Context) {
     private fun forwardToParty(action: PartyTransportAction, positionMs: Long = 0L): Boolean {
         if (partyApplyingRemote) return false
         if (connectTransportHandler?.invoke(action, positionMs) == true) return true
+        if (externalSpeaker?.transport(action, positionMs) == true) return true
         return partyTransportHandler?.invoke(action, positionMs) == true
+    }
+
+    // ==========================================
+    // Another speaker fed by this phone (the watch)
+    // ==========================================
+
+    /**
+     * A speaker this phone feeds while it keeps the queue: the LFly watch. Unlike LFly Connect the
+     * other side holds no queue, so next, previous, shuffle, repeat, autoplay and stream resolution
+     * all keep running here; only the sound moves.
+     */
+    interface ExternalSpeaker {
+        /** Plays [track] (its stream resolved, or a local file) from [positionMs]. */
+        fun load(track: Track, positionMs: Long)
+
+        /** Play, pause, toggle and seek; false leaves the action to the phone (next, previous). */
+        fun transport(action: PartyTransportAction, positionMs: Long): Boolean
+
+        /** Where the speaker's playhead is now. */
+        fun positionMs(): Long
+    }
+
+    /** While set, the local player stays paused and every song goes to this speaker instead. */
+    @Volatile
+    var externalSpeaker: ExternalSpeaker? = null
+        private set
+
+    /** Moves the sound to [speaker]: the local player pauses and stays silent until it is detached. */
+    fun attachExternalSpeaker(speaker: ExternalSpeaker) {
+        externalSpeaker = speaker
+        crossfade.cancel()
+        player?.pause()
+        stopPositionTicker()
+    }
+
+    /**
+     * Takes the sound back from [speaker]. With [positionMs] the song goes on here from there,
+     * playing or paused as [play] says; null means it moved elsewhere (LFly Connect), so the
+     * local player is left alone. A speaker already replaced changes nothing.
+     */
+    fun detachExternalSpeaker(speaker: ExternalSpeaker, positionMs: Long?, play: Boolean) {
+        if (externalSpeaker !== speaker) return
+        externalSpeaker = null
+        if (positionMs == null) return
+        val state = _playbackState.value
+        val track = state.currentTrack ?: return
+        val position = positionMs.coerceAtLeast(0L)
+        _playbackState.update { it.copy(positionMs = position, isPlaying = false, isBuffering = false, isLoading = false) }
+        val p = player
+        when {
+            p != null && p.currentMediaItem?.mediaId == track.id && p.playerError == null -> {
+                // The local player already holds this song (it followed along for the notification).
+                p.seekTo(position)
+                if (play) resumeOrRecover()
+            }
+            // Nothing loaded here: play starts the song from the state's position (resumeOrRecover).
+            p == null || p.mediaItemCount == 0 -> if (play) resumeOrRecover()
+            else -> {
+                // The player holds another song: load this one, held paused if it was paused there.
+                if (!play) startPausedRequest = playRequestCounter.get() + 1
+                if (state.currentIndex in state.queue.indices) playFromQueueIndex(state.currentIndex, position) else playTrack(track)
+            }
+        }
+    }
+
+    /** The play request that loads its song paused: the music came back from the watch, paused. */
+    @Volatile
+    private var startPausedRequest = -1L
+
+    /** What the speaker reports, shown as if it played here (the local player stays paused). */
+    fun showExternalState(playing: Boolean, buffering: Boolean, positionMs: Long) {
+        if (externalSpeaker == null) return
+        _playbackState.update {
+            it.copy(isPlaying = playing, isBuffering = buffering, isLoading = false, positionMs = positionMs.coerceAtLeast(0L))
+        }
+    }
+
+    /** The speaker played the song to its end: move on as if it had ended here. */
+    fun onExternalTrackEnded() {
+        if (externalSpeaker != null) handleTrackEnded()
     }
 
     // ==========================================
@@ -880,10 +962,22 @@ class PlaybackManager private constructor(private val context: Context) {
     }
 
     /** Live playback position (the state flow's value can lag behind the ticker). */
-    fun livePositionMs(): Long = player?.currentPosition ?: _playbackState.value.positionMs
+    fun livePositionMs(): Long =
+        externalSpeaker?.positionMs() ?: player?.currentPosition ?: _playbackState.value.positionMs
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (externalSpeaker != null) {
+                // Another speaker plays: the paused local player only holds the song for the
+                // notification, and can tell its length.
+                val p = player
+                if (playbackState == Player.STATE_READY && p != null && p.duration > 0 &&
+                    p.currentMediaItem?.mediaId == _playbackState.value.currentTrack?.id
+                ) {
+                    _playbackState.update { it.copy(durationMs = p.duration) }
+                }
+                return
+            }
             when (playbackState) {
                 Player.STATE_BUFFERING -> {
                     _playbackState.update { it.copy(isBuffering = true) }
@@ -918,6 +1012,11 @@ class PlaybackManager private constructor(private val context: Context) {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (externalSpeaker != null) {
+                // The watch is the speaker: this player stays silent, whatever asked it to play.
+                if (isPlaying) player?.pause()
+                return
+            }
             _playbackState.update { it.copy(isPlaying = isPlaying) }
             if (isPlaying) {
                 startPositionTicker()
@@ -931,12 +1030,15 @@ class PlaybackManager private constructor(private val context: Context) {
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
+            if (externalSpeaker != null) return
             val pos = player?.currentPosition ?: 0L
             _playbackState.update { it.copy(positionMs = pos) }
         }
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "ExoPlayer playback error: ${error.errorCodeName} - ${error.message}", error)
+            // The paused local copy failing to buffer must not retry or skip what the watch plays.
+            if (externalSpeaker != null) return
             handlePlaybackError(error)
         }
     }
@@ -1300,7 +1402,7 @@ class PlaybackManager private constructor(private val context: Context) {
         if (forwardToParty(PartyTransportAction.PREVIOUS)) return
         cancelCrossfade()
         val p = player
-        val currentPos = p?.currentPosition ?: _playbackState.value.positionMs
+        val currentPos = externalSpeaker?.positionMs() ?: p?.currentPosition ?: _playbackState.value.positionMs
 
         // If played more than 3 seconds, previous button restarts current track
         if (currentPos > 3000L) {
@@ -1994,7 +2096,14 @@ class PlaybackManager private constructor(private val context: Context) {
                     .build()
 
                 val p = player
-                if (p != null) {
+                val speaker = externalSpeaker
+                if (speaker != null) {
+                    // The watch is the speaker: it plays the song. The local player only takes the
+                    // item, paused, so the notification and lock screen show what plays.
+                    if (p != null) p.setMediaItem(mediaItem) else ensureServiceStarted()
+                    speaker.load(playableTrack, startPositionMs)
+                    Log.i(TAG, "Sent to the external speaker: ${playableTrack.title} (from ${startPositionMs}ms)")
+                } else if (p != null) {
                     // Replace the item WITHOUT calling stop(): stop() drops the Media3 media
                     // notification and demotes the foreground service, forcing a re-promotion
                     // from the background on the very next frame (denied / ANR on Android 12+).
@@ -2007,10 +2116,15 @@ class PlaybackManager private constructor(private val context: Context) {
                         p.seekTo(startPositionMs)
                         _playbackState.update { it.copy(positionMs = startPositionMs) }
                     }
-                    p.play()
-                    // Promote only once the player is actually running, so Media3 posts the
-                    // foreground notification immediately and the 5s contract is satisfied.
-                    startForegroundPlaybackService()
+                    if (requestId == startPausedRequest) {
+                        // Back from the watch, paused: ready here, waiting for play.
+                        _playbackState.update { it.copy(isPlaying = false) }
+                    } else {
+                        p.play()
+                        // Promote only once the player is actually running, so Media3 posts the
+                        // foreground notification immediately and the 5s contract is satisfied.
+                        startForegroundPlaybackService()
+                    }
                     Log.i(TAG, "Started playback for: ${playableTrack.title} -> $streamUrl (resume=${resumePositionMs}ms)")
                 } else {
                     Log.w(TAG, "ExoPlayer not attached yet. Queuing track.")
@@ -2058,8 +2172,14 @@ class PlaybackManager private constructor(private val context: Context) {
         if (partyGuestMode) return
         when (state.repeatMode) {
             RepeatMode.ONE -> {
-                seekTo(0L)
-                player?.play()
+                val speaker = externalSpeaker
+                if (speaker != null) {
+                    // The watch's player has ended: it gets the song again rather than a seek.
+                    state.currentTrack?.let { speaker.load(it, 0L) }
+                } else {
+                    seekTo(0L)
+                    player?.play()
+                }
             }
             RepeatMode.ALL -> {
                 playNext()

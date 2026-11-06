@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="watch_speaker_row">LFly sull\'orologio</string>
+    <string name="watch_speaker_active">Altoparlante dell\'orologio</string>
+    <string name="watch_speaker_volume_hint">Il volume si regola con la corona dell\'orologio</string>
+    <plurals name="watch_collection_songs">
+        <item quantity="one">%1$d brano</item>
+        <item quantity="other">%1$d brani</item>
+    </plurals>
+</resources>

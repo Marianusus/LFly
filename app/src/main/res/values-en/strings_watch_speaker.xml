@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="watch_speaker_row">LFly on your watch</string>
+    <string name="watch_speaker_active">Watch speaker</string>
+    <string name="watch_speaker_volume_hint">Turn the watch\'s crown for the volume</string>
+    <plurals name="watch_collection_songs">
+        <item quantity="one">%1$d song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+</resources>

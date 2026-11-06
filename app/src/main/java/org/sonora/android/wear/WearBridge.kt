@@ -2,7 +2,11 @@ package org.sonora.android.wear
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.graphics.drawable.toBitmap
 import coil.imageLoader
@@ -12,6 +16,7 @@ import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.Asset
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.DataMap
+import com.google.android.gms.wearable.Node
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CoroutineScope
@@ -19,12 +24,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.sonora.android.R
+import org.sonora.android.cast.CastDiscovery
+import org.sonora.android.connect.ConnectManager
+import org.sonora.android.playback.AudioRouting
 import org.sonora.android.playback.PlaybackManager
 import org.sonora.android.playback.PlaybackState
+import org.sonora.android.playback.RepeatMode
 import java.io.ByteArrayOutputStream
 import kotlin.math.abs
 import org.sonora.android.wear.WearProtocol as P
+
+/** A watch with the LFly app: the device sheet and the watch's own picker offer it as a speaker. */
+data class WatchNode(val id: String, val name: String)
 
 /**
  * Tells the LFly watch app what is playing.
@@ -51,6 +68,11 @@ object WearBridge {
         val hasPrevious: Boolean,
         val hasNext: Boolean,
         val volume: Int,
+        val album: String?,
+        val shuffle: Boolean,
+        val repeat: RepeatMode,
+        val output: WatchOutputs.Output?,
+        val watchSpeaker: Boolean,
         val positionMs: Long,
         val at: Long
     )
@@ -65,6 +87,14 @@ object WearBridge {
     @Volatile private var art: Art? = null
     private var flushJob: Job? = null
 
+    /** Where the music comes out, refreshed when that can change (not on every position tick). */
+    @Volatile private var output: WatchOutputs.Output? = null
+
+    private val _watch = MutableStateFlow<WatchNode?>(null)
+
+    /** The reachable watch with LFly (the nearest one), or null. */
+    val watch: StateFlow<WatchNode?> = _watch.asStateFlow()
+
     /** Called once from Application.onCreate. */
     fun start(context: Context) {
         if (started) return
@@ -75,9 +105,11 @@ object WearBridge {
             runCatching {
                 val info = Tasks.await(capability.getCapability(P.CAPABILITY_WATCH, CapabilityClient.FILTER_REACHABLE))
                 watchReachable = info.nodes.isNotEmpty()
+                _watch.value = nearest(info.nodes)
                 capability.addListener({ changed ->
                     val was = watchReachable
                     watchReachable = changed.nodes.isNotEmpty()
+                    _watch.value = nearest(changed.nodes)
                     if (watchReachable && !was) { sent = null; schedule() }
                 }, P.CAPABILITY_WATCH)
             }.onFailure {
@@ -86,6 +118,7 @@ object WearBridge {
                 return@launch
             }
             Log.i(TAG, "Watch reachable: $watchReachable")
+            followOutput()
             PlaybackManager.getInstance(app).playbackState.collect { state ->
                 if (watchReachable && changed(state)) schedule()
             }
@@ -95,6 +128,48 @@ object WearBridge {
     /** A message from a watch is proof one is reachable. */
     internal fun onWatchSeen() {
         watchReachable = true
+    }
+
+    private fun nearest(nodes: Set<Node>): WatchNode? =
+        (nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull())?.let { WatchNode(it.id, it.displayName) }
+
+    /** [nodeId] with the name the phone knows it by. Blocking: off the main thread. */
+    internal fun nodeFor(nodeId: String): WatchNode {
+        _watch.value?.takeIf { it.id == nodeId }?.let { return it }
+        val name = runCatching {
+            Tasks.await(Wearable.getNodeClient(app).connectedNodes).firstOrNull { it.id == nodeId }?.displayName
+        }.getOrNull()
+        return WatchNode(nodeId, name?.takeIf { it.isNotBlank() } ?: app.getString(R.string.settings_page_watch))
+    }
+
+    /**
+     * The watch shows where the music comes out: follows what can move it (an output picked, a
+     * device plugged in or out, LFly Connect, Cast, the watch as the speaker).
+     */
+    private fun followOutput() {
+        refreshOutput()
+        scope.launch {
+            combine(AudioRouting.selectedId, ConnectManager.following, CastDiscovery.activeName, WatchSpeaker.watch) { _, _, _, _ -> }
+                .collect { outputChanged() }
+        }
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) = outputChanged()
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) = outputChanged()
+        }
+        runCatching {
+            app.getSystemService(AudioManager::class.java)?.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+        }
+    }
+
+    private fun outputChanged() {
+        scope.launch {
+            refreshOutput()
+            if (watchReachable && changed(PlaybackManager.getInstance(app).playbackState.value)) schedule()
+        }
+    }
+
+    private fun refreshOutput() {
+        output = runCatching { WatchOutputs.current(app) }.getOrNull()
     }
 
     /** Sends the state again, whatever was sent before: the watch app just opened. */
@@ -124,11 +199,14 @@ object WearBridge {
                 }
             }
             val request = PutDataMapRequest.create(P.PATH_QUEUE)
+            val now = System.currentTimeMillis()
+            RowArt.putAll(app, request.dataMap, state.queue.drop(from).take(QUEUE_AHEAD + 1).map { it.coverUrl })
             request.dataMap.apply {
                 putDataMapArrayList(P.KEY_ITEMS, rows)
                 putInt(P.KEY_CURRENT_INDEX, state.currentIndex)
                 // Always a change, so asking twice for the same queue still lands.
-                putLong(P.KEY_POSITION_AT, System.currentTimeMillis())
+                putLong(P.KEY_POSITION_AT, now)
+                putLong(P.KEY_STAMP, now)
             }
             put(request)
         }
@@ -150,6 +228,11 @@ object WearBridge {
             hasPrevious = state.hasPrevious,
             hasNext = state.hasNext,
             volume = volume().first,
+            album = track?.album?.takeIf { it.isNotBlank() },
+            shuffle = state.isShuffle,
+            repeat = state.repeatMode,
+            output = output,
+            watchSpeaker = WatchSpeaker.active.value,
             positionMs = state.positionMs,
             at = System.currentTimeMillis()
         )
@@ -177,6 +260,7 @@ object WearBridge {
     }
 
     private suspend fun flush() {
+        refreshOutput()
         val state = PlaybackManager.getInstance(app).playbackState.value
         val snap = snapshot(state)
         val track = state.currentTrack
@@ -187,6 +271,12 @@ object WearBridge {
             putInt(P.KEY_VOLUME, volume)
             putInt(P.KEY_VOLUME_MAX, volumeMax)
             putLong(P.KEY_POSITION_AT, snap.at)
+            putLong(P.KEY_STAMP, snap.at)
+            putBoolean(P.KEY_WATCH_SPEAKER, snap.watchSpeaker)
+            snap.output?.let {
+                putString(P.KEY_OUTPUT_NAME, it.name)
+                putString(P.KEY_OUTPUT_KIND, it.kind)
+            }
             if (track != null) {
                 putString(P.KEY_TRACK_ID, track.id)
                 putString(P.KEY_TITLE, track.title)
@@ -197,6 +287,16 @@ object WearBridge {
                 putBoolean(P.KEY_HAS_PREVIOUS, state.hasPrevious)
                 putBoolean(P.KEY_HAS_NEXT, state.hasNext)
                 putBoolean(P.KEY_LIKED, snap.liked)
+                snap.album?.let { putString(P.KEY_ALBUM, it) }
+                putBoolean(P.KEY_SHUFFLE, snap.shuffle)
+                putInt(
+                    P.KEY_REPEAT,
+                    when (snap.repeat) {
+                        RepeatMode.OFF -> P.REPEAT_OFF
+                        RepeatMode.ALL -> P.REPEAT_ALL
+                        RepeatMode.ONE -> P.REPEAT_ONE
+                    }
+                )
                 artFor(track.coverUrl)?.let { putAsset(P.KEY_ART, it) }
             }
         }

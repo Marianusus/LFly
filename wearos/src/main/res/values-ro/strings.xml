@@ -11,6 +11,21 @@
     <string name="wear_next">Următoarea</string>
     <string name="wear_previous">Anterioara</string>
     <string name="wear_like">Îmi place</string>
-    <string name="wear_queue">Coadă</string>
     <string name="wear_playing_now">Se redă acum</string>
+    <string name="wear_shuffle">Aleatoriu</string>
+    <string name="wear_repeat">Repetă</string>
+    <string name="wear_queue_empty">Coada este goală.</string>
+    <string name="wear_no_outputs">Niciun dispozitiv găsit.</string>
+    <string name="wear_output_this_watch">Acest ceas</string>
+    <string name="wear_output_phone">Telefon</string>
+    <string name="wear_library_empty">Biblioteca de pe telefon este goală.</string>
+    <string name="wear_collection_empty">Nicio melodie aici.</string>
+    <string name="wear_shuffle_play">Redare aleatorie</string>
+    <string name="wear_volume">Volum</string>
+    <string name="wear_devices">Dispozitive</string>
+    <string name="wear_swipe_library">Glisează la stânga pentru bibliotecă</string>
+    <string name="wear_your_library">Biblioteca ta</string>
+    <string name="wear_now_playing_on">Se ascultă pe</string>
+    <string name="wear_select_device">Selectează un dispozitiv</string>
+    <string name="wear_next_up">Urmează</string>
 </resources>

@@ -11,6 +11,21 @@
     <string name="wear_next">Next</string>
     <string name="wear_previous">Previous</string>
     <string name="wear_like">Like</string>
-    <string name="wear_queue">Queue</string>
     <string name="wear_playing_now">Now playing</string>
+    <string name="wear_shuffle">Shuffle</string>
+    <string name="wear_repeat">Repeat</string>
+    <string name="wear_queue_empty">The queue is empty.</string>
+    <string name="wear_no_outputs">No devices found.</string>
+    <string name="wear_output_this_watch">This watch</string>
+    <string name="wear_output_phone">Phone</string>
+    <string name="wear_library_empty">The library on your phone is empty.</string>
+    <string name="wear_collection_empty">No songs here.</string>
+    <string name="wear_shuffle_play">Shuffle play</string>
+    <string name="wear_volume">Volume</string>
+    <string name="wear_devices">Devices</string>
+    <string name="wear_swipe_library">Swipe left for your library</string>
+    <string name="wear_your_library">Your library</string>
+    <string name="wear_now_playing_on">Listening on</string>
+    <string name="wear_select_device">Select a device</string>
+    <string name="wear_next_up">Next up</string>
 </resources>

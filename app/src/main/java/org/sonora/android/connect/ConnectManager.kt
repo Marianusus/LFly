@@ -213,6 +213,10 @@ object ConnectManager {
         manager.discoverServices(C.SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)
     }
 
+    /** True while looking for devices, so a short search for the watch never ends the picker's. */
+    val isDiscovering: Boolean
+        get() = discovery != null
+
     fun stopDiscovery() {
         val listener = discovery ?: return
         discovery = null

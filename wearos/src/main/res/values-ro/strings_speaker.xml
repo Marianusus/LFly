@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification channel of the watch playing the phone's music (WatchPlaybackService). -->
+    <string name="speaker_channel">Muzică pe ceas</string>
+</resources>

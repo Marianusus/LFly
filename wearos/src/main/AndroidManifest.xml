@@ -12,7 +12,14 @@
     <!-- Updates sent from the phone's Settings (WatchInstaller). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- No INTERNET: everything this app knows comes from the phone over the Data Layer. -->
+    <!-- The watch as the speaker: plays on with the screen off (speaker.WatchPlaybackService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!--
+      No INTERNET: everything this app knows, and the speaker's audio bytes, comes from the phone
+      over the Data Layer.
+    -->
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -63,6 +70,14 @@
                     android:pathPrefix="/lfly/watch"
                     android:scheme="wear" />
             </intent-filter>
+            <!-- The phone playing on this watch (speaker.Speaker). -->
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/lfly/speaker"
+                    android:scheme="wear" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.CHANNEL_EVENT" />
                 <data
@@ -75,5 +90,30 @@
         <receiver
             android:name=".InstallResultReceiver"
             android:exported="false" />
+
+        <!-- The watch as the phone's speaker: the player, in a media session (Media3). -->
+        <service
+            android:name=".speaker.WatchPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!-- The now-playing tile: the phone's controls one swipe from the watch face. -->
+        <service
+            android:name=".tile.NowPlayingTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_notification"
+            android:label="@string/tile_label"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+            <meta-data
+                android:name="androidx.wear.tiles.PREVIEW"
+                android:resource="@drawable/tile_preview" />
+        </service>
     </application>
 </manifest>

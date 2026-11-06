@@ -8,8 +8,9 @@ plugins {
 }
 
 /*
- * LFly for Wear OS: a remote for the phone app, not a second player. It holds no library and streams nothing: the phone sends what is playing
- * and a small cover over the Wearable Data Layer.
+ * LFly for Wear OS: a remote for the phone app, and its speaker when asked. It holds no library and
+ * has no internet of its own: the phone sends what is playing, its library and a small cover over the
+ * Wearable Data Layer, and, with the watch as the speaker, the audio bytes over a Data Layer channel.
  *
  * The Data Layer only delivers between apps with the same application id *and* signing key, so this
  * takes the phone's id and is signed the way the phone is: the debug key for debug, the release
@@ -89,4 +90,16 @@ dependencies {
     // The Data Layer: state from the phone, commands to it.
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
+    // The watch as the speaker: a player reading the audio from the phone, in a media session so
+    // it plays on with the screen off. Same Media3 as the phone app.
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-session:1.8.0")
+
+    // The now-playing tile.
+    implementation("androidx.wear.tiles:tiles:1.4.1")
+    implementation("androidx.wear.protolayout:protolayout:1.2.1")
+    implementation("androidx.wear.protolayout:protolayout-material:1.2.1")
+    implementation("androidx.wear.protolayout:protolayout-expression:1.2.1")
+    implementation("androidx.concurrent:concurrent-futures-ktx:1.2.0")
 }

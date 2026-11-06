@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The now-playing tile (tile/NowPlayingTileService). -->
+<resources>
+    <string name="tile_label">LFly – In riproduzione</string>
+    <string name="tile_nothing_playing">Niente in riproduzione</string>
+    <string name="tile_open">Apri LFly</string>
+    <string name="tile_play">Riproduci</string>
+    <string name="tile_pause">Pausa</string>
+    <string name="tile_next">Successivo</string>
+    <string name="tile_previous">Precedente</string>
+</resources>

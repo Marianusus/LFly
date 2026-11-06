@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The now-playing tile (tile/NowPlayingTileService). -->
+<resources>
+    <string name="tile_label">LFly – Se redă acum</string>
+    <string name="tile_nothing_playing">Nimic în redare</string>
+    <string name="tile_open">Deschide LFly</string>
+    <string name="tile_play">Redă</string>
+    <string name="tile_pause">Pauză</string>
+    <string name="tile_next">Următorul</string>
+    <string name="tile_previous">Anteriorul</string>
+</resources>
