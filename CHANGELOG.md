@@ -4,6 +4,20 @@ All notable changes to **LFly** (`org.sonora.android`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app's `versionName`.
 
+## [1.8] — 2026-11-07
+
+**LFly for computer, and your library on both.** Updates directly over v1.3.1–v1.7.1 and keeps your data.
+
+### Added
+
+- **LFly for computer** (Linux, Windows, macOS; installers in the `desktop-v0.1.0` release): YouTube Music, lyrics word by word, the phone's themes and Liquid Glass, downloads, Automix, Discord, Spotify import, Spicetify Marketplace themes. It speaks LFly Connect: control the phone from the computer, move the music between them, and the watch sees it too.
+- **Library sync with the computer** (Settings → Account): favourites, playlists and history stay the same on phone and computer while both are on the same Wi-Fi with the same YouTube Music account. Nothing to set up; deletions travel too. Only devices of your account get it, never ones paired with a code.
+- **Sync through Google Drive** (optional, same place): for phone and computer far apart; needs a one-time Google Cloud setup (see the computer app's README).
+
+### Fixed
+
+- **LFly Connect**: a phone now reaches a computer that announces IPv6 or loopback addresses too (it picks the network's IPv4 address).
+
 ## [1.7.1] — 2026-11-06
 
 **Cast that plays, an equalizer that works everywhere, and USB DACs.** Updates directly over v1.3.1–v1.7 and keeps your data.
