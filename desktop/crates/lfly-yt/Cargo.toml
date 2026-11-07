@@ -1,0 +1,23 @@
+[package]
+name = "lfly-yt"
+description = "LFly YouTube Music client: search, browse, radio, full-length audio streams and multi-provider synced lyrics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+log.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "http2"] }
+thiserror = "2"
+regex = "1"
+sha1 = "0.10"
+unicode-normalization = "0.1"
+roxmltree = "0.20"
+flate2 = "1"
+base64 = "0.22"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

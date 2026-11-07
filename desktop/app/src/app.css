@@ -1,0 +1,628 @@
+/*
+ * LFly design system (desktop): the phone app's look — the appearance modes, accent palette and
+ * Liquid Glass — as CSS variables. The theme code (src/lib/theme) writes the live values on :root;
+ * the ones below are the dark default shown before it loads.
+ *
+ * Tokens
+ *   Color    --lfly-bg --lfly-surface --lfly-surface-2 --lfly-surface-3 (opaque) --lfly-card --lfly-card-hover (see-through
+ *            content cards, the phone's glass tint) --lfly-text --lfly-text-2 --lfly-text-3
+ *            --lfly-accent --lfly-on-accent --lfly-accent-soft --lfly-fill --lfly-fill-2 --lfly-separator --lfly-scrim
+ *            --lfly-danger --lfly-rgb-accent --lfly-rgb-text --lfly-rgb-bg
+ *   Glass    --lfly-glass-tint --lfly-glass-tint-clear --lfly-glass-tint-accent --lfly-glass-border
+ *            --lfly-glass-highlight --lfly-glass-blur --lfly-glass-sat
+ *   Shape    --lfly-radius-s/-m/-l/-xl --lfly-shadow-1 --lfly-shadow-2
+ *   Type     --lfly-font --lfly-font-display
+ *   Motion   --lfly-ease --lfly-ease-spring --lfly-ease-jelly --lfly-dur-fast --lfly-dur-med --lfly-dur-slow
+ *   Space    --lfly-space-1..6 (4 8 12 16 24 32)
+ *
+ * Spicetify names (--spice-<name>, --spice-rgb-<name>) stay available for user.css and custom themes.
+ *
+ * Stable class names for custom CSS (listed in Settings > Aspetto > Avanzate):
+ *   .lfly-sidebar .lfly-main .lfly-panel .lfly-player .lfly-card .lfly-row .lfly-cover
+ *   .lfly-button-primary .lfly-shelf .lfly-page-title .lfly-progress .lfly-lyrics
+ */
+
+@font-face {
+  font-family: "Inter LFly";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./lib/theme/fonts/InterVariable-latin.woff2") format("woff2-variations"),
+    url("./lib/theme/fonts/InterVariable-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter LFly";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./lib/theme/fonts/InterVariable-latin-ext.woff2") format("woff2-variations"),
+    url("./lib/theme/fonts/InterVariable-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  /* The system's own face where it is Apple's or Microsoft's; Inter (bundled) everywhere else. */
+  --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Inter LFly", "Segoe UI",
+    system-ui, sans-serif;
+  --font-system-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Inter LFly",
+    "Segoe UI", system-ui, sans-serif;
+  --font-ui: var(--font-system);
+  --font-display: var(--font-system-display);
+  --lfly-font: var(--font-ui);
+  --lfly-font-display: var(--font-display);
+
+  /* Colors: Dinamico scuro with the emerald accent, until the theme loads. */
+  --lfly-bg: #050509;
+  --lfly-bg-top: #0e2a19;
+  --lfly-bg-mid: #0d1430;
+  --lfly-surface: #111115;
+  --lfly-surface-2: #1a1a1f;
+  --lfly-surface-3: #232328;
+  --lfly-text: #ffffff;
+  --lfly-text-2: rgba(255, 255, 255, 0.7);
+  --lfly-text-3: rgba(255, 255, 255, 0.5);
+  --lfly-accent: #1db954;
+  --lfly-accent-2: #4d7cff;
+  --lfly-on-accent: #15151a;
+  --lfly-accent-soft: rgba(29, 185, 84, 0.2);
+  --lfly-rgb-accent: 29, 185, 84;
+  --lfly-rgb-text: 255, 255, 255;
+  --lfly-rgb-bg: 5, 5, 9;
+  --lfly-card: rgba(255, 255, 255, 0.065);
+  --lfly-card-hover: rgba(255, 255, 255, 0.1);
+  --lfly-fill: rgba(255, 255, 255, 0.08);
+  --lfly-fill-2: rgba(255, 255, 255, 0.14);
+  --lfly-separator: rgba(255, 255, 255, 0.1);
+  --lfly-scrim: rgba(0, 0, 0, 0.6);
+  --lfly-danger: #ff453a;
+
+  --lfly-glass-tint: rgba(18, 18, 20, 0.5);
+  --lfly-glass-tint-clear: rgba(18, 18, 20, 0.18);
+  --lfly-glass-tint-accent: rgba(29, 185, 84, 0.5);
+  --lfly-glass-border: rgba(255, 255, 255, 0.15);
+  --lfly-glass-highlight: rgba(255, 255, 255, 0.5);
+  --lfly-glass-shade: rgba(0, 0, 0, 0.35);
+  --lfly-glass-blur: 26px;
+  --lfly-glass-sat: 1.5;
+
+  --lfly-radius-s: 8px;
+  --lfly-radius-m: 12px;
+  --lfly-radius-l: 18px;
+  --lfly-radius-xl: 26px;
+  --lfly-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+  --lfly-shadow-2: 0 2px 8px rgba(0, 0, 0, 0.4), 0 24px 64px rgba(0, 0, 0, 0.55);
+
+  --lfly-space-1: 4px;
+  --lfly-space-2: 8px;
+  --lfly-space-3: 12px;
+  --lfly-space-4: 16px;
+  --lfly-space-5: 24px;
+  --lfly-space-6: 32px;
+
+  /* Motion: the phone's FastOutSlowIn, and springs (damping 0.8 and a livelier 0.55 for glass). */
+  --lfly-ease: cubic-bezier(0.2, 0, 0, 1);
+  --lfly-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --lfly-ease-spring: linear(0, 0.065, 0.208, 0.376, 0.537, 0.676, 0.787, 0.871, 0.93, 0.969, 0.993, 1.007, 1.013, 1.015,
+      1.014, 1.012, 1.01, 1.007, 1.005, 1.003, 1);
+  --lfly-ease-jelly: linear(0, 0.035, 0.126, 0.251, 0.393, 0.538, 0.676, 0.799, 0.903, 0.985, 1.047, 1.09, 1.115, 1.125,
+      1.125, 1.116, 1.102, 1.085, 1.066, 1.048, 1.032, 1.018, 1.006, 0.997, 0.991, 0.987, 0.985, 0.984, 0.985, 0.988, 1);
+  --lfly-dur-fast: 180ms;
+  --lfly-dur-med: 320ms;
+  --lfly-dur-slow: 480ms;
+
+  /* ---- Older names, kept working on top of the tokens ---- */
+  --radius: 12px;
+  --density: 1;
+  --gap: 8px;
+  --bg-image: none;
+  --bg-opacity: 0.25;
+  --on-button: var(--lfly-on-accent);
+
+  --spice-text: #ffffff;
+  --spice-subtext: #b3b3b5;
+  --spice-main: #050509;
+  --spice-main-elevated: #111115;
+  --spice-highlight: #1a1a1f;
+  --spice-highlight-elevated: #232328;
+  --spice-sidebar: #050509;
+  --spice-player: #111115;
+  --spice-card: #111115;
+  --spice-shadow: #000000;
+  --spice-selected-row: #ffffff;
+  --spice-button: #1db954;
+  --spice-button-active: #3fc46e;
+  --spice-button-disabled: #828284;
+  --spice-tab-active: #1a1a1f;
+  --spice-notification: #4d7cff;
+  --spice-notification-error: #ff453a;
+  --spice-misc: #828284;
+  --spice-rgb-text: 255, 255, 255;
+  --spice-rgb-main: 5, 5, 9;
+  --spice-rgb-sidebar: 5, 5, 9;
+  --spice-rgb-player: 17, 17, 21;
+  --spice-rgb-shadow: 0, 0, 0;
+  --spice-rgb-selected-row: 255, 255, 255;
+  --spice-rgb-button: 29, 185, 84;
+
+  --hover: var(--lfly-fill);
+  --pressed: var(--lfly-fill-2);
+  --separator: var(--lfly-separator);
+  --track: rgba(var(--lfly-rgb-text), 0.2);
+  --scrim: var(--lfly-scrim);
+  --shadow: var(--lfly-shadow-2);
+  --pad: calc(16px * var(--density));
+  --row-h: calc(56px * var(--density));
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* Propagates to the window's canvas, under the Backdrop. */
+  background: var(--lfly-bg);
+  color: var(--lfly-text);
+  font: 13px/1.4 var(--lfly-font);
+  letter-spacing: -0.003em;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--lfly-font-display);
+  letter-spacing: -0.015em;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  color: var(--lfly-text-3);
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--lfly-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: rgba(var(--lfly-rgb-accent), 0.35);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--lfly-rgb-text), 0.22) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(var(--lfly-rgb-text), 0.22) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--lfly-rgb-text), 0.4) padding-box;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---- Sliders: progress and volume ---- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+  --fill: 0%;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--lfly-text) var(--fill), var(--track) var(--fill));
+  transition: height var(--lfly-dur-fast) var(--lfly-ease);
+}
+input[type="range"]:hover::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--lfly-accent) var(--fill), var(--track) var(--fill));
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity var(--lfly-dur-fast) var(--lfly-ease);
+}
+input[type="range"]:hover::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track);
+}
+input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--lfly-text);
+}
+input[type="range"]:hover::-moz-range-progress {
+  background: var(--lfly-accent);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+/* ---- Type ---- */
+.lfly-title-xl {
+  font: 700 32px/1.1 var(--lfly-font-display);
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+.lfly-title-l {
+  font: 700 24px/1.15 var(--lfly-font-display);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.lfly-title-m {
+  font: 600 17px/1.25 var(--lfly-font-display);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.lfly-body {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.lfly-caption {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--lfly-text-2);
+}
+.lfly-secondary {
+  color: var(--lfly-text-2);
+}
+.lfly-tertiary {
+  color: var(--lfly-text-3);
+}
+.lfly-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lfly-text-3);
+}
+
+/* ---- Simple CSS glass, for small things (no lens) ---- */
+.lfly-glass {
+  position: relative;
+  background: var(--lfly-glass-tint);
+  -webkit-backdrop-filter: blur(var(--lfly-glass-blur)) saturate(var(--lfly-glass-sat));
+  backdrop-filter: blur(var(--lfly-glass-blur)) saturate(var(--lfly-glass-sat));
+  box-shadow:
+    inset 0 0 0 1px var(--lfly-glass-border),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    var(--lfly-shadow-1);
+}
+[data-scheme="light"] .lfly-glass {
+  box-shadow:
+    inset 0 0 0 1px var(--lfly-glass-border),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    var(--lfly-shadow-1);
+}
+[data-glass="off"] .lfly-glass {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ---- Buttons ---- */
+.lfly-btn,
+.lfly-button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    transform 500ms var(--lfly-ease-spring),
+    background-color var(--lfly-dur-fast) var(--lfly-ease),
+    box-shadow var(--lfly-dur-fast) var(--lfly-ease),
+    filter var(--lfly-dur-fast) var(--lfly-ease);
+}
+.lfly-btn:active:not(:disabled),
+.lfly-button-primary:active:not(:disabled),
+.button-secondary:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 120ms;
+}
+.lfly-btn:disabled,
+.lfly-button-primary:disabled,
+.button-secondary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.lfly-btn-primary,
+.lfly-button-primary {
+  background: var(--lfly-accent);
+  color: var(--lfly-on-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.lfly-btn-primary:hover:not(:disabled),
+.lfly-button-primary:hover:not(:disabled) {
+  filter: brightness(1.08) saturate(1.05);
+}
+.lfly-btn-primary:disabled,
+.lfly-button-primary:disabled {
+  color: var(--lfly-on-accent);
+}
+
+.lfly-btn-secondary,
+.button-secondary {
+  background: var(--lfly-fill);
+  color: var(--lfly-text);
+  box-shadow: inset 0 0 0 0.5px var(--lfly-glass-border);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
+}
+.lfly-btn-secondary:hover:not(:disabled),
+.button-secondary:hover:not(:disabled) {
+  background: var(--lfly-fill-2);
+}
+
+.lfly-btn-plain {
+  background: transparent;
+  color: var(--lfly-accent);
+  padding: 0 8px;
+}
+.lfly-btn-plain:hover:not(:disabled) {
+  background: var(--lfly-fill);
+}
+
+.lfly-icon-btn,
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--lfly-text-2);
+  transition:
+    color var(--lfly-dur-fast) var(--lfly-ease),
+    background-color var(--lfly-dur-fast) var(--lfly-ease),
+    transform 500ms var(--lfly-ease-spring);
+}
+.lfly-icon-btn:hover:not(:disabled),
+.icon-button:hover:not(:disabled) {
+  color: var(--lfly-text);
+  background: var(--lfly-fill);
+}
+.lfly-icon-btn:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+  transform: scale(0.9);
+  transition-duration: 120ms;
+}
+.lfly-icon-btn.on,
+.icon-button.on {
+  color: var(--lfly-accent);
+}
+.lfly-icon-btn:disabled,
+.icon-button:disabled {
+  color: var(--lfly-text-3);
+  opacity: 0.6;
+}
+
+/* ---- Controls ---- */
+
+/* A text field. */
+.lfly-input {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--lfly-radius-s);
+  border: 0;
+  background: var(--lfly-fill);
+  box-shadow: inset 0 0 0 0.5px var(--lfly-glass-border);
+  color: var(--lfly-text);
+  outline: none;
+  transition: box-shadow var(--lfly-dur-fast) var(--lfly-ease);
+}
+.lfly-input::placeholder {
+  color: var(--lfly-text-3);
+}
+.lfly-input:focus-visible {
+  box-shadow: inset 0 0 0 0.5px var(--lfly-glass-border), 0 0 0 3px rgba(var(--lfly-rgb-accent), 0.45);
+}
+
+/* A switch: <input type="checkbox" class="lfly-switch">. */
+.lfly-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--lfly-fill-2);
+  box-shadow: inset 0 0 0 0.5px var(--lfly-glass-border);
+  cursor: pointer;
+  transition: background-color var(--lfly-dur-med) var(--lfly-ease);
+}
+.lfly-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 2px 5px rgba(0, 0, 0, 0.25);
+  transition: transform 500ms var(--lfly-ease-spring);
+}
+.lfly-switch:checked {
+  background: var(--lfly-accent);
+}
+.lfly-switch:checked::after {
+  transform: translateX(16px);
+}
+.lfly-switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A segmented control: buttons with aria-pressed or aria-checked inside .lfly-seg. */
+.lfly-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 9px;
+  background: var(--lfly-fill);
+  box-shadow: inset 0 0 0 0.5px var(--lfly-glass-border);
+}
+.lfly-seg > button {
+  min-height: 26px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-weight: 500;
+  color: var(--lfly-text-2);
+  transition:
+    background-color var(--lfly-dur-fast) var(--lfly-ease),
+    color var(--lfly-dur-fast) var(--lfly-ease);
+}
+.lfly-seg > button:hover {
+  color: var(--lfly-text);
+}
+.lfly-seg > button[aria-pressed="true"],
+.lfly-seg > button[aria-checked="true"],
+.lfly-seg > button[aria-selected="true"] {
+  background: var(--lfly-surface-3);
+  color: var(--lfly-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), inset 0 0 0 0.5px var(--lfly-glass-border);
+}
+[data-scheme="light"] .lfly-seg > button[aria-pressed="true"],
+[data-scheme="light"] .lfly-seg > button[aria-checked="true"],
+[data-scheme="light"] .lfly-seg > button[aria-selected="true"] {
+  background: #fff;
+}
+
+/* A grouped list, as the phone's settings: .lfly-list > .lfly-list-row. */
+.lfly-list {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--lfly-radius-m);
+  background: var(--lfly-card);
+  box-shadow: inset 0 0 0 0.5px var(--lfly-glass-border);
+  overflow: hidden;
+}
+.lfly-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 14px;
+  position: relative;
+}
+.lfly-list-row + .lfly-list-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  border-top: 0.5px solid var(--lfly-separator);
+}
+
+/* ---- Helpers ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* While the window opens in the saved look, nothing animates into it. */
+[data-lfly-boot] *,
+[data-lfly-boot] *::before,
+[data-lfly-boot] *::after {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .lfly-glass,
+  .lfly-btn-secondary,
+  .button-secondary {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .lfly-glass {
+    background: var(--lfly-surface);
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "comment": "LFly Connect wire vectors. The Kotlin (app) and Rust (desktop) tests both read this file: if either side drifts from the wire format, its test fails.",
+  "crypto": {
+    "accountSecret": "12345678901234567890",
+    "accountKeyHex": "716a9f96ee250945c30789ed1b74202997c8908d0140d6a9aab9aa71ef0e7e3c",
+    "ownerTag": "3b2047eb1526",
+    "nonce": "00112233445566778899aabbccddeeff",
+    "proof": "90f758e6afa897ee2c8de65579ab26980de4ccfab6170453f287f33a47272ca4",
+    "pairingHostId": "host-1",
+    "pairingClientId": "client-2",
+    "pairingCode": "5450"
+  },
+  "messages": [
+    {"type": "hello", "device": {"id": "phone-1", "name": "Galaxy S23 Ultra", "kind": "phone", "owner": "3b2047eb1526"}, "protocol": 1},
+    {"type": "challenge", "device": {"id": "desktop-1", "name": "CachyOS", "kind": "desktop"}, "nonce": "00112233445566778899aabbccddeeff"},
+    {"type": "proof", "hmac": "90f758e6afa897ee2c8de65579ab26980de4ccfab6170453f287f33a47272ca4"},
+    {"type": "proof"},
+    {"type": "pair_pending", "code": "5450"},
+    {"type": "welcome", "accepted": true},
+    {"type": "welcome", "accepted": false},
+    {
+      "type": "state", "deviceId": "phone-1", "active": true, "playing": true, "positionMs": 61234, "at": 1762430000000,
+      "durationMs": 215000, "index": 1,
+      "queue": [
+        {"id": "yt_dQw4w9WgXcQ", "title": "Song", "artist": "Artist", "album": "Album", "durationMs": 215000,
+         "coverUrl": "https://lh3.googleusercontent.com/cover=w544-h544", "provider": "YouTube Music",
+         "artistId": "UCuAXFkgsw1L7xaCfnd5JJOw", "albumId": "MPREb_abc", "isVideo": false},
+        {"id": "yt_x", "title": "T", "artist": "A", "durationMs": 0, "provider": "Unknown", "isVideo": true}
+      ],
+      "shuffle": false, "repeat": "all", "volume": 40
+    },
+    {
+      "type": "state", "deviceId": "phone-1", "active": false, "playing": false, "positionMs": 0, "at": 1762430000000,
+      "durationMs": 0, "index": -1, "queue": [], "shuffle": true, "repeat": "off", "volume": -1, "handedTo": "desktop-1"
+    },
+    {"type": "command", "action": "seek", "value": 30000},
+    {"type": "command", "action": "toggle", "value": 0},
+    {"type": "queue_edit", "op": "move", "tracks": [], "index": 2, "to": 5},
+    {"type": "queue_edit", "op": "add", "tracks": [{"id": "yt_x", "title": "T", "artist": "A", "durationMs": 0, "provider": "Unknown", "isVideo": false}], "index": -1, "to": -1},
+    {
+      "type": "transfer",
+      "queue": [{"id": "yt_x", "title": "T", "artist": "A", "durationMs": 1000, "provider": "YouTube Music", "isVideo": false,
+                 "streamUrl": "https://rr1---sn-x.googlevideo.com/videoplayback?id=1"}],
+      "index": 0, "positionMs": 1000, "playing": true, "fromDeviceId": "phone-1"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+[package]
+name = "lfly-desktop"
+description = "LFly for the desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "lfly_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+log.workspace = true
+env_logger = "0.11"
+dirs = "6"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+sha2 = "0.10"
+futures-util.workspace = true
+uuid = { version = "1", features = ["v4"] }
+lfly-connect = { path = "../../crates/lfly-connect" }
+lfly-yt = { path = "../../crates/lfly-yt" }
+lfly-audio = { path = "../../crates/lfly-audio" }
+tauri-plugin-dialog = "2"
+rand = "0.8"
+souvlaki = { version = "0.9", default-features = false, features = ["use_zbus"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

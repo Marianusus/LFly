@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+log = "0.4"
+
+# opus-decoder 0.1.1 with a CELT collapse-mask overflow fixed (see its PATCHES.md).
+[patch.crates-io]
+opus-decoder = { path = "crates/lfly-audio/vendor/opus-decoder" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# Opus is decoded in Rust: unoptimized it needs about twice real time, so it is always optimized.
+[profile.dev.package.opus-decoder]
+opt-level = 3
+
+[profile.dev.package.symphonia-core]
+opt-level = 3
+
+[profile.dev.package.rubato]
+opt-level = 3

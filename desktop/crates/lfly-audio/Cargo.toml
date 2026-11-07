@@ -1,0 +1,26 @@
+[package]
+name = "lfly-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LFly desktop audio engine: decoding, HTTP range streaming with disk cache, EQ, output"
+
+[dependencies]
+symphonia = { version = "0.6", default-features = false, features = ["mkv", "isomp4", "aac", "flac", "mp3", "ogg", "wav", "pcm", "vorbis", "id3v1", "id3v2"] }
+opus-decoder = "0.1"
+cpal = "0.18"
+rubato = "5"
+rtrb = "0.4"
+ureq = "3"
+serde.workspace = true
+tokio.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+lfly-yt = { path = "../lfly-yt" }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+# Reference decoder, only to check the pure-Rust Opus decoder against libopus in tests.
+opusic-sys = { version = "0.7", default-features = false }

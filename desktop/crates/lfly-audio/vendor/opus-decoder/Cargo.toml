@@ -1,0 +1,22 @@
+# Vendored copy of opus-decoder 0.1.1 (crates.io) with one fix, see PATCHES.md.
+# Wired in through `[patch.crates-io]` in the workspace Cargo.toml.
+[package]
+name = "opus-decoder"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.85"
+description = "Pure-Rust Opus decoder — RFC 8251 conformant, no unsafe, no FFI (LFly-patched)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/TadeuszWolfGang/Rusopus"
+readme = "README.md"
+autotests = false
+autobenches = false
+autoexamples = false
+
+[lib]
+name = "opus_decoder"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2.0.18"
+rustfft = "6"

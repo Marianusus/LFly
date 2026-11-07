@@ -1,0 +1,97 @@
+/* Shared by the pages (imported in each page's <style> would scope it, so it is plain global CSS
+   under .lfly-page, loaded once by the pages that use it). */
+.lfly-page {
+  --page-x: calc(24px * var(--density, 1));
+  position: relative;
+  min-height: 100%;
+  padding-bottom: 48px;
+  color: var(--lfly-text);
+}
+.lfly-page .p-msg {
+  padding: 8px var(--page-x);
+  color: var(--lfly-text-2);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lfly-page .p-section-title {
+  margin: 0 0 12px;
+  font-family: var(--lfly-font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.lfly-page .p-footer {
+  padding: 4px var(--page-x) 0;
+  color: var(--lfly-text-3);
+  font-size: 12px;
+}
+.lfly-page .p-empty {
+  margin: 8px var(--page-x);
+  padding: 36px 24px;
+  border-radius: var(--lfly-radius-l, 18px);
+  background: color-mix(in srgb, var(--lfly-surface) 55%, transparent);
+  border: 1px solid var(--lfly-separator);
+  color: var(--lfly-text-2);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.lfly-page .p-empty strong {
+  color: var(--lfly-text);
+  font-size: 17px;
+  font-family: var(--lfly-font-display);
+}
+.lfly-page .p-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lfly-text);
+  background: var(--lfly-glass-tint);
+  border: 1px solid var(--lfly-glass-border);
+  transition: background var(--lfly-dur-fast, 160ms), transform var(--lfly-dur-fast, 160ms);
+}
+.lfly-page .p-pill:hover {
+  background: color-mix(in srgb, var(--lfly-text) 14%, transparent);
+}
+.lfly-page .p-pill:active {
+  transform: scale(0.97);
+}
+.lfly-page .p-pill.accent {
+  background: var(--lfly-accent);
+  color: var(--lfly-on-accent);
+  border-color: transparent;
+}
+.lfly-page .p-pill.accent:hover {
+  filter: brightness(1.08);
+}
+@keyframes lfly-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.lfly-page {
+  animation: lfly-page-in var(--lfly-dur-med, 320ms) var(--lfly-ease, ease) both;
+}
+@keyframes lfly-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lfly-page {
+    animation: none;
+  }
+}

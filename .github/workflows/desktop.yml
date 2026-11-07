@@ -1,0 +1,85 @@
+# LFly for the desktop: tests, then installers for Linux, Windows and macOS.
+# Runs by hand (Actions > Desktop > Run workflow) or on a tag like desktop-v0.1.0, which also
+# makes a draft GitHub release with the installers attached.
+name: Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libasound2-dev patchelf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Rust tests
+        working-directory: desktop
+        run: cargo test --workspace
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            args: ""
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--target universal-apple-darwin"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - name: Linux libraries
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libasound2-dev patchelf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Front-end packages
+        working-directory: desktop/app
+        run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop/app
+          args: ${{ matrix.args }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('LFly Desktop {0}', github.ref_name) || '' }}
+          releaseDraft: true
+      - name: Keep the installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: lfly-desktop-${{ matrix.os }}
+          path: |
+            desktop/target/**/release/bundle/**/*.deb
+            desktop/target/**/release/bundle/**/*.rpm
+            desktop/target/**/release/bundle/**/*.AppImage
+            desktop/target/**/release/bundle/**/*.msi
+            desktop/target/**/release/bundle/**/*-setup.exe
+            desktop/target/**/release/bundle/**/*.dmg
+          if-no-files-found: ignore
