@@ -15,6 +15,9 @@
 
 import { scene } from "./scene";
 
+/** Least time between two scene refreshes inside the lenses. */
+const LENS_SCENE_MS = 80;
+
 export type LensOptions = {
   /** Corner radius in CSS px (a pill passes half its height; it is clamped anyway). */
   radius: () => number;
@@ -159,6 +162,9 @@ class LensEngine {
   private ro: ResizeObserver | null = null;
   private poll = 0;
   private seq = 0;
+  /** When the scene was last copied into the lenses' texture. */
+  private sceneAt = 0;
+  private later = 0;
 
   constructor() {
     if (isChromium && typeof CSS !== "undefined" && CSS.supports("backdrop-filter", "url(#a)")) {
@@ -294,7 +300,18 @@ class LensEngine {
     const gl = this.gl!;
     const sc = scene();
     let sceneChanged = false;
-    if (this.uploaded !== sc.version) {
+    // The flowing cover changes 24 times a second; bending it 12 times a second through every
+    // lens looks the same and halves the GPU round trips (each lens is read back into its canvas).
+    const now = performance.now();
+    const due = now - this.sceneAt >= LENS_SCENE_MS;
+    if (this.uploaded !== sc.version && !due && !this.later) {
+      this.later = window.setTimeout(() => {
+        this.later = 0;
+        this.invalidate();
+      }, LENS_SCENE_MS - (now - this.sceneAt));
+    }
+    if (this.uploaded !== sc.version && due) {
+      this.sceneAt = now;
       gl.bindTexture(gl.TEXTURE_2D, this.tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sc.canvas);
       this.uploaded = sc.version;

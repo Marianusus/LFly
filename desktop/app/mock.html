@@ -12,6 +12,17 @@ const art = (i) => {
 const track = (i) => ({ id: "yt_" + i, title: ["Get Lucky","Instant Crush","One More Time","Digital Love","Harder, Better"][i % 5], artist: "Daft Punk", album: "Random Access Memories", durationMs: 248000, coverUrl: art(i), provider: "YouTube Music", isVideo: false });
 const tracks = Array.from({ length: 12 }, (_, i) => track(i));
 const state = { deviceId: "pc", active: true, playing: true, positionMs: 61000, at: Date.now(), durationMs: 248000, index: 0, queue: tracks, shuffle: false, repeat: "off", volume: 70 };
+// ?max: the window maximised (square corners).
+if (new URLSearchParams(location.search).has("max")) document.documentElement.classList.add("maximized");
+if (new URLSearchParams(location.search).has("debug")) setTimeout(() => { const d = document.createElement("div"); d.style.cssText = "position:fixed;left:300px;top:200px;z-index:99999;background:#fff;color:#000;padding:8px;font:16px monospace"; d.textContent = "html class=[" + document.documentElement.className + "] body clip=" + getComputedStyle(document.body).clipPath + " r=" + getComputedStyle(document.body).borderRadius; document.documentElement.appendChild(d); }, 0);
+// ?slow: the load event waits 2.5 s (a slow image), so screenshots catch what happens after mount.
+if (new URLSearchParams(location.search).has("slow")) document.write('<img src="http://127.0.0.1:1435/x.png" style="position:fixed;width:1px;height:1px;opacity:0">');
+// ?probe: after 2 s, prints facts about the panel's veil.
+if (new URLSearchParams(location.search).has("probe")) setTimeout(() => { const t = document.querySelector(".lfly-panel .top"), f = t && t.querySelector(".fog"), b = document.querySelector(".lfly-panel .body"); const d = document.createElement("div"); d.style.cssText = "position:fixed;left:300px;top:200px;z-index:99999;background:#fff;color:#000;padding:8px;font:13px monospace;max-width:640px"; d.textContent = t ? `top.class=[${t.className}] h=${t.offsetHeight} fog.op=${f && getComputedStyle(f).opacity} fog.h=${f && f.offsetHeight} body.scrollTop=${b && b.scrollTop} body.pt=${b && getComputedStyle(b).paddingTop}` : "no .top"; document.documentElement.appendChild(d); }, 2000);
+// ?scrollpanel: the right panel's list scrolled a little (to see the veil).
+if (new URLSearchParams(location.search).has("scrollpanel")) setTimeout(() => { const b = document.querySelector(".lfly-panel .body"); if (b) { b.scrollTop = 120; b.dispatchEvent(new Event("scroll")); } const l = document.querySelector(".lfly-main"); if (l) l.scrollTop = 0; }, 1500);
+// ?empty: nothing playing.
+if (new URLSearchParams(location.search).has("empty")) Object.assign(state, { playing: false, index: -1, queue: [] });
 const card = (kind, i) => ({ kind, id: kind + i, title: kind === "artist" ? "Daft Punk" : "Random Access Memories " + i, subtitle: kind === "artist" ? "Artista" : "Album · 2013", coverUrl: art(i + 3) });
 const answers = {
   player_ready: true, player_state: state, connect_me: { id: "pc", name: "Fisoolinux" }, connect_following: null,
@@ -38,6 +49,7 @@ let cb = 0;
 const callbacks = {}, listeners = {};
 window.__emit = (event, payload) => (listeners[event] || []).forEach((h) => callbacks[h]?.({ event, id: 0, payload }));
 window.__TAURI_INTERNALS__ = {
+  metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
   invoke: async (cmd, args) => {
     if (cmd === "plugin:event|listen") {
       (listeners[args.event] ||= []).push(args.handler);
@@ -53,6 +65,7 @@ window.__TAURI_INTERNALS__ = {
       const q = new URLSearchParams(location.search);
       if (q.get("panel") || q.has("narrow")) return { panel: q.get("panel"), sidebarWide: !q.has("narrow") };
     }
+    if (cmd === "plugin:window|is_maximized") return new URLSearchParams(location.search).has("max");
     return cmd in answers ? structuredClone(answers[cmd]) : null;
   },
   transformCallback: (f) => {

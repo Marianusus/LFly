@@ -22,7 +22,8 @@ export type SceneState = {
 const SCALE = 1 / 3;
 /** One loop of the flow: slow enough to feel like weather, not like a screensaver. */
 const LOOP_MS = 36_000;
-const FLOW_FPS = 30;
+// 24 frames: the flow is slow and heavily blurred, and every glass surface above re-blurs on each.
+const FLOW_FPS = 24;
 
 type Listener = () => void;
 
@@ -43,13 +44,19 @@ class Scene {
   private raf = 0;
   private lastFlow = 0;
   private listeners = new Set<Listener>();
+  private settle = 0;
 
   constructor() {
     this.canvas = document.createElement("canvas");
     this.ctx = this.canvas.getContext("2d", { alpha: false })!;
     this.prev = document.createElement("canvas");
     addEventListener("resize", () => this.resize());
-    document.addEventListener("visibilitychange", () => this.kick());
+    // Maximising can report the size before the window has it; the observer sees the final one.
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => this.resize()).observe(document.documentElement);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) this.repaint();
+      this.kick();
+    });
     this.resize();
   }
 
@@ -76,6 +83,24 @@ class Scene {
   }
 
   private resize() {
+    this.measure();
+    this.paint(performance.now());
+    // WebKitGTK may not show a canvas painted in the same task it was resized in: with nothing
+    // flowing (no song) the backdrop then stayed blank, and the accent colours were gone.
+    // Paint again on the next frame, and once the window has settled.
+    requestAnimationFrame(() => this.repaint());
+    clearTimeout(this.settle);
+    this.settle = window.setTimeout(() => {
+      this.measure();
+      this.repaint();
+    }, 250);
+  }
+
+  private repaint() {
+    this.paint(performance.now());
+  }
+
+  private measure() {
     const w = Math.max(1, innerWidth);
     const h = Math.max(1, innerHeight);
     this.width = w;
@@ -86,7 +111,6 @@ class Scene {
       this.canvas.width = cw;
       this.canvas.height = ch;
     }
-    this.paint(performance.now());
   }
 
   private get flowing() {
@@ -204,8 +228,11 @@ function layer(
   scale: number,
   alpha: number,
 ) {
-  // Half the side ≥ half the diagonal + the orbit: no edge ever shows.
-  const side = Math.hypot(w, h) * scale * 0.82;
+  // A turning square covers the disc inscribed in it, so its half side must reach the window's
+  // farthest corner from the wandering centre: half the diagonal plus the whole orbit, with a
+  // margin. Below that the copies' corners swept through the window (seen in wide windows).
+  const reach = Math.hypot(w, h) / 2 + Math.hypot(w * orbit, h * orbit * 0.6);
+  const side = Math.max(reach * 2 * 1.06, Math.hypot(w, h) * scale * 0.82);
   const cx = w / 2 + Math.cos(t + phase) * w * orbit;
   const cy = h / 2 + Math.sin(t * 2 + phase) * h * orbit * 0.6;
   ctx.save();

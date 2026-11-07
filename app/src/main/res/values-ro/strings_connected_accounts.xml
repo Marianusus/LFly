@@ -44,4 +44,17 @@
     <string name="discord_disconnect">Deconectează Discord</string>
     <string name="discord_disconnect_confirm_title">Deconectezi Discord?</string>
     <string name="discord_disconnect_confirm_body">Starea dispare de pe profil și LFly uită conectarea.</string>
+    <string name="drive_section_title">Sincronizare cu computerul</string>
+    <string name="drive_section_footer">Favoritele, playlisturile și istoricul schimbate pe un dispozitiv ajung pe celălalt. Pe aceeași rețea Wi-Fi ajunge același cont YouTube Music pe telefon și pe computer. Google Drive le sincronizează și de la distanță și trebuie configurat o singură dată (vezi README-ul LFly pentru computer).</string>
+    <string name="drive_toggle">Sincronizare prin Google Drive</string>
+    <string name="drive_off">Oprită</string>
+    <string name="drive_never">Activă, încă nesincronizată</string>
+    <string name="drive_last">Ultima sincronizare: %1$s</string>
+    <string name="drive_syncing">Se sincronizează…</string>
+    <string name="drive_sync_now">Sincronizează acum</string>
+    <string name="drive_denied">Google nu a permis accesul la Drive</string>
+    <string name="libsync_toggle">Pe aceeași rețea Wi-Fi</string>
+    <string name="libsync_off">Oprită</string>
+    <string name="libsync_never">Activă: se sincronizează cât LFly e deschis pe computer, cu același cont</string>
+    <string name="libsync_last">Ultima sincronizare %1$s cu %2$s</string>
 </resources>

@@ -11,6 +11,9 @@ struct Saved {
     /// Devices of other accounts the owner accepted once.
     #[serde(default)]
     trusted: Vec<String>,
+    /// The name the listener gave this computer (the system's host name otherwise).
+    #[serde(default)]
+    name: Option<String>,
 }
 
 fn read() -> Saved {
@@ -32,6 +35,22 @@ fn write(saved: &Saved) {
 /// The devices of other accounts allowed to control this computer.
 pub fn trusted() -> Vec<String> {
     read().trusted
+}
+
+/// Forgets every device paired with a code: they will ask again.
+pub fn forget_trusted() {
+    let mut saved = read();
+    saved.trusted.clear();
+    write(&saved);
+}
+
+/// Renames this computer; an empty name goes back to the host name.
+pub fn set_name(name: &str) -> String {
+    let mut saved = read();
+    let name = name.trim().chars().take(40).collect::<String>();
+    saved.name = (!name.is_empty()).then_some(name);
+    write(&saved);
+    saved.name.unwrap_or_else(lfly_connect::discovery::hostname)
 }
 
 pub fn trust(id: &str) {
@@ -60,7 +79,7 @@ pub fn me() -> Device {
     };
     Device {
         id,
-        name: lfly_connect::discovery::hostname(),
+        name: saved.name.clone().unwrap_or_else(lfly_connect::discovery::hostname),
         kind: protocol::KIND_DESKTOP.to_string(),
         // No YouTube Music account on the desktop yet: other devices pair with a code.
         owner: None,

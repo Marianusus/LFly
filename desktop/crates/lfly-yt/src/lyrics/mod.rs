@@ -308,6 +308,7 @@ fn model_line(line: Line) -> LyricLine {
         end_ms: line.end.filter(|e| *e > line.start),
         text: line.text,
         word_timings: line.words.map(|ws| ws.into_iter().map(|w| WordTiming { text: w.text, start_ms: w.start, end_ms: w.end }).collect()),
+        background: line.background.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()),
     }
 }
 

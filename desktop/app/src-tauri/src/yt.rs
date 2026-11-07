@@ -88,6 +88,9 @@ pub struct LyricLine {
     /// Only when the source had real word timings.
     #[serde(skip_serializing_if = "Option::is_none")]
     words: Option<Vec<LyricWord>>,
+    /// Background vocals, sung over the line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bg: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -275,6 +278,7 @@ pub async fn yt_lyrics(yt: State<'_, YtMusic>, track: Track) -> Result<Option<Ly
                 .word_timings
                 .filter(|w| !w.is_empty())
                 .map(|w| w.into_iter().map(|w| LyricWord { ms: w.start_ms, end_ms: w.end_ms, text: w.text }).collect()),
+            bg: line.background,
         })
         .collect();
     Ok(Some(Lyrics {

@@ -52,6 +52,19 @@ Per compilare una build con l'interfaccia incorporata, senza installer: `npx tau
 - **"Ascolta qui"** riporta sul PC la musica che suona sul telefono, dal punto in cui era.
 - **Party di ascolto:** non ci sono, perché usano Google Nearby, che esiste solo su Android.
 
+## Sincronizzazione con il telefono (Google Drive)
+
+Preferiti, playlist e cronologia passano fra telefono e PC attraverso un file (`lfly-library.json`) nella cartella nascosta dell'app su Google Drive (`appDataFolder`), che vede solo LFly. Chi sincronizza scarica il file, lo unisce alla propria libreria e ricarica il risultato. L'unione è a tre vie, uguale in `src-tauri/src/drive.rs` e in `DriveSync.kt`: una cancellazione fatta su un lato arriva anche sull'altro, e di una playlist modificata su entrambi i lati vince la versione più recente. Il PC sincronizza all'avvio, ogni 3 minuti e poco dopo ogni modifica; il telefono ogni 5 minuti e poco dopo ogni modifica.
+
+Serve un progetto Google Cloud tuo, una volta sola:
+
+1. In [console.cloud.google.com](https://console.cloud.google.com) crea un progetto (per esempio "LFly") e attiva la **Google Drive API**.
+2. In **Schermata di consenso OAuth**: tipo Esterno, in prova; aggiungi il tuo account Gmail fra gli utenti di test e lo scope `.../auth/drive.appdata`.
+3. In **Credenziali → Crea ID client OAuth → Android**: pacchetto `org.sonora.android` e SHA-1 della chiave di firma (`keytool -list -v -keystore ~/.android/lfly-release.jks`). Se installi anche build debug, crea un secondo client con lo SHA-1 della chiave debug.
+4. In **Credenziali → Crea ID client OAuth → App desktop**: scarica il JSON e salvalo come `~/.config/lfly/google-oauth.json`.
+
+Poi: sul PC Impostazioni → Dispositivi → **Collega Google Drive**; sul telefono Impostazioni → Account → **Sincronizza tramite Google Drive**. I due client devono stare nello stesso progetto, altrimenti ognuno vede la propria cartella.
+
 ## Dove salva
 
 - Impostazioni e temi: `~/.config/lfly/state/` (su Windows `%APPDATA%\lfly`, su macOS `~/Library/Application Support/lfly`).
@@ -59,6 +72,7 @@ Per compilare una build con l'interfaccia incorporata, senza installer: `npx tau
 - Libreria (stesso formato del telefono): `~/.local/share/lfly/library/`.
 - Account YouTube Music (cookie, leggibili solo da te): `~/.config/lfly/account.json`.
 - Download: `~/.local/share/lfly/downloads/`.
+- Google Drive (accesso e stato della sincronizzazione, leggibili solo da te): `~/.config/lfly/drive.json`; il client OAuth: `~/.config/lfly/google-oauth.json`.
 - Cache audio: `~/.cache/lfly/audio/`.
 
 ## Guardare l'interfaccia senza il core

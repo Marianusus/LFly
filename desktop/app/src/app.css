@@ -170,9 +170,18 @@ body,
   margin: 0;
 }
 
+/* The window is frameless and transparent (Linux, Windows): the page draws its own rounded
+   corners. The image on <html> keeps the body's colour from spreading to the window's canvas. */
+html {
+  background: linear-gradient(transparent, transparent);
+}
 body {
-  /* Propagates to the window's canvas, under the Backdrop. */
   background: var(--lfly-bg);
+  border-radius: var(--lfly-window-radius, 40px);
+  clip-path: inset(0 round var(--lfly-window-radius, 40px));
+  /* Always its own stacking context: the Backdrop (z-index -1) must stay above the body's colour
+     also when the corners go square (maximised: no clip-path, which made the context before). */
+  isolation: isolate;
   color: var(--lfly-text);
   font: 13px/1.4 var(--lfly-font);
   letter-spacing: -0.003em;
@@ -182,6 +191,12 @@ body {
   text-rendering: optimizeLegibility;
   user-select: none;
   overflow: hidden;
+}
+/* Maximised or full screen, and on macOS (its own frame): square edges. */
+html.maximized body,
+html.native-frame body {
+  border-radius: 0;
+  clip-path: none;
 }
 
 h1,

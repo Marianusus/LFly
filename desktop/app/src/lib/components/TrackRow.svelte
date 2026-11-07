@@ -119,6 +119,9 @@
 
 <style>
   .lfly-row {
+    /* Rows off screen skip layout and paint (a playlist page holds hundreds). */
+    content-visibility: auto;
+    contain-intrinsic-size: auto var(--row-h, 58px);
     display: grid;
     grid-template-columns: 36px minmax(0, 4fr) minmax(0, 3fr) auto;
     align-items: center;

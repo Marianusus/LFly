@@ -16,6 +16,8 @@
     }
     return offsets;
   }
+  // Settings → Testi → Azzera: forget the ones read already.
+  if (typeof window !== "undefined") window.addEventListener("lfly:lyrics-offsets-reset", () => (offsets = {}));
   function saveOffset(id: string, ms: number) {
     if (!offsets) return;
     if (ms === 0) delete offsets[id];
@@ -25,20 +27,24 @@
 </script>
 
 <script lang="ts">
-  // The playing song's lyrics. The sung line is big and bright, the others dim and soften with
-  // distance; with word timings the line fills word by word as it is sung. The lines scroll
-  // inside this box only (never the page), and stop following while the listener scrolls.
-  // Like Liner: the timing can be nudged per song and the nudge is remembered.
+  // The playing song's lyrics, moving like Liner's: syllables light up with a soft sweeping
+  // edge, held notes glow, the lines glide one after another to keep the sung one a third of
+  // the way down, and the edges fade into fog. The list scrolls itself (never the page); the
+  // wheel takes over for a few seconds. Everything that changes per frame is written straight
+  // to the elements from one animation loop, which sleeps while the song is paused.
+  import { onDestroy } from "svelte";
   import Icon from "../../Icon.svelte";
   import { api } from "../../api";
   import { player } from "../../player.svelte";
   import { nav } from "../../nav.svelte";
+  import { themes } from "../../theme/theme.svelte";
+  import { prefs } from "../../prefs.svelte";
+  import { buildLines, EDGE_WIDTH, Follower, isLive, lightOf, maxScroll, Scroll, type Box, type LineModel } from "../../lyrics/motion";
 
   let { variant = "page" }: { variant?: "page" | "panel" | "side" } = $props();
 
   let lyrics = $state<Lyrics | null>(null);
   let status = $state<"loading" | "none" | "ready">("loading");
-  let box = $state<HTMLDivElement>();
   let offset = $state(0);
   let loadedFor = "";
 
@@ -67,7 +73,6 @@
   function show(l: Lyrics | null) {
     lyrics = l;
     status = l && (l.synced?.length || l.plain) ? "ready" : "none";
-    box?.scrollTo({ top: 0 });
   }
 
   function nudge(ms: number) {
@@ -75,116 +80,249 @@
     if (player.track) saveOffset(player.track.id, offset);
   }
 
-  // A clock smoother than the player's quarter-second updates, for the word-by-word fill.
-  let base = { pos: 0, at: 0 };
-  let clock = $state(0);
-  $effect(() => {
-    base = { pos: player.position, at: performance.now() };
-    clock = player.position;
-  });
-  $effect(() => {
-    if (!player.playing || !words) return;
-    let raf = 0;
-    const tick = () => {
-      clock = base.pos + Math.min(600, performance.now() - base.at);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  });
+  const synced = $derived(lyrics?.synced?.length ? lyrics.synced : null);
+  // Settings → Testi: whole lines instead of word by word, when asked.
+  const model = $derived<LineModel[]>(
+    synced ? buildLines(prefs.v.lyricsWords ? synced : synced.map((l) => ({ ...l, words: undefined })), player.duration) : [],
+  );
+  const scale = $derived({ s: 0.82, m: 1, l: 1.22 }[prefs.v.lyricsSize]);
 
-  const lines = $derived(lyrics?.synced?.length ? lyrics.synced : null);
-  const words = $derived(!!lines?.some((l) => l.words?.length));
-  /** Where the song is, as the lyrics count it. */
-  const at = $derived((words ? clock : player.position) - offset);
-  const current = $derived.by(() => {
-    if (!lines) return -1;
-    const pos = at + 150;
-    let i = -1;
-    for (let k = 0; k < lines.length; k++) {
-      if (lines[k].ms <= pos) i = k;
-      else break;
+  // --- the animation loop --------------------------------------------------------------------
+
+  let view = $state<HTMLDivElement>();
+  let stack = $state<HTMLDivElement>();
+  let srcEl = $state<HTMLElement>();
+  const scroll = new Scroll();
+  const follower = new Follower();
+  let lineEls: HTMLElement[] = [];
+  let tokenEls: HTMLElement[][] = [];
+  let painted: string[][] = [];
+  let lineY: number[] = [];
+  let lineOn: boolean[] = [];
+  let boxes: Box[] = [];
+  let viewH = 0;
+  let placed = false;
+  let pausedUntil = 0;
+  let raf = 0;
+  let last = 0;
+  let wokeAt = 0;
+  let edges = "";
+  // A clock between the player's samples: carried forward by the frame time, re-anchored
+  // only when it drifts, so the sweep never stutters.
+  let anchorPos = 0;
+  let anchorAt = 0;
+
+  function clock(now: number): number {
+    const raw = player.livePosition();
+    if (!player.playing) {
+      anchorPos = raw;
+      anchorAt = now;
+      return raw;
     }
-    return i;
-  });
-
-  /** How much of a word is sung, 0..1. */
-  function sung(w: { ms: number; endMs: number }): number {
-    if (at <= w.ms) return 0;
-    if (at >= w.endMs) return 1;
-    return (at - w.ms) / Math.max(1, w.endMs - w.ms);
+    const est = anchorPos + (now - anchorAt);
+    if (Math.abs(est - raw) > 150) {
+      anchorPos = raw;
+      anchorAt = now;
+      return raw;
+    }
+    return est;
   }
 
-  // The sung line stays a third of the way down the box, unless the listener is scrolling.
-  let userScroll = 0;
-  let programmatic = false;
+  function collect() {
+    if (!stack) return;
+    lineEls = Array.from(stack.querySelectorAll<HTMLElement>(":scope > .line"));
+    tokenEls = lineEls.map((el) => Array.from(el.querySelectorAll<HTMLElement>(".t")));
+    painted = tokenEls.map((ts) => ts.map(() => ""));
+    lineY = lineEls.map(() => NaN);
+    lineOn = lineEls.map(() => false);
+    lineEls.forEach((el) => el.classList.remove("on"));
+  }
+
+  function measure() {
+    if (!view) return;
+    boxes = lineEls.map((el) => ({ top: el.offsetTop, height: el.offsetHeight }));
+    viewH = view.clientHeight;
+    scroll.limit(maxScroll(boxes, viewH));
+    follower.reset();
+  }
+
+  function kick() {
+    wokeAt = performance.now();
+    if (!raf && lineEls.length) {
+      last = wokeAt;
+      raf = requestAnimationFrame(frame);
+    }
+  }
+
+  function frame(now: number) {
+    raf = 0;
+    const dt = Math.min(64, now - last);
+    last = now;
+    const at = clock(now) - offset;
+
+    if (now >= pausedUntil) {
+      const d = follower.decide(model, boxes, at, viewH);
+      if (d) {
+        if (!placed || themes.reduceMotion) scroll.jump(d.top);
+        else scroll.glide(d.top, d.anchor, now);
+        placed = true;
+      }
+    }
+    scroll.step(now, dt);
+
+    // Each line where the list is, plus how far it still trails behind the glide.
+    for (let i = 0; i < lineEls.length; i++) {
+      const y = Math.round((scroll.lag(i, now) - scroll.pos) * 2) / 2;
+      if (y !== lineY[i]) {
+        lineY[i] = y;
+        lineEls[i].style.transform = `translate3d(0, ${y}px, 0)`;
+      }
+    }
+    if (srcEl) srcEl.style.transform = `translate3d(0, ${lineY[lineY.length - 1] ?? 0}px, 0)`;
+
+    const e = `${scroll.pos <= 4 ? "t" : ""}${scroll.max - scroll.pos <= 4 ? "b" : ""}`;
+    if (e !== edges && view) {
+      edges = e;
+      view.classList.toggle("at-top", e.includes("t"));
+      view.classList.toggle("at-bottom", e.includes("b"));
+    }
+
+    // The light of every syllable on the lines being sung or just left.
+    for (let i = 0; i < model.length; i++) {
+      const line = model[i];
+      const on = at >= line.start && at < line.exit;
+      if (on !== lineOn[i]) {
+        lineOn[i] = on;
+        lineEls[i]?.classList.toggle("on", on);
+      }
+      const els = tokenEls[i];
+      if (!els?.length) continue;
+      const live = isLive(line, at);
+      if (!live && painted[i][0] === "" && painted[i][els.length - 1] === "") continue;
+      let k = 0;
+      for (const g of line.groups) {
+        if (g.space) continue;
+        for (const t of g.tokens) {
+          const el = els[k];
+          if (!el) break;
+          let css = "";
+          if (live) {
+            const l = lightOf(t, line, at);
+            if (l.alpha > 0) {
+              const lit = (0.3 + 0.7 * l.alpha) * 100;
+              const s = l.solid * 100;
+              css =
+                `background-image:linear-gradient(90deg,color-mix(in srgb,var(--ink) ${lit.toFixed(1)}%,transparent) ${s.toFixed(1)}%,var(--dim) ${(s + EDGE_WIDTH * 100).toFixed(1)}%)` +
+                (l.glow > 0.01 ? `;text-shadow:0 0 ${(l.glow * 13).toFixed(1)}px color-mix(in srgb,var(--ink) 75%,transparent)` : "");
+            }
+          }
+          if (painted[i][k] !== css) {
+            painted[i][k] = css;
+            el.style.cssText = css;
+          }
+          k++;
+        }
+      }
+    }
+
+    if (player.playing || scroll.moving || now - wokeAt < 900) raf = requestAnimationFrame(frame);
+  }
+
+  // A new sheet: find its elements, measure, place without gliding.
   $effect(() => {
-    const i = current;
-    if (!box || Date.now() - userScroll < 3500) return;
-    const el = box.querySelector<HTMLElement>(`[data-i="${Math.max(0, i)}"]`);
-    if (!el) return;
-    const top = el.offsetTop - box.clientHeight * 0.33 + el.offsetHeight / 2;
-    programmatic = true;
-    box.scrollTo({ top: Math.max(0, top), behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    setTimeout(() => (programmatic = false), 700);
+    void model;
+    if (!stack || !view) return;
+    collect();
+    measure();
+    placed = false;
+    kick();
   });
 
-  function onScroll() {
-    if (!programmatic) userScroll = Date.now();
-  }
+  $effect(() => {
+    if (!view || !stack) return;
+    const ro = new ResizeObserver(() => {
+      measure();
+      kick();
+    });
+    ro.observe(view);
+    ro.observe(stack);
+    // Wheel and trackpad move the list; following the song resumes a little later.
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      scroll.wheel(e.deltaY * (e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? viewH : 1));
+      pausedUntil = performance.now() + 3500;
+      follower.reset();
+      kick();
+    };
+    view.addEventListener("wheel", wheel, { passive: false });
+    return () => {
+      ro.disconnect();
+      view?.removeEventListener("wheel", wheel);
+    };
+  });
+
+  // Wake the loop when the song moves, plays or the timing is nudged.
+  $effect(() => {
+    void player.position;
+    void player.playing;
+    void offset;
+    kick();
+  });
+
+  onDestroy(() => cancelAnimationFrame(raf));
 
   function seek(ms: number) {
-    const target = Math.max(0, ms + offset);
-    const last = player.duration > 0 ? Math.max(0, player.duration - 500) : target;
-    player.seek(Math.min(target, last));
-    userScroll = 0;
+    const to = Math.max(0, ms + offset);
+    const end = player.duration > 0 ? Math.max(0, player.duration - 500) : to;
+    player.seek(Math.min(to, end));
+    pausedUntil = 0;
+    follower.reset();
+    kick();
   }
 
   const offsetLabel = $derived(`${offset > 0 ? "+" : offset < 0 ? "−" : "±"}${(Math.abs(offset) / 1000).toFixed(1).replace(".", ",")} s`);
 </script>
 
-<div class="lyrics {variant}">
-  <div class="scroller" bind:this={box} onscroll={onScroll}>
-    {#if !player.track}
-      <p class="msg">Fai partire un brano per vederne il testo.</p>
-    {:else if status === "loading"}
-      <div class="loading" aria-busy="true" aria-label="Cerco il testo…">
-        {#each Array(5) as _, i}<span style="width:{[72, 54, 80, 46, 64][i]}%"></span>{/each}
-      </div>
-    {:else if status === "none"}
-      <div class="none">
-        <Icon name="lyrics" size={30} />
-        <p>Nessun testo trovato per “{player.track.title}”.</p>
-      </div>
-    {:else if lines}
-      <div class="lines">
-        {#each lines as line, i (i)}
-          {@const d = Math.abs(i - current)}
-          <button
-            class="line"
-            data-i={i}
-            class:past={i < current}
-            class:now={i === current}
-            style="--d:{Math.min(d, 5)}"
-            onclick={() => seek(line.ms)}
-          >
-            {#if !line.text.trim()}
+<div class="lyrics {variant}" class:centered={prefs.v.lyricsAlign === "center"} style="--scale:{scale}">
+  {#if !player.track}
+    <p class="msg">Fai partire un brano per vederne il testo.</p>
+  {:else if status === "loading"}
+    <div class="loading" aria-busy="true" aria-label="Cerco il testo…">
+      {#each Array(5) as _, i}<span style="width:{[72, 54, 80, 46, 64][i]}%"></span>{/each}
+    </div>
+  {:else if status === "none"}
+    <div class="none">
+      <Icon name="lyrics" size={30} />
+      <p>Nessun testo trovato per “{player.track.title}”.</p>
+    </div>
+  {:else if synced}
+    <div class="view at-top" bind:this={view}>
+      <div class="stack" bind:this={stack}>
+        {#each model as line, i (i)}
+          <button class="line" class:inst={line.instrumental} onclick={() => seek(line.start)}>
+            {#if line.instrumental}
               <span class="dots" aria-label="Strumentale"><i></i><i></i><i></i></span>
-            {:else if i === current && line.words?.length}
-              {#each line.words as w}<span class="w" style="--p:{sung(w)}">{w.text}</span>{/each}
             {:else}
-              {line.text}
+              <span class="main"
+                >{#each line.groups as g}{#if g.space}{g.tokens[0].text}{:else}<span class="g"
+                      >{#each g.tokens as t}<span class="t">{t.text}</span>{/each}</span
+                    >{/if}{/each}</span
+              >
+              {#if line.bg}<span class="bgv">{line.bg}</span>{/if}
             {/if}
           </button>
         {/each}
+        {#if lyrics?.source && prefs.v.lyricsSource}<p class="src" bind:this={srcEl}>Testo da {lyrics.source}</p>{/if}
       </div>
-    {:else}
+    </div>
+  {:else}
+    <div class="plain-box">
       <p class="plain">{lyrics?.plain}</p>
-    {/if}
-    {#if status === "ready" && lyrics?.source}<p class="src">Testo da {lyrics.source}</p>{/if}
-  </div>
+      {#if lyrics?.source && prefs.v.lyricsSource}<p class="src">Testo da {lyrics.source}</p>{/if}
+    </div>
+  {/if}
 
-  {#if status === "ready" && lines}
+  {#if status === "ready" && synced}
     <div class="sync" role="group" aria-label="Sincronia del testo">
       <button onclick={() => nudge(-250)} aria-label="Testo prima di 0,25 secondi" title="Il testo arriva prima">−</button>
       <button class="val" class:moved={offset !== 0} onclick={() => nudge(0)} title={offset ? "Torna alla sincronia originale" : "Sincronia del testo per questo brano"}>
@@ -202,90 +340,118 @@
 </div>
 
 <style>
+  @property --fog-top {
+    syntax: "<percentage>";
+    inherits: false;
+    initial-value: 0%;
+  }
+  @property --fog-bottom {
+    syntax: "<percentage>";
+    inherits: false;
+    initial-value: 26%;
+  }
   .lyrics {
     --ink: var(--lyrics-ink, var(--lfly-text));
-    --size: clamp(26px, 2.6vw, 38px);
+    --dim: color-mix(in srgb, var(--ink) 30%, transparent);
+    --size: clamp(28px, 2.7vw, 40px);
+    --pad-x: 4px;
     position: relative;
     height: 100%;
     min-height: 0;
-    container-type: size;
     color: var(--ink);
   }
   .panel {
-    --size: clamp(22px, 2vw, 30px);
+    --size: clamp(24px, 2.2vw, 34px);
   }
   .side {
     --size: 21px;
+    --pad-x: 14px;
   }
-  .scroller {
+  .view {
+    position: relative;
     height: 100%;
-    overflow-y: auto;
-    overflow-x: hidden;
-    scrollbar-width: none;
-    padding: 30cqh 4px 60cqh;
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 80%, transparent);
-    mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 80%, transparent);
+    overflow: hidden;
+    --fog-top: 22%;
+    --fog-bottom: 26%;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fog-top), #000 calc(100% - var(--fog-bottom)), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 var(--fog-top), #000 calc(100% - var(--fog-bottom)), transparent);
+    transition:
+      --fog-top 450ms cubic-bezier(0.22, 1, 0.36, 1),
+      --fog-bottom 450ms cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .side .scroller {
-    padding: 35cqh 14px 70cqh;
+  .view:global(.at-top) {
+    --fog-top: 0%;
   }
-  .scroller::-webkit-scrollbar {
-    display: none;
+  .view:global(.at-bottom) {
+    --fog-bottom: 0%;
   }
-  .lines {
+  .side .view {
+    --fog-top: 14%;
+    --fog-bottom: 18%;
+  }
+  .side .view:global(.at-top) {
+    --fog-top: 0%;
+  }
+  .side .view:global(.at-bottom) {
+    --fog-bottom: 0%;
+  }
+  .stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 24px var(--pad-x) 0;
+  }
+  .line {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
-  }
-  .line {
     font-family: var(--lfly-font-display);
-    font-size: var(--size);
-    font-weight: 800;
-    line-height: 1.22;
-    letter-spacing: -0.02em;
+    font-size: calc(var(--size) * var(--scale, 1));
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.012em;
     text-align: left;
-    padding: 8px 14px;
-    margin-left: -14px;
+    padding: calc(var(--size) * 0.36) 12px;
+    margin: 0 -12px;
     border-radius: 14px;
-    color: var(--ink);
-    opacity: 0.32;
-    filter: blur(calc(var(--d) * 0.5px));
-    transform: scale(0.97);
-    transform-origin: left center;
-    text-wrap: balance;
-    transition:
-      opacity 420ms var(--lfly-ease, ease),
-      filter 420ms var(--lfly-ease, ease),
-      transform 600ms var(--lfly-ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
-      background 160ms;
+    color: var(--dim);
+    text-wrap: pretty;
+    will-change: transform;
+    transition: background 160ms;
   }
-  .line.past {
-    opacity: 0.45;
+  .centered .line {
+    align-items: center;
+    text-align: center;
   }
-  .line.now {
-    opacity: 1;
-    filter: none;
-    transform: none;
-  }
-  .scroller:hover .line {
-    filter: none;
+  .centered .src {
+    text-align: center;
   }
   .line:hover {
-    opacity: 0.85;
-    background: color-mix(in srgb, var(--ink) 8%, transparent);
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
   }
-  /* Word by word: each word fills with the full ink as it is sung. */
-  .w {
-    background: linear-gradient(
-      90deg,
-      var(--ink) calc(var(--p) * 100%),
-      color-mix(in srgb, var(--ink) 38%, transparent) calc(var(--p) * 100%)
-    );
+  .main {
+    display: block;
+  }
+  .g {
+    white-space: nowrap;
+  }
+  /* A syllable's light is painted by the loop as a gradient clipped to its letters. */
+  .t {
     -webkit-background-clip: text;
     background-clip: text;
+  }
+  .t:global([style*="background-image"]) {
     -webkit-text-fill-color: transparent;
-    white-space: pre-wrap;
+  }
+  .bgv {
+    font-size: 0.72em;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 23%, transparent);
+    transition: color 330ms ease;
+  }
+  .line:global(.on) .bgv {
+    color: color-mix(in srgb, var(--ink) 78%, transparent);
   }
   .dots {
     display: inline-flex;
@@ -297,22 +463,30 @@
     height: 12px;
     border-radius: 50%;
     background: currentColor;
-    opacity: 0.6;
+    transition:
+      background 330ms ease,
+      transform 330ms ease;
   }
-  .now .dots i {
+  .line:global(.on) .dots i {
+    background: var(--ink);
     animation: breathe 1.6s ease-in-out infinite;
   }
-  .now .dots i:nth-child(2) {
+  .line:global(.on) .dots i:nth-child(2) {
     animation-delay: 0.2s;
   }
-  .now .dots i:nth-child(3) {
+  .line:global(.on) .dots i:nth-child(3) {
     animation-delay: 0.4s;
   }
   @keyframes breathe {
     50% {
-      opacity: 1;
-      transform: scale(1.25);
+      transform: scale(1.3);
     }
+  }
+  .plain-box {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-width: none;
+    padding: 24px var(--pad-x) 40%;
   }
   .plain {
     font-family: var(--lfly-font-display);
@@ -326,6 +500,7 @@
   .none {
     color: color-mix(in srgb, var(--ink) 70%, transparent);
     font-size: 15px;
+    padding: 24px var(--pad-x);
   }
   .none {
     display: flex;
@@ -338,6 +513,7 @@
     display: flex;
     flex-direction: column;
     gap: 18px;
+    padding: 24px var(--pad-x);
   }
   .loading span {
     height: calc(var(--size) * 0.8);
@@ -346,9 +522,10 @@
     animation: lfly-pulse 1.4s ease-in-out infinite;
   }
   .src {
-    color: color-mix(in srgb, var(--ink) 55%, transparent);
+    color: color-mix(in srgb, var(--ink) 50%, transparent);
     font-size: 12px;
-    margin-top: 28px;
+    margin: 24px 0 0;
+    will-change: transform;
   }
   /* Liner's timing nudge: a small capsule at the bottom of the box. */
   .sync {
@@ -361,7 +538,7 @@
     gap: 2px;
     padding: 3px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--lfly-glass-tint, rgba(30, 30, 34, 0.6)) 100%, transparent);
+    background: var(--lfly-glass-tint, rgba(30, 30, 34, 0.6));
     border: 1px solid var(--lfly-glass-border, rgba(255, 255, 255, 0.12));
     -webkit-backdrop-filter: blur(18px) saturate(1.6);
     backdrop-filter: blur(18px) saturate(1.6);
@@ -369,7 +546,7 @@
     font-size: 13px;
     font-weight: 650;
     font-variant-numeric: tabular-nums;
-    opacity: 0.55;
+    opacity: 0;
     transition: opacity var(--lfly-dur-fast, 160ms);
   }
   .lyrics:hover .sync,
@@ -398,11 +575,5 @@
     height: 16px;
     background: var(--lfly-separator, rgba(255, 255, 255, 0.15));
     margin: 0 2px;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .line {
-      transition: none;
-      transform: none;
-    }
   }
 </style>

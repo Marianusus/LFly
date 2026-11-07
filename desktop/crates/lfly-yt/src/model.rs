@@ -356,6 +356,8 @@ pub struct LyricLine {
     /// Real word timings, when the source had them. Each word keeps its
     /// trailing space, so joining the texts gives the line.
     pub word_timings: Option<Vec<WordTiming>>,
+    /// Background vocals sung over the line, when the source has them apart.
+    pub background: Option<String>,
 }
 
 /// Lyrics for one track.

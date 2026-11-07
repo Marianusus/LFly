@@ -56,7 +56,7 @@ export type PlaylistPage = {
 };
 
 export type LyricWord = { ms: number; endMs: number; text: string };
-export type LyricLine = { ms: number; endMs?: number; text: string; words?: LyricWord[] };
+export type LyricLine = { ms: number; endMs?: number; text: string; words?: LyricWord[]; bg?: string };
 export type Lyrics = { synced?: LyricLine[] | null; plain?: string | null; source?: string; instrumental?: boolean };
 
 export const api = {

@@ -1164,6 +1164,21 @@ class MusicRepository(
         }
     }
 
+    /**
+     * The library merged with the computer's through Google Drive ([org.sonora.android.account.DriveSync]):
+     * replaces favourites, playlists and history, and saves them.
+     */
+    fun applySyncedLibrary(favorites: List<Track>, playlists: List<Playlist>, history: List<Track>) {
+        _favorites.value = favorites
+        _playlists.value = playlists
+        _history.value = history
+        repositoryScope.launch {
+            favoritesMutex.withLock { saveToFile(FILE_FAVORITES, favorites) }
+            historyMutex.withLock { saveToFile(FILE_HISTORY, history) }
+            playlistsMutex.withLock { saveToFile(FILE_PLAYLISTS, playlists) }
+        }
+    }
+
     fun deletePlaylist(playlistId: String) {
         if (playlistId == PLAYLIST_ON_REPEAT_ID) return
         // Deleting a saved mix takes its copy out of the Library; the mix itself stays in Home.

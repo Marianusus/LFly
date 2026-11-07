@@ -6,6 +6,7 @@
   import Glass from "../glass/Glass.svelte";
   import { themes } from "../theme/theme.svelte";
   import SelectionPill from "./SelectionPill.svelte";
+  import WindowControls, { nativeControls } from "./WindowControls.svelte";
   import { ui } from "../ui.svelte";
   import { player } from "../player.svelte";
   import { connect, time, type ConnectDevice } from "../connect.svelte";
@@ -27,6 +28,13 @@
     if (connect.following?.id !== d.id) connect.follow(d);
   }
 
+  /** The queue or devices list is scrolled: its top darkens under a soft blur, like the top bar. */
+  let bodyScrolled = $state(false);
+  let topH = $state(96);
+  $effect(() => {
+    void ui.panel;
+    bodyScrolled = false;
+  });
   let seg = $state<HTMLElement>();
   let segActive = $state<HTMLElement | null>(null);
   $effect(() => {
@@ -37,7 +45,12 @@
 
 <Glass as="aside" radius={28} class="lfly-panel" aria-label={ui.panel === "queue" ? "Coda" : ui.panel === "lyrics" ? "Testo" : "Dispositivi"} style="height:100%;overflow:hidden">
   <div class="panel">
-    <header>
+    <!-- The header floats over the list, as the window's top bar over the page: rows scroll under
+         it and it darkens and blurs them. -->
+    <div class="top" class:scrolled={bodyScrolled && ui.panel !== "lyrics"} bind:clientHeight={topH}>
+    <div class="fog" aria-hidden="true"></div>
+    {#if !nativeControls}<div class="win" data-tauri-drag-region><WindowControls /></div>{/if}
+    <header data-tauri-drag-region>
       <div class="seg" role="tablist" aria-label="Pannello" bind:this={seg}>
         <SelectionPill active={segActive} tone="neutral" />
         <button role="tab" data-key="queue" aria-selected={ui.panel === "queue"} class:on={ui.panel === "queue"} onclick={() => (ui.panel = "queue")}>
@@ -50,10 +63,11 @@
           Dispositivi
         </button>
       </div>
-      <button class="lfly-icon-btn close" aria-label="Chiudi" title="Chiudi" onclick={() => (ui.panel = null)}><Icon name="close" size={15} /></button>
+      <button class="lfly-icon-btn close" aria-label="Chiudi il pannello" title="Chiudi il pannello" onclick={() => (ui.panel = null)}><Icon name="close" size={15} /></button>
     </header>
+    </div>
 
-    <div class="body">
+    <div class="body" style="--top:{topH}px" onscroll={(e) => (bodyScrolled = e.currentTarget.scrollTop > 4)}>
       {#key ui.panel}
         <div class="pane" in:fly={{ y: 10, duration: reduce ? 0 : 260 }}>
           {#if ui.panel === "lyrics"}
@@ -169,10 +183,38 @@
 
 <style>
   .panel {
+    position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+  .top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 4;
+  }
+  /* The same veil as the window's top bar when the page scrolls under it. */
+  .fog {
+    position: absolute;
+    inset: 0 0 -26px;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--lfly-bg) 70%, transparent), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+    mask-image: linear-gradient(to bottom, #000 55%, transparent);
+    transition: opacity var(--lfly-dur-med, 260ms) var(--lfly-ease);
+  }
+  .top.scrolled .fog {
+    opacity: 1;
+  }
+  .win {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 12px 0;
   }
   header {
     display: flex;
@@ -216,16 +258,21 @@
     color: var(--lfly-text);
     background: color-mix(in srgb, var(--lfly-text) 14%, transparent);
   }
+  /* Rows dissolve as they pass under the header (a backdrop blur cannot be nested inside the
+     panel's own glass, so the list fades itself), and the veil above darkens what is left. */
   .body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 0 8px 16px;
+    padding: var(--top, 96px) 8px 16px;
+    scroll-padding-top: var(--top, 96px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--top, 96px) - 40px), #000 calc(var(--top, 96px) + 10px));
+    mask-image: linear-gradient(to bottom, transparent calc(var(--top, 96px) - 40px), #000 calc(var(--top, 96px) + 10px));
   }
   /* The lyrics scroll inside themselves: the panel body only gives them its height. */
   .body:has(.lyr) {
     overflow: hidden;
-    padding: 0;
+    padding: var(--top, 96px) 0 0;
     display: flex;
   }
   .body:has(.lyr) .pane {

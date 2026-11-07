@@ -13,6 +13,9 @@ pub const VERSION: i32 = 1;
 /// DNS-SD service type, as Android's NSD announces it (mDNS adds `.local.`).
 pub const SERVICE_TYPE: &str = "_lfly-connect._tcp.local.";
 
+/// The port a computer serves Connect on when it is free (fixed, for firewall rules).
+pub const DEFAULT_PORT: u16 = 45780;
+
 pub const TXT_ID: &str = "id";
 pub const TXT_NAME: &str = "name";
 pub const TXT_KIND: &str = "kind";
@@ -179,6 +182,13 @@ pub enum Message {
         to: i32,
     },
     Transfer(Transfer),
+    /// The library (favorites, playlists, history, in the phone's own JSON), to merge with the
+    /// receiver's; the receiver answers with the merged one (`reply`). Same account only.
+    Library {
+        library: serde_json::Value,
+        #[serde(default)]
+        reply: bool,
+    },
 }
 
 impl Message {

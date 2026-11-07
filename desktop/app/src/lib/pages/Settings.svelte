@@ -13,14 +13,20 @@
   import EqualizerPanel from "../components/EqualizerPanel.svelte";
   import Cover from "../components/Cover.svelte";
   import { account } from "../account.svelte";
+  import { drive } from "../drive.svelte";
+  import SettingsExtra from "./parts/SettingsExtra.svelte";
+  import SpicetifyMarket from "./parts/SpicetifyMarket.svelte";
   import { player } from "../player.svelte";
   import { cover } from "../connect.svelte";
 
   const TABS = [
+    ["general", "Generale"],
     ["appearance", "Aspetto"],
     ["sound", "Riproduzione"],
+    ["lyrics", "Testi"],
     ["devices", "Dispositivi"],
     ["account", "Account"],
+    ["storage", "Spazio e privacy"],
     ["about", "Informazioni"],
   ] as const;
 
@@ -43,6 +49,7 @@
   let iniSchemes = $state<{ name: string; colors: Record<string, string> }[] | null>(null);
   let iniFile = $state("");
   let showExtra = $state(false);
+  let showMarket = $state(false);
 
   async function importFile(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -264,6 +271,19 @@
       </section>
 
       <!-- ---- Avanzate: custom themes, Spicetify ---- -->
+      <section class="group" aria-labelledby="h-market">
+        <header class="group-head row">
+          <div>
+            <h2 id="h-market" class="lfly-title-m">Marketplace di Spicetify</h2>
+            <p class="foot">I temi della comunità di Spicetify, installati con un clic: i loro colori diventano temi di LFly.</p>
+          </div>
+          <button class="lfly-btn lfly-btn-secondary" onclick={() => (showMarket = !showMarket)}>
+            {showMarket ? "Chiudi" : "Sfoglia i temi"}
+          </button>
+        </header>
+        {#if showMarket}<SpicetifyMarket />{/if}
+      </section>
+
       <section class="group" aria-labelledby="h-adv">
         <header class="group-head row">
           <div>
@@ -347,8 +367,15 @@
         {/if}
       </section>
     {/if}
+  {:else if section === "general"}
+    <SettingsExtra section="general" />
   {:else if section === "sound"}
+    <SettingsExtra section="playback" />
     <EqualizerPanel />
+  {:else if section === "lyrics"}
+    <SettingsExtra section="lyrics" />
+  {:else if section === "storage"}
+    <SettingsExtra section="storage" />
   {:else if section === "devices"}
     <section class="group">
       <header class="group-head"><h2 class="lfly-title-m">LFly Connect</h2></header>
@@ -363,6 +390,90 @@
       </p>
     </section>
     <section class="group">
+      <header class="group-head"><h2 class="lfly-title-m">Sincronizza con il telefono</h2></header>
+      <div class="lfly-list">
+        <label class="lfly-list-row">
+          <span class="grow">
+            <strong>Sulla stessa rete Wi-Fi</strong>
+            <span class="lfly-caption">
+              {#if !account.info}
+                Accedi a YouTube Music qui sotto con lo stesso account del telefono: la sincronizzazione parte da sola.
+              {:else if drive.local.lastSync}
+                Ultima volta alle {new Date(drive.local.lastSync * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+              {:else}
+                Preferiti, playlist e cronologia si allineano con i telefoni del tuo account aperti sulla stessa rete.
+              {/if}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            class="lfly-switch"
+            checked={drive.local.enabled}
+            disabled={drive.localBusy}
+            onchange={(e) => drive.setLocal(e.currentTarget.checked)}
+          />
+        </label>
+        {#if drive.local.enabled && account.info}
+          <div class="lfly-list-row">
+            <span class="grow lfly-secondary">Ogni minuto e mezzo e subito dopo ogni modifica, senza configurare niente.</span>
+            <button class="lfly-btn lfly-btn-secondary" disabled={drive.localBusy} onclick={() => drive.syncLocalNow()}>
+              {drive.localBusy ? "Sincronizzo…" : "Sincronizza ora"}
+            </button>
+          </div>
+        {/if}
+      </div>
+    </section>
+
+    <section class="group">
+      <header class="group-head"><h2 class="lfly-title-m">Anche da lontano: Google Drive</h2></header>
+      {#if drive.status.signedIn}
+        <div class="lfly-list">
+          <label class="lfly-list-row">
+            <span class="grow">
+              <strong>Sincronizza tramite Google Drive</strong>
+              <span class="lfly-caption">
+                {drive.status.email ?? "Account Google"} ·
+                {drive.status.lastSync ? `ultima volta alle ${new Date(drive.status.lastSync * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` : "mai sincronizzato"}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              class="lfly-switch"
+              checked={drive.status.enabled}
+              disabled={drive.busy}
+              onchange={(e) => drive.setEnabled(e.currentTarget.checked)}
+            />
+          </label>
+          <div class="lfly-list-row">
+            <span class="grow lfly-secondary">Preferiti, playlist e cronologia si allineano da soli ogni pochi minuti e dopo ogni modifica.</span>
+            <button class="lfly-btn lfly-btn-secondary" disabled={drive.busy || !drive.status.enabled} onclick={() => drive.syncNow()}>
+              {drive.busy ? "Sincronizzo…" : "Sincronizza ora"}
+            </button>
+            <button class="lfly-btn lfly-btn-secondary" disabled={drive.busy} onclick={() => drive.signOut()}>Scollega</button>
+          </div>
+        </div>
+      {:else}
+        <div class="lfly-list">
+          <div class="lfly-list-row">
+            <span class="grow lfly-secondary">
+              Per allinearli anche quando non sono sulla stessa rete: la libreria passa da una cartella nascosta del tuo Google
+              Drive, visibile solo a LFly. Va configurato una volta; attivalo anche sul telefono.
+            </span>
+            <button class="lfly-btn lfly-btn-primary" disabled={drive.busy || !drive.status.configured} onclick={() => drive.signIn()}>
+              {drive.busy ? "Aspetto Google…" : "Collega Google Drive"}
+            </button>
+          </div>
+        </div>
+        {#if !drive.status.configured}
+          <p class="foot below">
+            Manca il client OAuth di LFly: salva il file JSON del client "App desktop" del progetto Google Cloud di LFly come
+            <code>~/.config/lfly/google-oauth.json</code>.
+          </p>
+        {/if}
+      {/if}
+      {#if drive.error}<p class="error" role="alert">{drive.error}</p>{/if}
+    </section>
+    <section class="group">
       <header class="group-head"><h2 class="lfly-title-m">Libreria</h2></header>
       <div class="lfly-list">
         <div class="lfly-list-row">
@@ -375,6 +486,7 @@
         </div>
       </div>
     </section>
+    <SettingsExtra section="devices" />
   {:else if section === "account"}
     <section class="group">
       <header class="group-head"><h2 class="lfly-title-m">YouTube Music</h2></header>
@@ -441,6 +553,7 @@
       </div>
     </section>
   {:else}
+    <SettingsExtra section="about" />
     <section class="group">
       <header class="group-head"><h2 class="lfly-title-m">LFly per computer</h2></header>
       <div class="lfly-list">

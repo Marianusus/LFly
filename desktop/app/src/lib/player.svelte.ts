@@ -38,6 +38,15 @@ class Player {
     return Math.min(s.positionMs + moved, s.durationMs || Number.MAX_SAFE_INTEGER);
   });
 
+  /** The position right now, read without tracking (for animations running every frame). */
+  livePosition(): number {
+    if (this.scrubbing != null || this.remote) return this.position;
+    const s = this.local;
+    if (!s) return 0;
+    const moved = s.playing ? Math.max(0, Date.now() - this.localAt) : 0;
+    return Math.min(s.positionMs + moved, s.durationMs || Number.MAX_SAFE_INTEGER);
+  }
+
   async start() {
     try {
       await listen<{ state: RemoteState; receivedAt: number }>("player:state", (e) => {

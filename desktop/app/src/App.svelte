@@ -6,6 +6,9 @@
   import Glass from "./lib/glass/Glass.svelte";
   import Backdrop from "./lib/glass/Backdrop.svelte";
   import Sidebar from "./lib/components/Sidebar.svelte";
+  import WindowControls from "./lib/components/WindowControls.svelte";
+  import { drive } from "./lib/drive.svelte";
+  import { prefs } from "./lib/prefs.svelte";
   import PlayerBar from "./lib/components/PlayerBar.svelte";
   import RightPanel from "./lib/components/RightPanel.svelte";
   import ContextMenu from "./lib/components/ContextMenu.svelte";
@@ -36,6 +39,7 @@
 
   let main = $state<HTMLElement>();
   let scrolled = $state(false);
+  let panelLeaving = $state(false);
 
   onMount(() => {
     // The keyboard's media keys and the system's media widgets.
@@ -53,6 +57,8 @@
     ui.start();
     library.start();
     account.load();
+    drive.start();
+    prefs.start();
     downloads.start();
     connect.start();
     player.start().then(() => audio.start());
@@ -167,8 +173,8 @@
 
 <div
   class="shell lfly-shell-ok"
-  class:panel={ui.panel != null}
-  class:narrow-side={!ui.sidebarWide || ui.compact}
+  class:panel={ui.panel != null || panelLeaving}
+  class:narrow-side={!ui.sideWide}
   class:covered={fullPlayer}
   inert={fullPlayer}
 >
@@ -176,7 +182,7 @@
 
   <div class="stage">
     <main class="lfly-main" bind:this={main} onscroll={() => (scrolled = (main?.scrollTop ?? 0) > 6)}>
-      <div class="topbar" class:scrolled>
+      <div class="topbar" class:scrolled data-tauri-drag-region>
         <div class="edge" aria-hidden="true"></div>
         <Glass shape="pill" class="nav-pair">
           <button class="round" aria-label="Indietro" title="Indietro (Alt+←)" disabled={!nav.canBack} onclick={() => nav.back()}>
@@ -215,6 +221,7 @@
         >
           <Icon name="palette" size={17} />
         </Glass>
+        {#if !ui.panel}<WindowControls />{/if}
       </div>
 
       {#key below}
@@ -251,7 +258,20 @@
   </div>
 
   {#if ui.panel}
-    <div class="right" transition:fly={{ x: 24, duration: reduce ? 0 : 260, easing: cubicOut }}><RightPanel /></div>
+    {#if ui.compact}
+      <!-- Narrow window: the panel floats over the page; around it, a veil that closes it. -->
+      <button class="panel-veil" aria-label="Chiudi il pannello" transition:fade={{ duration: reduce ? 0 : 180 }} onclick={() => (ui.panel = null)}></button>
+    {/if}
+    <!-- Its column stays while it slides out: without it the panel wrapped to a second grid row,
+         and for a moment the whole window was laid out at half height. -->
+    <div
+      class="right"
+      transition:fly={{ x: 24, duration: reduce ? 0 : 260, easing: cubicOut }}
+      onoutrostart={() => (panelLeaving = true)}
+      onoutroend={() => (panelLeaving = false)}
+    >
+      <RightPanel />
+    </div>
   {/if}
 </div>
 
@@ -321,8 +341,12 @@
     position: relative;
     display: grid;
     grid-template-columns: var(--side-w) minmax(0, 1fr);
+    /* One row, always: nothing may ever split the window's height. */
+    grid-template-rows: minmax(0, 1fr);
+    grid-auto-rows: 0;
     height: 100%;
     transition:
+      grid-template-columns 460ms cubic-bezier(0.32, 0.72, 0, 1),
       scale 420ms var(--lfly-ease),
       opacity 420ms var(--lfly-ease);
   }
@@ -330,7 +354,7 @@
     grid-template-columns: var(--side-w) minmax(0, 1fr) var(--panel-w);
   }
   .shell.narrow-side {
-    --side-w: 76px;
+    --side-w: 88px;
   }
   /* Behind the full-screen player the window recedes a little, as a sheet's parent does. */
   .shell.covered {
@@ -365,6 +389,9 @@
   }
   .right > :global(*) {
     flex: 1;
+  }
+  .panel-veil {
+    display: none;
   }
   .bottom {
     position: absolute;
@@ -612,6 +639,18 @@
   @media (max-width: 900px) {
     .shell.panel {
       grid-template-columns: var(--side-w) minmax(0, 1fr);
+    }
+    .panel-veil {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 29;
+      background: rgba(0, 0, 0, 0.32);
+      cursor: default;
+    }
+    /* Floating over the page, the panel must read on its own: nearly opaque glass. */
+    .shell.panel .right :global(.lfly-panel) {
+      --g-tint: color-mix(in srgb, var(--lfly-surface) 90%, transparent);
     }
     .shell.panel .right {
       position: fixed;

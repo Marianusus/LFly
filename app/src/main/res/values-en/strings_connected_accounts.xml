@@ -44,4 +44,17 @@
     <string name="discord_disconnect">Disconnect Discord</string>
     <string name="discord_disconnect_confirm_title">Disconnect Discord?</string>
     <string name="discord_disconnect_confirm_body">The status leaves your profile and LFly forgets the sign-in.</string>
+    <string name="drive_section_title">Sync with your computer</string>
+    <string name="drive_section_footer">Favourites, playlists and history changed on one device reach the other. On the same Wi-Fi network the same YouTube Music account on phone and computer is all it takes. Google Drive keeps them in sync from afar too, and needs a one-time setup (see the README of LFly for computer).</string>
+    <string name="drive_toggle">Sync through Google Drive</string>
+    <string name="drive_off">Off</string>
+    <string name="drive_never">On, not synced yet</string>
+    <string name="drive_last">Last synced: %1$s</string>
+    <string name="drive_syncing">Syncing…</string>
+    <string name="drive_sync_now">Sync now</string>
+    <string name="drive_denied">Google did not grant access to Drive</string>
+    <string name="libsync_toggle">On the same Wi-Fi network</string>
+    <string name="libsync_off">Off</string>
+    <string name="libsync_never">On: syncs while LFly is open on the computer, with the same account</string>
+    <string name="libsync_last">Last synced %1$s with %2$s</string>
 </resources>

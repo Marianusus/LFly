@@ -1,7 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { fade } from "svelte/transition";
+  import { themes } from "../theme/theme.svelte";
   import Icon from "../Icon.svelte";
   import Cover from "./Cover.svelte";
+  import LflyMark from "./LflyMark.svelte";
+  import { nativeControls } from "./WindowControls.svelte";
   import Glass from "../glass/Glass.svelte";
   import SelectionPill from "./SelectionPill.svelte";
   import { nav, type Route } from "../nav.svelte";
@@ -10,7 +14,7 @@
   import { account } from "../account.svelte";
   import { downloads } from "../downloads.svelte";
 
-  const wide = $derived(ui.sidebarWide && !ui.compact);
+  const wide = $derived(ui.sideWide);
   const downloading = $derived(Object.keys(downloads.progress).length);
   const showDownloads = $derived(downloads.tracks.length > 0 || downloading > 0);
 
@@ -28,6 +32,8 @@
     { key: "library", label: "Libreria", icon: "library", go: { page: "library" } as Route },
   ];
 
+  /** The list is scrolled: its top darkens under a soft blur, like the window's top bar. */
+  let listScrolled = $state(false);
   let tabBox = $state<HTMLElement>();
   let listBox = $state<HTMLElement>();
   let footBox = $state<HTMLElement>();
@@ -53,10 +59,10 @@
 
 <Glass as="nav" radius={28} class="lfly-sidebar" aria-label="Navigazione" style="height:100%;width:100%;overflow:hidden">
   <div class="sb" class:narrow={!wide}>
-    <div class="brand">
-      <span class="mark" aria-hidden="true"><Icon name="plane" size={wide ? 15 : 17} /></span>
-      {#if wide}<span class="word">LFly</span>{/if}
-      {#if !ui.compact}
+    <div class="brand" class:mac={nativeControls} data-tauri-drag-region>
+      <span class="mark" aria-hidden="true"><LflyMark size={wide ? 28 : 30} /></span>
+      <span class="word" aria-hidden={!wide}>LFly</span>
+      {#if !ui.compact && !(ui.sidebarWide && !ui.sideWide)}
         <button
           class="lfly-icon-btn toggle"
           aria-label={wide ? "Riduci la barra laterale" : "Allarga la barra laterale"}
@@ -81,24 +87,21 @@
             onclick={() => nav.go(t.go)}
           >
             <span class="ic"><Icon name={t.icon} size={20} fill={key === t.key && t.icon === "home"} /></span>
-            {#if wide}<span class="label">{t.label}</span>{/if}
+            <span class="label">{t.label}</span>
           </button>
         </li>
       {/each}
     </ul>
 
-    {#if wide}
-      <div class="section">
-        <span class="caption">Playlist</span>
-        <button class="lfly-icon-btn mini" aria-label="Apri la libreria" title="Apri la libreria" onclick={() => nav.go({ page: "library" })}>
-          <Icon name="expand" size={13} />
-        </button>
-      </div>
-    {:else}
-      <div class="rule" aria-hidden="true"></div>
-    {/if}
+    <div class="section">
+      <span class="caption">Playlist</span>
+      <button class="lfly-icon-btn mini" tabindex={wide ? 0 : -1} aria-label="Apri la libreria" title="Apri la libreria" onclick={() => nav.go({ page: "library" })}>
+        <Icon name="expand" size={13} />
+      </button>
+    </div>
 
-    <div class="scroll">
+    <div class="scroll" class:scrolled={listScrolled} onscroll={(e) => (listScrolled = e.currentTarget.scrollTop > 4)}>
+      <div class="edge" class:on={listScrolled} aria-hidden="true"></div>
       <ul class="group entries" bind:this={listBox}>
         <SelectionPill active={listActive} />
         <li>
@@ -110,13 +113,11 @@
             onclick={() => nav.go({ page: "liked" })}
             title="Brani che ti piacciono"
           >
-            <span class="art liked"><Icon name="heart" size={wide ? 17 : 18} fill /></span>
-            {#if wide}
+            <span class="art liked"><Icon name="heart" size={17} fill /></span>
               <span class="text">
                 <span class="ellipsis name">Brani che ti piacciono</span>
                 <span class="sub ellipsis">Playlist · {library.favorites.length} brani</span>
               </span>
-            {/if}
           </button>
         </li>
         {#if showDownloads}
@@ -129,13 +130,11 @@
               onclick={() => nav.go({ page: "downloads" })}
               title="Scaricati"
             >
-              <span class="art dl"><Icon name="download" size={wide ? 17 : 18} /></span>
-              {#if wide}
+              <span class="art dl"><Icon name="download" size={17} /></span>
                 <span class="text">
                   <span class="ellipsis name">Scaricati</span>
                   <span class="sub ellipsis">{downloading ? `In download: ${downloading}` : `${downloads.tracks.length} brani`}</span>
                 </span>
-              {/if}
             </button>
           </li>
         {/if}
@@ -149,13 +148,11 @@
               onclick={() => nav.go({ page: "playlist", id: p.id, name: p.name, local: true })}
               title={p.name}
             >
-              <Cover url={p.coverUrl ?? p.tracks[0]?.coverUrl} size={wide ? 40 : 42} />
-              {#if wide}
+              <Cover url={p.coverUrl ?? p.tracks[0]?.coverUrl} size={40} />
                 <span class="text">
                   <span class="ellipsis name">{p.name}</span>
                   <span class="sub ellipsis">Playlist · {p.tracks.length} brani</span>
                 </span>
-              {/if}
             </button>
           </li>
         {/each}
@@ -169,20 +166,18 @@
               onclick={() => nav.go({ page: "playlist", id: p.id, name: p.title })}
               title={p.title}
             >
-              <Cover url={p.coverUrl} size={wide ? 40 : 42} />
-              {#if wide}
+              <Cover url={p.coverUrl} size={40} />
                 <span class="text">
                   <span class="ellipsis name">{p.title}</span>
                   <span class="sub ellipsis">{p.subtitle ?? "Playlist"}</span>
                 </span>
-              {/if}
             </button>
           </li>
         {/each}
       </ul>
 
       {#if wide && library.playlists.length === 0 && !account.info}
-        <div class="invite">
+        <div class="invite" transition:fade={{ duration: themes.reduceMotion ? 0 : 200 }}>
           <strong>Porta qui la tua musica</strong>
           <span>Importa il backup .lfly del telefono: playlist, preferiti e cronologia.</span>
           <button class="lfly-btn lfly-btn-primary" onclick={() => library.importBackup()}>Importa backup</button>
@@ -202,7 +197,7 @@
           title="Impostazioni"
         >
           <span class="ic"><Icon name="settings" size={19} /></span>
-          {#if wide}<span class="label">Impostazioni</span>{/if}
+          <span class="label">Impostazioni</span>
         </button>
       </li>
     </ul>
@@ -217,37 +212,62 @@
     padding: 14px 10px 10px;
     min-height: 0;
   }
+  /* Collapsing keeps every icon where it is: the sidebar narrows over them and the words fade. */
+  .sb {
+    --fold: 460ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
   .brand {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 2px 8px 14px;
     min-height: 44px;
   }
-  .narrow .brand {
-    flex-direction: column;
-    padding: 2px 0 10px;
-    gap: 10px;
+  /* macOS draws its traffic lights over the top-left corner. */
+  .brand.mac {
+    padding-top: 30px;
   }
   .mark {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     flex: none;
-    border-radius: 9px;
     display: grid;
     place-items: center;
-    color: #fff;
-    background:
-      radial-gradient(120% 120% at 20% 0%, color-mix(in srgb, var(--lfly-accent) 70%, #fff) 0%, transparent 55%),
-      linear-gradient(150deg, #1b2a4a, #0b1020);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.25),
-      0 4px 14px color-mix(in srgb, var(--lfly-accent) 30%, transparent);
+    color: var(--lfly-text);
+    filter: drop-shadow(0 2px 8px color-mix(in srgb, var(--lfly-accent) 35%, transparent));
+  }
+  .mark {
+    transition:
+      opacity 180ms var(--lfly-ease),
+      scale 180ms var(--lfly-ease);
   }
   .word {
     font: 700 20px/1 var(--lfly-font-display);
     letter-spacing: -0.02em;
     color: var(--lfly-text);
+    white-space: nowrap;
+  }
+  .word,
+  .label,
+  .text,
+  .caption,
+  .section .mini {
+    transition:
+      opacity 260ms var(--lfly-ease) 120ms,
+      translate var(--fold);
+  }
+  .narrow .word,
+  .narrow .label,
+  .narrow .text,
+  .narrow .caption,
+  .narrow .section .mini {
+    opacity: 0;
+    translate: -6px 0;
+    pointer-events: none;
+    transition:
+      opacity 120ms var(--lfly-ease),
+      translate var(--fold);
   }
   .toggle {
     margin-left: auto;
@@ -256,8 +276,24 @@
       background var(--lfly-dur-fast) var(--lfly-ease),
       color var(--lfly-dur-fast) var(--lfly-ease);
   }
+  /* Folded, the toggle waits under the logo and shows on hover. */
   .narrow .toggle {
+    position: absolute;
+    left: 8px;
+    top: 2px;
+    width: 32px;
+    height: 32px;
     margin: 0;
+    opacity: 0;
+    background: var(--lfly-glass-tint);
+  }
+  .narrow .brand:hover .toggle,
+  .narrow .toggle:focus-visible {
+    opacity: 1;
+  }
+  .narrow .brand:hover .mark {
+    opacity: 0;
+    scale: 0.8;
   }
   .toggle:hover,
   .mini:hover {
@@ -317,17 +353,31 @@
     width: 22px;
     flex: none;
   }
-  .narrow .item {
-    justify-content: center;
-    padding: 0;
-    height: 46px;
+  .label {
+    white-space: nowrap;
   }
 
   .section {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 18px 12px 6px 18px;
+    white-space: nowrap;
+  }
+  .section::after {
+    content: "";
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    top: 50%;
+    height: 1px;
+    background: var(--lfly-separator);
+    opacity: 0;
+    transition: opacity 200ms var(--lfly-ease);
+  }
+  .narrow .section::after {
+    opacity: 1;
   }
   .caption {
     font: 600 11px/1 var(--lfly-font);
@@ -340,12 +390,6 @@
     height: 26px;
     color: var(--lfly-text-3);
   }
-  .rule {
-    height: 1px;
-    margin: 10px 14px;
-    background: var(--lfly-separator);
-  }
-
   .scroll {
     flex: 1;
     min-height: 0;
@@ -354,6 +398,35 @@
     margin: 0 -4px;
     padding: 2px 4px 8px;
     mask-image: linear-gradient(to bottom, transparent, #000 8px, #000 calc(100% - 16px), transparent);
+  }
+  /* Scrolled: the rows dissolve under the top of the list, as under the window's top bar. */
+  .scroll.scrolled {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 44px, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 44px, #000 calc(100% - 16px), transparent);
+  }
+  /* Sticky and zero-height: the band hangs over the rows that scroll under it. */
+  .edge {
+    position: sticky;
+    top: -2px;
+    z-index: 3;
+    height: 0;
+    pointer-events: none;
+  }
+  .edge::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    top: 0;
+    height: 46px;
+    opacity: 0;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--lfly-bg) 70%, transparent), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent);
+    mask-image: linear-gradient(to bottom, #000 40%, transparent);
+    transition: opacity var(--lfly-dur-med, 260ms) var(--lfly-ease);
+  }
+  .edge.on::before {
+    opacity: 1;
   }
   .scroll::-webkit-scrollbar {
     width: 0;
@@ -366,11 +439,6 @@
     padding: 6px;
     border-radius: 16px;
   }
-  .narrow .entry {
-    justify-content: center;
-    padding: 4px;
-    border-radius: 18px;
-  }
   .entry.active .name {
     color: var(--lfly-text);
   }
@@ -382,10 +450,6 @@
     display: grid;
     place-items: center;
     color: #fff;
-  }
-  .narrow .art {
-    width: 42px;
-    height: 42px;
   }
   .liked {
     background: linear-gradient(140deg, color-mix(in srgb, var(--lfly-accent) 85%, #fff) 0%, var(--lfly-accent) 45%, color-mix(in srgb, var(--lfly-accent) 55%, #3a0ca3) 100%);

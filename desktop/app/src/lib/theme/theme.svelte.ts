@@ -44,6 +44,14 @@ class Themes {
 
   /** System preferences, followed live. */
   reduceMotion = $state(media("(prefers-reduced-motion: reduce)"));
+  private systemReduceMotion = media("(prefers-reduced-motion: reduce)");
+  /** Set in Settings (true: reduce, false: full motion); null follows the system. */
+  private motionOverride: boolean | null = null;
+
+  setMotionOverride(v: boolean | null) {
+    this.motionOverride = v;
+    this.reduceMotion = v ?? this.systemReduceMotion;
+  }
   reduceTransparency = $state(media("(prefers-reduced-transparency: reduce)"));
 
   /** The playing cover, read once per song. */
@@ -138,7 +146,10 @@ class Themes {
       const m = matchMedia(q);
       m.addEventListener?.("change", () => set(m.matches));
     };
-    follow("(prefers-reduced-motion: reduce)", (v) => (this.reduceMotion = v));
+    follow("(prefers-reduced-motion: reduce)", (v) => {
+      this.systemReduceMotion = v;
+      this.reduceMotion = this.motionOverride ?? v;
+    });
     follow("(prefers-reduced-transparency: reduce)", (v) => (this.reduceTransparency = v));
   }
 

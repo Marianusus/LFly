@@ -445,6 +445,47 @@ impl LocalPlayer {
         });
     }
 
+    fn stop_at_end(&self) {
+        {
+            let mut now = self.now.lock().unwrap();
+            now.wants_play = false;
+            now.playing = false;
+            now.position_ms = 0;
+        }
+        self.changed(true);
+    }
+
+    /// The queue ended: on with songs like the last one (YouTube Music's radio), as the phone does.
+    fn play_on_with_similar(&self) {
+        let Some(me) = self.me.upgrade() else { return };
+        let last = self.now.lock().unwrap().queue.current().cloned();
+        let Some(last) = last else { return self.stop_at_end() };
+        tauri::async_runtime::spawn(async move {
+            let found = me.yt.up_next(&last.id).await.unwrap_or_default();
+            let tracks: Vec<TrackRef> = {
+                let now = me.now.lock().unwrap();
+                found
+                    .into_iter()
+                    .filter_map(|t| serde_json::to_value(&t).ok().and_then(|v| serde_json::from_value::<TrackRef>(v).ok()))
+                    .filter(|t| !now.queue.tracks.iter().any(|q| q.id == t.id))
+                    .take(25)
+                    .collect()
+            };
+            if tracks.is_empty() {
+                return me.stop_at_end();
+            }
+            let next = {
+                let mut now = me.now.lock().unwrap();
+                let next = now.queue.tracks.len() as i32;
+                now.queue.add(tracks);
+                now.queue.index = next;
+                next
+            };
+            log::info!("Queue ended: on with similar songs from #{next}");
+            me.load_current(0, true);
+        });
+    }
+
     fn on_event(&self, event: PlayerEvent) {
         match event {
             PlayerEvent::Position { ms } => {
@@ -500,15 +541,8 @@ impl LocalPlayer {
                         self.now.lock().unwrap().queue.index = i;
                         self.load_current(0, true);
                     }
-                    None => {
-                        {
-                            let mut now = self.now.lock().unwrap();
-                            now.wants_play = false;
-                            now.playing = false;
-                            now.position_ms = 0;
-                        }
-                        self.changed(true);
-                    }
+                    None if crate::settings::autoplay() && self.now.lock().unwrap().queue.current().is_some() => self.play_on_with_similar(),
+                    None => self.stop_at_end(),
                 }
             }
             PlayerEvent::Error { message } => {
@@ -581,6 +615,9 @@ impl HostPlayer for LocalPlayer {
         let handover = self.hand_over();
         self.pause();
         handover
+    }
+    fn library(&self, peer_id: &str, offered: serde_json::Value) -> Option<serde_json::Value> {
+        crate::libsync::answer(&self.app, peer_id, offered)
     }
 }
 

@@ -434,6 +434,7 @@ fun SettingsScreen(
                         item { org.sonora.android.ui.settings.YouTubeAccountSection() }
                         item { org.sonora.android.ui.settings.SpotifyAccountSection() }
                         item { org.sonora.android.ui.settings.SettingsGroups { org.sonora.android.ui.settings.DiscordSection() } }
+                        item { org.sonora.android.ui.settings.SettingsGroups { org.sonora.android.ui.settings.DriveSyncSection() } }
                     }
                     SettingsPage.PLAYBACK -> {
                         item {

@@ -309,3 +309,78 @@ private fun Avatar(url: String?, fallback: ImageVector, color: Color) {
         }
     }
 }
+
+private val DriveBlue = Color(0xFF1A73E8)
+
+/** The library sync with LFly for computer through Google Drive (DriveSync). */
+@Composable
+internal fun DriveSyncSection() {
+    val context = LocalContext.current
+    val status by org.sonora.android.account.DriveSync.status.collectAsState()
+    val scope = rememberCoroutineScope()
+    val repository = remember { org.sonora.android.SonoraApp.instance.musicRepository }
+    val consent = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        org.sonora.android.account.DriveSync.onConsent(context, result.data, repository)
+    }
+
+    val local by org.sonora.android.account.LibrarySync.status.collectAsState()
+    SettingsGroup(header = stringResource(R.string.drive_section_title), footer = stringResource(R.string.drive_section_footer)) {
+        SettingsToggleRow(
+            title = stringResource(R.string.libsync_toggle),
+            subtitle = when {
+                !local.enabled -> stringResource(R.string.libsync_off)
+                local.lastSync != null -> stringResource(
+                    R.string.libsync_last,
+                    DateUtils.getRelativeTimeSpanString(local.lastSync!!, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString(),
+                    local.lastDevice ?: "LFly"
+                )
+                else -> stringResource(R.string.libsync_never)
+            },
+            checked = local.enabled,
+            icon = Icons.Default.Sync,
+            tile = SettingsTile.Teal,
+            onCheckedChange = { org.sonora.android.account.LibrarySync.setEnabled(it) }
+        )
+        SettingsRowDivider(hasLeading = true)
+        val subtitle = when {
+            !status.enabled -> stringResource(R.string.drive_off)
+            status.phase == org.sonora.android.account.DriveSync.Phase.SYNCING -> stringResource(R.string.drive_syncing)
+            status.phase == org.sonora.android.account.DriveSync.Phase.ERROR && status.message != null -> status.message!!
+            status.lastSync != null -> stringResource(
+                R.string.drive_last,
+                DateUtils.getRelativeTimeSpanString(status.lastSync!!, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+            )
+            else -> stringResource(R.string.drive_never)
+        }
+        SettingsToggleRow(
+            title = stringResource(R.string.drive_toggle),
+            subtitle = subtitle,
+            checked = status.enabled,
+            icon = Icons.Default.Sync,
+            tile = DriveBlue,
+            onCheckedChange = { on ->
+                if (!on) {
+                    org.sonora.android.account.DriveSync.disable()
+                    return@SettingsToggleRow
+                }
+                scope.launch {
+                    val pending = runCatching { org.sonora.android.account.DriveSync.authorize(context) }
+                    pending.onSuccess { intent ->
+                        if (intent == null) org.sonora.android.account.DriveSync.enable(repository)
+                        else consent.launch(androidx.activity.result.IntentSenderRequest.Builder(intent.intentSender).build())
+                    }
+                }
+            }
+        )
+        if (status.enabled) {
+            SettingsRowDivider(hasLeading = true)
+            SettingsRow(
+                title = stringResource(R.string.drive_sync_now),
+                enabled = status.phase != org.sonora.android.account.DriveSync.Phase.SYNCING,
+                onClick = { org.sonora.android.account.DriveSync.syncNow(repository) }
+            )
+        }
+    }
+}

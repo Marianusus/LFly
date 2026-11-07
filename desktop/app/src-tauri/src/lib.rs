@@ -3,6 +3,10 @@
 mod account;
 mod covers;
 mod discord;
+mod drive;
+mod libsync;
+mod market;
+mod settings;
 mod spotify;
 mod downloads;
 mod identity;
@@ -156,8 +160,11 @@ fn library_get() -> Result<library::Library, String> {
 }
 
 #[tauri::command]
-fn library_save(name: String, value: serde_json::Value) -> Result<(), String> {
-    library::save(&library::dir()?, &name, &value)
+fn library_save(app: tauri::AppHandle, name: String, value: serde_json::Value) -> Result<(), String> {
+    library::save(&library::dir()?, &name, &value)?;
+    drive::changed(&app);
+    libsync::changed(&app);
+    Ok(())
 }
 
 /// Asks for a phone backup (.lfly) and takes its library; None when the person cancelled.
@@ -385,10 +392,31 @@ pub fn run() {
             app.manage(media::start(app.handle()));
             let discord_on = store::get("discord").ok().flatten().and_then(|v| v.get("enabled").and_then(|e| e.as_bool())).unwrap_or(true);
             app.manage(discord::Discord::start(discord_on));
+            settings::load(&yt);
             app.manage(yt);
+            app.manage(drive::start(app.handle().clone()));
+            libsync::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            market::market_themes,
+            market::market_file,
+            settings::settings_get,
+            settings::settings_set_playback,
+            settings::settings_set_autostart,
+            settings::disk_usage,
+            settings::disk_clear,
+            settings::open_folder,
+            settings::connect_set_name,
+            settings::connect_forget_paired,
+            libsync::libsync_status,
+            libsync::libsync_set_enabled,
+            libsync::libsync_now,
+            drive::drive_status,
+            drive::drive_sign_in,
+            drive::drive_sync,
+            drive::drive_set_enabled,
+            drive::drive_sign_out,
             ui_log,
             account::account_get,
             account::account_login,

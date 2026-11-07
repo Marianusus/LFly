@@ -4,6 +4,7 @@
 pub mod controller;
 pub mod discovery;
 pub mod host;
+pub mod library;
 pub mod protocol;
 
 pub use controller::{Controller, ControllerEvent};

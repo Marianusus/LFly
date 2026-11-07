@@ -99,6 +99,10 @@ class SonoraApp : Application() {
         // 3a. Spotify (for its playlists) and the Discord presence, if the listener connected them.
         org.sonora.android.auth.SpotifyAuth.init(this)
         org.sonora.android.discord.DiscordPresence.start(this)
+        // 3b. Library sync with the computer through Google Drive, if the listener turned it on.
+        org.sonora.android.account.DriveSync.start(this, musicRepository)
+        // ...and over LFly Connect, with LFly for computer on the same network (on by default).
+        org.sonora.android.account.LibrarySync.init(this)
         org.sonora.android.playback.UsbDacOutput.init(this)
         // An Instagram sign-in saved by a build that had the Instagram Note: forgotten for good, in the
         // app and in the in-app browser. Once: the settings file it left is the marker.

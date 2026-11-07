@@ -11,6 +11,8 @@ class Ui {
   width = $state(typeof window === "undefined" ? 1200 : window.innerWidth);
   compact = $derived(this.width <= 900);
   phone = $derived(this.width <= 640);
+  /** The sidebar shown wide: as chosen, unless the window is narrow or the panel needs the room. */
+  sideWide = $derived(this.sidebarWide && !this.compact && !(this.panel && this.width < 1180));
 
   async start() {
     window.addEventListener("resize", () => (this.width = window.innerWidth));

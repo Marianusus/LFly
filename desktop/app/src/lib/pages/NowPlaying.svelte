@@ -11,6 +11,7 @@
   import Slider from "./parts/Slider.svelte";
   import LyricsLines from "./parts/LyricsLines.svelte";
   import QueueList from "./parts/QueueList.svelte";
+  import WindowControls from "../components/WindowControls.svelte";
   import OutputMenu from "./parts/OutputMenu.svelte";
   import { portal } from "./parts/portal";
   import { player } from "../player.svelte";
@@ -90,7 +91,7 @@
 >
   <Ambient url={t?.coverUrl} dim={0.42} blur={80} />
 
-  <header class="bar">
+  <header class="bar" data-tauri-drag-region>
     <Glass as="button" shape="circle" variant="clear" interactive class="np-close" aria-label="Chiudi il player (Esc)" title="Chiudi (Esc)" onclick={close}>
       <Glyph name="chevron-down" size={20} />
     </Glass>
@@ -98,6 +99,7 @@
       <span class="eyebrow">{player.remote && player.where ? `In riproduzione su ${player.where}` : "In riproduzione"}</span>
       {#if t?.album}<span class="from">{t.album}</span>{/if}
     </div>
+    <div class="ends">
     <Glass shape="pill" variant="clear" class="np-toggles">
       <div class="toggles">
         <button class:on={panel === "lyrics"} aria-pressed={panel === "lyrics"} onclick={() => setPanel("lyrics")} title="Testo">
@@ -108,6 +110,8 @@
         </button>
       </div>
     </Glass>
+    <WindowControls />
+    </div>
   </header>
 
   {#if t}
@@ -255,8 +259,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .bar :global(.np-toggles) {
+  .ends {
     justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .bar :global(.np-toggles) {
     padding: 4px;
   }
   .toggles {

@@ -142,6 +142,12 @@ object ConnectProtocol {
         val fromDeviceId: String
     ) : Message
 
+    /**
+     * The library (favorites, playlists, history, in the phone's JSON) to merge with the
+     * receiver's; the receiver answers with the merged one ([reply]). Same account only.
+     */
+    data class Library(val library: JsonObject?, val reply: Boolean = false) : Message
+
     data class Device(val id: String, val name: String, val kind: String, val owner: String? = null)
 
     /** A track as the wire carries it: enough for any LFly to find and stream it itself. */
@@ -183,6 +189,7 @@ object ConnectProtocol {
             "command" -> Command::class.java
             "transfer" -> Transfer::class.java
             "queue_edit" -> QueueEdit::class.java
+            "library" -> Library::class.java
             else -> return null
         }
         gson.fromJson(json, cls)
@@ -198,6 +205,7 @@ object ConnectProtocol {
         is Command -> "command"
         is Transfer -> "transfer"
         is QueueEdit -> "queue_edit"
+        is Library -> "library"
     }
 
     // ---- Account proof ----

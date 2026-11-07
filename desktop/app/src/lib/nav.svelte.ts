@@ -9,7 +9,7 @@ export type Route =
   | { page: "artist"; id: string; name?: string }
   | { page: "album"; id: string; name?: string }
   | { page: "playlist"; id: string; name?: string; local?: boolean }
-  | { page: "settings"; section?: "appearance" | "sound" | "devices" | "account" | "about" }
+  | { page: "settings"; section?: "general" | "appearance" | "sound" | "lyrics" | "devices" | "account" | "storage" | "about" }
   | { page: "lyrics" }
   | { page: "nowplaying" };
 

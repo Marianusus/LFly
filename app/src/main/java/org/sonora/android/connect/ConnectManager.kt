@@ -278,7 +278,12 @@ object ConnectManager {
         fun attr(key: String) = attrs[key]?.decodeToString()
         val id = attr(C.TXT_ID) ?: return
         if (id == self.id) return
-        val host = info.host?.hostAddress ?: return
+        // IPv4 first: a computer also announces IPv6 (often link-local, unusable in a ws:// URL
+        // without its scope) and loopback addresses.
+        val addresses = if (android.os.Build.VERSION.SDK_INT >= 34) info.hostAddresses else listOfNotNull(info.host)
+        val usable = addresses.filterNot { it.isLoopbackAddress || it.isLinkLocalAddress }
+        val host = (usable.firstOrNull { it is java.net.Inet4Address } ?: usable.firstOrNull() ?: addresses.firstOrNull())
+            ?.hostAddress?.substringBefore('%') ?: return
         val device = ConnectDevice(
             id = id,
             name = attr(C.TXT_NAME) ?: info.serviceName.removePrefix("LFly "),
@@ -287,6 +292,7 @@ object ConnectManager {
             host = host,
             port = info.port
         )
+        Log.i(TAG, "Found '${device.name}' (${device.kind}) at $host:${info.port}${if (device.sameAccount) ", same account" else ""}")
         _devices.update { list -> (list.filterNot { it.id == id } + device).sortedBy { it.name.lowercase() } }
     }
 
@@ -567,7 +573,8 @@ object ConnectManager {
     // This phone as the host
     // ==========================================
 
-    private class Session(var device: C.Device? = null, val nonce: String, var trusted: Boolean = false)
+    /** [sameAccount]: proved the account (not only paired with a code); only then the library is shared. */
+    private class Session(var device: C.Device? = null, val nonce: String, var trusted: Boolean = false, var sameAccount: Boolean = false)
 
     private class HostServer(port: Int) : WebSocketServer(InetSocketAddress(port)) {
         private val sessions = ConcurrentHashMap<WebSocket, Session>()
@@ -597,6 +604,7 @@ object ConnectManager {
                     val device = session.device ?: return
                     val key = accountSecret()?.let { C.accountKey(it) }
                     val sameAccount = key != null && message.hmac != null && message.hmac == C.proof(key, session.nonce)
+                    session.sameAccount = sameAccount
                     if (sameAccount || isTrusted(device.id)) {
                         admit(conn, session)
                     } else {
@@ -634,6 +642,17 @@ object ConnectManager {
                 is C.QueueEdit -> if (session.trusted) {
                     Log.i(TAG, "Queue edit from '${session.device?.name}': ${message.op}")
                     main.post { runEdit(message) }
+                }
+                is C.Library -> if (session.trusted && session.sameAccount && !message.reply) {
+                    val offered = message.library ?: return
+                    val device = session.device
+                    // Off the socket thread: the merge reads and writes the library.
+                    scope.launch {
+                        val merged = runCatching {
+                            org.sonora.android.account.LibrarySync.answer(org.sonora.android.SonoraApp.instance.musicRepository, device?.id ?: return@launch, device.name, offered)
+                        }.onFailure { Log.w(TAG, "Library sync failed", it) }.getOrNull()
+                        if (merged != null && conn.isOpen) runCatching { conn.send(C.encode(C.Library(merged, reply = true))) }
+                    }
                 }
                 is C.Transfer -> if (session.trusted) {
                     Log.i(TAG, "Music moved here from '${session.device?.name}': ${message.queue.size} tracks, #${message.index} at ${message.positionMs} ms")
@@ -760,7 +779,7 @@ object ConnectManager {
     // ==========================================
 
     private class RemoteLink(val device: ConnectDevice, private val onReady: (Boolean) -> Unit) :
-        WebSocketClient(URI("ws://${device.host}:${device.port}")) {
+        WebSocketClient(URI("ws://${if (':' in device.host) "[${device.host}]" else device.host}:${device.port}")) {
         @Volatile var lastState: C.State? = null
 
         /** This phone's clock when [lastState] arrived: positions are extrapolated from it. */

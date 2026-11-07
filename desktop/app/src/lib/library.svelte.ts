@@ -1,6 +1,8 @@
 // The listener's library on this computer, in the phone's own format (a backup imports as is).
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { prefs } from "./prefs.svelte";
 import { connect } from "./connect.svelte";
 import { account } from "./account.svelte";
 import type { Track } from "./player.svelte";
@@ -25,6 +27,12 @@ class Library {
   private favoriteIds = $derived(new Set(this.favorites.map((t) => t.id)));
 
   async start() {
+    // Drive brought the phone's changes: read the library again.
+    listen("library:changed", () => this.reload()).catch(() => {});
+    await this.reload();
+  }
+
+  async reload() {
     try {
       const lib = await invoke<Saved>("library_get");
       this.favorites = lib.favorites ?? [];
@@ -103,8 +111,14 @@ class Library {
     this.persist("playlists.json", this.playlists);
   }
 
+  clearHistory() {
+    this.history = [];
+    this.persist("history.json", this.history);
+  }
+
   /** What was just played, newest first, without repeats; kept to 500 songs like a phone. */
   played(track: Track) {
+    if (prefs.v.pauseHistory) return;
     this.history = [$state.snapshot(track) as Track, ...this.history.filter((t) => t.id !== track.id)].slice(0, 500);
     this.persist("history.json", this.history);
   }

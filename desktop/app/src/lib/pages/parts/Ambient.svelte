@@ -1,5 +1,6 @@
 <script lang="ts">
-  // The playing cover as light: two heavily blurred copies drifting slowly under a scrim,
+  // The playing cover as light: a still blurred copy filling the box and two more drifting
+  // slowly over it, under a scrim,
   // like the phone's player and lyrics backgrounds. A small image is enough under the blur.
   import { cover } from "../../connect.svelte";
 
@@ -24,6 +25,7 @@
 <div class="ambient" class:still style="--dim:{dim};--blur:{blur}px" aria-hidden="true">
   {#each shown as s (s)}
     <div class="layer">
+      <img class="base" src={s} alt="" draggable="false" />
       <img class="a" src={s} alt="" draggable="false" />
       <img class="b" src={s} alt="" draggable="false" />
     </div>
@@ -52,6 +54,15 @@
     filter: blur(var(--blur)) saturate(1.7);
     opacity: 0.9;
     will-change: transform;
+  }
+  /* Still, and wider than the box on every side: the drifting copies never uncover a corner. */
+  .base {
+    inset: -30%;
+    width: 160%;
+    height: 160%;
+    aspect-ratio: auto;
+    opacity: 1;
+    animation: none !important;
   }
   .a {
     left: -12%;

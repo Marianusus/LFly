@@ -113,6 +113,8 @@ struct Inner {
     account: Mutex<Option<crate::Account>>,
     /// Lyrics providers' tokens, spacing and cooldowns.
     lyrics: lyrics::State,
+    /// Codec tried first; starts as the config's, changeable while running (a setting).
+    preference: Mutex<AudioPreference>,
 }
 
 /// YouTube Music client. Cheap to clone: clones share the HTTP pool, the
@@ -176,9 +178,11 @@ impl YtMusic {
             health.register(&format!("Piped ({})", host_of(url)), url, SourceKind::Piped);
         }
         lyrics::register(&health, &config.lrclib_url);
+        let preference = Mutex::new(config.preference);
         Ok(Self {
             inner: Arc::new(Inner {
                 http,
+                preference,
                 config,
                 health,
                 web_visitor: Mutex::new(None),
@@ -216,6 +220,15 @@ impl YtMusic {
 
     pub fn account(&self) -> Option<crate::Account> {
         self.inner.account.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The codec tried first for the next streams resolved.
+    pub fn set_preference(&self, preference: AudioPreference) {
+        *self.inner.preference.lock().unwrap_or_else(|e| e.into_inner()) = preference;
+    }
+
+    pub fn preference(&self) -> AudioPreference {
+        *self.inner.preference.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// POST to a WEB_REMIX endpoint (`search`, `browse`, `next`, ...), signed when an account is set.
@@ -714,7 +727,7 @@ impl YtMusic {
 
     /// The `/player` chain alone, without fallbacks.
     async fn resolve_innertube(&self, video_id: &str) -> Option<StreamSource> {
-        let pref = self.inner.config.preference;
+        let pref = self.preference();
         if let Some(root) = self.vision_player(video_id).await {
             if let Some(mut s) = stream::select_best_audio_format(&root, pref) {
                 if self.probe_googlevideo(&s.url, VISIONOS_UA).await {
@@ -900,7 +913,7 @@ impl YtMusic {
     /// proxy (`latest_version?...&local=true`), because the googlevideo urls it
     /// lists are bound to the instance's address.
     async fn try_invidious(self, base: String, video_id: String) -> Option<StreamSource> {
-        let pref = self.inner.config.preference;
+        let pref = self.preference();
         let meta = async {
             let r = self.inner.http.get(format!("{base}/api/v1/videos/{video_id}")).send().await.ok()?;
             if !r.status().is_success() {
@@ -939,7 +952,7 @@ impl YtMusic {
             return None;
         }
         let v: Value = r.json().await.ok()?;
-        let mut s = stream::piped_best_stream(&v, self.inner.config.preference)?;
+        let mut s = stream::piped_best_stream(&v, self.preference())?;
         if !self.probe_media(&s.url).await {
             return None;
         }

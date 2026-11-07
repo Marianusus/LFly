@@ -94,16 +94,24 @@
           {/if}
         </div>
         {#if t}
-          <button
-            class="ctl like"
-            class:on={liked}
-            aria-pressed={liked}
-            aria-label={liked ? "Togli dai Brani che ti piacciono" : "Aggiungi ai Brani che ti piacciono"}
-            title={liked ? "Togli dai Brani che ti piacciono" : "Aggiungi ai Brani che ti piacciono"}
-            onclick={() => library.toggleFavorite(t)}
-          >
-            <Icon name="heart" size={17} fill={liked} />
-          </button>
+          <div class="acts">
+            <button
+              class="ctl mini like"
+              class:on={liked}
+              aria-pressed={liked}
+              aria-label={liked ? "Togli dai Brani che ti piacciono" : "Aggiungi ai Brani che ti piacciono"}
+              title={liked ? "Togli dai Brani che ti piacciono" : "Aggiungi ai Brani che ti piacciono"}
+              onclick={() => library.toggleFavorite(t)}
+            >
+              <Icon name="heart" size={16} fill={liked} />
+            </button>
+            <button class="ctl mini more" aria-label="Altre azioni sul brano" title="Altro" onclick={(e) => menu.openTrack(e, t)}>
+              <Icon name="more" size={18} />
+            </button>
+            <button class="open" aria-label="Apri il player" title="Apri il player" onclick={openPlayer}>
+              <Icon name="chevron-up" size={16} />
+            </button>
+          </div>
         {/if}
       </div>
 
@@ -377,6 +385,40 @@
       transform: scale(1.3);
     }
   }
+  /* Like, more and open: a compact cluster after the title. */
+  .acts {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+    margin-left: auto;
+  }
+  .mini {
+    width: 30px;
+    height: 30px;
+  }
+  .open {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin-left: 2px;
+    border-radius: 50%;
+    color: var(--lfly-text);
+    background: color-mix(in srgb, var(--lfly-text) 10%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lfly-text) 14%, transparent);
+    transition:
+      background var(--lfly-dur-fast) var(--lfly-ease),
+      scale var(--lfly-dur-fast) var(--lfly-ease-spring),
+      translate var(--lfly-dur-med, 260ms) var(--lfly-ease-spring);
+  }
+  .open:hover {
+    background: color-mix(in srgb, var(--lfly-text) 18%, transparent);
+    translate: 0 -2px;
+  }
+  .open:active {
+    scale: 0.9;
+  }
   .skip {
     color: var(--lfly-text);
     width: 38px;
@@ -502,7 +544,8 @@
       grid-template-columns: minmax(0, 1fr) minmax(240px, 1.2fr) auto;
     }
     .vol :global(.volume),
-    .side {
+    .side,
+    .more {
       display: none;
     }
   }
@@ -522,7 +565,7 @@
       padding: 0;
     }
     .lfly-progress,
-    .like,
+    .acts,
     .extra,
     .vol {
       display: none;

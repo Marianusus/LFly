@@ -27,6 +27,11 @@ pub trait HostPlayer: Send + Sync + 'static {
     /// The music leaves: everything the other device needs to play on (the stream included),
     /// then the local player pauses. None when nothing plays.
     fn release(&self) -> Option<Transfer>;
+    /// A device of the same account offers its library: merge it with this one and return the
+    /// merged library, or None to decline (sync turned off here).
+    fn library(&self, _peer_id: &str, _offered: serde_json::Value) -> Option<serde_json::Value> {
+        None
+    }
 }
 
 /// What the window must show.
@@ -70,7 +75,12 @@ impl Host {
         player: Arc<dyn HostPlayer>,
         listener: impl Fn(HostEvent) + Send + Sync + 'static,
     ) -> std::io::Result<Self> {
-        let socket = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 0))).await?;
+        // A fixed port, so one firewall rule lets phones in (ufw blocks incoming links by default);
+        // any free one if another program holds it.
+        let socket = match TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], protocol::DEFAULT_PORT))).await {
+            Ok(s) => s,
+            Err(_) => TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 0))).await?,
+        };
         let port = socket.local_addr()?.port();
         let inner = Arc::new(Inner {
             ident: std::sync::RwLock::new((me, account_secret.map(protocol::account_key))),
@@ -99,6 +109,11 @@ impl Host {
     /// The account changed: new links are checked against the new account.
     pub fn set_identity(&self, me: Device, account_secret: Option<&str>) {
         *self.inner.ident.write().unwrap() = (me, account_secret.map(protocol::account_key));
+    }
+
+    /// Forgets the devices paired with a code (devices of the account still get in).
+    pub fn forget_trusted(&self) {
+        self.inner.trusted.lock().unwrap().clear();
     }
 
     pub fn port(&self) -> u16 {
@@ -169,6 +184,8 @@ async fn serve(inner: Arc<Inner>, stream: TcpStream) -> Result<(), tungstenite::
     let nonce = protocol::new_nonce();
     let mut peer: Option<Device> = None;
     let mut trusted = false;
+    // Proved the same account (not only paired with a code): only then the library is shared.
+    let mut same = false;
     let mut pending: Option<(u64, oneshot::Receiver<bool>)> = None;
 
     loop {
@@ -218,6 +235,7 @@ async fn serve(inner: Arc<Inner>, stream: TcpStream) -> Result<(), tungstenite::
                     (Some(key), Some(h)) => *h == protocol::proof(key, &nonce),
                     _ => false,
                 };
+                same = same_account;
                 if same_account || inner.trusted.lock().unwrap().contains(&device.id) {
                     admit(&inner, id, &tx, &device);
                     trusted = true;
@@ -243,6 +261,15 @@ async fn serve(inner: Arc<Inner>, stream: TcpStream) -> Result<(), tungstenite::
                 }
             }
             Some(Message::QueueEdit { op, tracks, index, to }) if trusted => inner.player.edit(&op, tracks, index, to),
+            Some(Message::Library { library, reply: false }) if trusted && same => {
+                let Some(device) = peer.clone() else { continue };
+                let player = inner.player.clone();
+                // Merging reads and writes files: off the async workers.
+                let merged = tokio::task::spawn_blocking(move || player.library(&device.id, library)).await.ok().flatten();
+                if let Some(library) = merged {
+                    send(Message::Library { library, reply: true });
+                }
+            }
             Some(Message::Transfer(transfer)) if trusted => {
                 log::info!("Music moved here: {} tracks, #{} at {} ms", transfer.queue.len(), transfer.index, transfer.position_ms);
                 inner.player.transfer(transfer);

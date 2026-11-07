@@ -44,4 +44,17 @@
     <string name="discord_disconnect">Scollega Discord</string>
     <string name="discord_disconnect_confirm_title">Scollegare Discord?</string>
     <string name="discord_disconnect_confirm_body">Lo stato sparisce dal tuo profilo e LFly dimentica l\'accesso.</string>
+    <string name="drive_section_title">Sincronizza con il computer</string>
+    <string name="drive_section_footer">Preferiti, playlist e cronologia cambiati su un dispositivo arrivano sull\'altro. Sulla stessa rete Wi-Fi basta avere lo stesso account YouTube Music sul telefono e sul computer. Google Drive serve per allinearli anche da lontano, e va configurato una volta (istruzioni nel README di LFly per computer).</string>
+    <string name="drive_toggle">Sincronizza tramite Google Drive</string>
+    <string name="drive_off">Spento</string>
+    <string name="drive_never">Attivo, non ancora sincronizzato</string>
+    <string name="drive_last">Ultima sincronizzazione: %1$s</string>
+    <string name="drive_syncing">Sincronizzo…</string>
+    <string name="drive_sync_now">Sincronizza ora</string>
+    <string name="drive_denied">Google non ha concesso l\'accesso a Drive</string>
+    <string name="libsync_toggle">Sulla stessa rete Wi-Fi</string>
+    <string name="libsync_off">Spenta</string>
+    <string name="libsync_never">Attiva: si allinea quando LFly è aperto sul computer, con lo stesso account</string>
+    <string name="libsync_last">Ultima volta %1$s con %2$s</string>
 </resources>
