@@ -147,6 +147,8 @@ dependencies {
 
     // Party: nearby device discovery / transport + QR join
     implementation("com.google.android.gms:play-services-nearby:19.3.0")
+    // Google Drive access for the library sync with the computer (DriveSync).
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
     implementation("com.google.android.gms:play-services-cast-framework:22.2.0")
     implementation("androidx.mediarouter:mediarouter:1.7.0")
     implementation("com.google.zxing:core:3.5.4")
