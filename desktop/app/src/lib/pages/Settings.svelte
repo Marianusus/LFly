@@ -557,7 +557,7 @@
     <section class="group">
       <header class="group-head"><h2 class="lfly-title-m">LFly per computer</h2></header>
       <div class="lfly-list">
-        <div class="lfly-list-row"><span class="grow">Versione</span><strong>0.1.0</strong></div>
+        <div class="lfly-list-row"><span class="grow">Versione</span><strong>0.1.1</strong></div>
         <div class="lfly-list-row"><span class="grow">Sistemi</span><span class="lfly-secondary">Linux, Windows e macOS</span></div>
         <div class="lfly-list-row"><span class="grow">Licenza</span><span class="lfly-secondary">GPL-3.0, software libero</span></div>
       </div>
