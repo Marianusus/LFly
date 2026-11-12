@@ -433,6 +433,30 @@ impl Render for Home {
                     .gap(px(8.))
                     .child(div().font_weight(FontWeight::BOLD).child("Home non disponibile"))
                     .child(div().text_color(s.text2).child(e.clone()))
+                    .child(
+                        div()
+                            .id("home-retry")
+                            .mt(px(4.))
+                            .h(px(34.))
+                            .px(px(16.))
+                            .flex()
+                            .items_center()
+                            .self_start()
+                            .rounded_full()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .bg(s.glass_tint)
+                            .border_1()
+                            .border_color(s.glass_border)
+                            .cursor_pointer()
+                            .on_click({
+                                let me = cx.entity().downgrade();
+                                move |_, _, cx| {
+                                    let _ = me.update(cx, |this, cx| this.load(cx));
+                                }
+                            })
+                            .child("Riprova"),
+                    )
                     .into_any_element(),
             ),
             Some(Ok(shelves)) => {

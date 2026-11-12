@@ -30,6 +30,8 @@ pub struct Artist {
     page: Option<Result<ArtistPage, String>>,
     banner: Option<Arc<Image>>,
     all: bool,
+    /// Artist.svelte `about`: the whole description shown.
+    about: bool,
     pub width: f32,
     pub height: f32,
     _subs: Vec<Subscription>,
@@ -44,13 +46,18 @@ impl Artist {
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
-        Self { core, covers, look, nav, library, model, id: String::new(), name: String::new(), page: None, banner: None, all: false, width: 1100., height: 720., _subs: subs }
+        Self { core, covers, look, nav, library, model, id: String::new(), name: String::new(), page: None, banner: None, all: false, about: false, width: 1100., height: 720., _subs: subs }
     }
 
     pub fn show(&mut self, id: String, name: String, cx: &mut Context<Self>) {
         if self.id == id {
             return;
         }
+        self.load(id, name, cx);
+    }
+
+    fn load(&mut self, id: String, name: String, cx: &mut Context<Self>) {
+        self.about = false;
         self.id = id.clone();
         self.name = name;
         self.page = None;
@@ -107,7 +114,43 @@ impl Render for Artist {
         let mut body: Vec<AnyElement> = Vec::new();
         match &self.page {
             None => body.push(div().px(px(24.)).text_color(s.text2).child("Carico…").into_any_element()),
-            Some(Err(e)) => body.push(div().px(px(24.)).text_color(s.text2).child(e.clone()).into_any_element()),
+            Some(Err(e)) => {
+                // `.p-msg`: the error and "Riprova".
+                let me = cx.entity().downgrade();
+                body.push(
+                    div()
+                        .px(px(24.))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .text_color(s.text2)
+                        .child(e.clone())
+                        .child(
+                            div()
+                                .id("artist-retry")
+                                .h(px(34.))
+                                .px(px(16.))
+                                .flex()
+                                .items_center()
+                                .rounded_full()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(s.text)
+                                .bg(s.glass_tint)
+                                .border_1()
+                                .border_color(s.glass_border)
+                                .cursor_pointer()
+                                .on_click(move |_, _, cx| {
+                                    let _ = me.update(cx, |this, cx| {
+                                        let (id, name) = (this.id.clone(), this.name.clone());
+                                        this.load(id, name, cx);
+                                    });
+                                })
+                                .child("Riprova"),
+                        )
+                        .into_any_element(),
+                )
+            }
             Some(Ok(p)) => {
                 let p = ArtistPage {
                     name: p.name.clone(),
@@ -207,6 +250,17 @@ impl Render for Artist {
                             .child(div().mb(px(12.)).text_size(px(22.)).font_weight(FontWeight::BOLD).child("Informazioni"))
                             .child(
                                 div()
+                                    .id("about")
+                                    .cursor_pointer()
+                                    .on_click({
+                                        let me = cx.entity().downgrade();
+                                        move |_, _, cx| {
+                                            let _ = me.update(cx, |this, cx| {
+                                                this.about = !this.about;
+                                                cx.notify();
+                                            });
+                                        }
+                                    })
                                     .p(px(18.))
                                     .rounded(px(22.))
                                     .bg(s.glass_tint)
@@ -223,7 +277,8 @@ impl Render for Artist {
                                             .gap(px(4.))
                                             .child(div().font_weight(FontWeight::BOLD).child(p.name.clone()))
                                             .children(p.subscribers.clone().map(|x| div().text_size(px(13.)).text_color(s.text2).child(x)))
-                                            .child(div().text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).line_clamp(4).child(desc)),
+                                            .child(div().text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).when(!self.about, |d| d.line_clamp(4)).child(desc))
+                                            .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(accent).child(if self.about { "Mostra meno" } else { "Altro" })),
                                     ),
                             )
                             .into_any_element(),

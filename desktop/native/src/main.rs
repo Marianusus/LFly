@@ -31,6 +31,7 @@ mod right_panel;
 mod scene;
 mod search;
 mod settings_page;
+mod spotify_import;
 mod sidebar;
 mod slider;
 mod theme;
@@ -173,13 +174,15 @@ impl Lfly {
         let collection = cx.new(|cx| Collection::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
         let artist = cx.new(|cx| Artist::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
         let search = cx.new(|cx| Search::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), window, cx));
-        let library_page = cx.new(|cx| LibraryPage::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), cx));
+        let library_page = cx.new(|cx| LibraryPage::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
         // One fetch per song, three views of it: the full player, the page, the panel.
         let lyrics_data = cx.new(|_| LyricsData::new(core.clone()));
         let lyrics_np = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Panel, cx));
         let lyrics_pg = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Page, cx));
         let lyrics_side = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), Some(nav.clone()), Variant::Side, cx));
         let now_playing = cx.new(|cx| NowPlaying::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), lyrics_np, cx));
+        let spotify = cx.new(|cx| crate::spotify_import::SpotifyImport::new(core.clone(), look.clone(), library.clone(), nav.clone(), window, cx));
+        library_page.update(cx, |l, cx| l.set_spotify(spotify, cx));
         let settings = cx.new(|cx| crate::settings_page::SettingsPage::new(core.clone(), look.clone(), library.clone(), lyrics_data.clone(), model.clone(), covers.clone(), cx));
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));

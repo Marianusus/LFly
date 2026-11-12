@@ -125,3 +125,40 @@ fn the_wheel_keeps_its_sign(cx: &mut TestAppContext) {
     assert_eq!(got.get(), -30.);
     let _ = size(px(1.), px(1.));
 }
+
+/// A library tile: its play button plays without opening, the rest of it opens.
+struct Tile {
+    opened: Rc<Cell<u32>>,
+    played: Rc<Cell<u32>>,
+}
+
+impl Render for Tile {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let s = crate::theme::build_scheme(crate::theme::Mode::DynamicDark, None, None);
+        let (o, p) = (self.opened.clone(), self.played.clone());
+        div().size(px(400.)).child(crate::library_page::library_item(
+            "t".into(),
+            "Titolo".into(),
+            "Sotto".into(),
+            crate::library_page::Art::Cover(None),
+            true,
+            380.,
+            false,
+            &s,
+            move |_| o.set(o.get() + 1),
+            Some(Rc::new(move |_: &mut gpui::App| p.set(p.get() + 1))),
+        ))
+    }
+}
+
+#[gpui::test]
+fn a_library_rows_play_button_does_not_open_it(cx: &mut TestAppContext) {
+    let (opened, played) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+    let (o, p) = (opened.clone(), played.clone());
+    let (_, cx) = cx.add_window_view(move |_, _| Tile { opened: o, played: p });
+    // The list row: 52 px art at 6 px, the 34 px play button at its right end (380 - 10 - 17).
+    cx.simulate_click(at(353., 32.), Modifiers::default());
+    assert_eq!((opened.get(), played.get()), (0, 1));
+    cx.simulate_click(at(120., 32.), Modifiers::default());
+    assert_eq!((opened.get(), played.get()), (1, 1));
+}

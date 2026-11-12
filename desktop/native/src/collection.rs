@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use lfly_yt::Track;
@@ -52,6 +53,10 @@ pub struct Collection {
     glow: Option<Arc<Image>>,
     list: ListState,
     pub width: f32,
+    /// LocalPlaylist.svelte: the name being edited, and its field's subscription.
+    rename: Option<(Entity<InputState>, Subscription)>,
+    /// The delete button asked once (a second click within four seconds deletes).
+    confirm_delete: Option<std::time::Instant>,
     _subs: Vec<Subscription>,
 }
 
@@ -107,6 +112,8 @@ impl Collection {
             glow: None,
             list: ListState::new(1, ListAlignment::Top, px(600.)),
             width: 1100.,
+            rename: None,
+            confirm_delete: None,
             _subs: subs,
         }
     }
@@ -119,6 +126,8 @@ impl Collection {
         self.source = source.clone();
         self.tracks.clear();
         self.error = None;
+        self.rename = None;
+        self.confirm_delete = None;
         self.glow = None;
         self.header = Header { title: name.unwrap_or_default().into(), ..Default::default() };
         self.list.reset(1);
@@ -161,6 +170,7 @@ impl Collection {
                             kind: "Playlist".into(),
                             title: str_of("name").unwrap_or_default().into(),
                             meta: [format!("{} brani", tracks.len()), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                            byline: Some(("La tua playlist".into(), None)),
                             description: str_of("description").filter(|d| !d.trim().is_empty()).map(Into::into),
                             cover_url: str_of("coverUrl").or_else(|| tracks.first().and_then(|t| t.cover_url.clone())),
                             ..Default::default()
@@ -264,6 +274,7 @@ impl Collection {
         let core2 = self.core.clone();
         let nav = self.nav.clone();
         let liked_art = matches!(self.source, Source::Liked);
+        let actions = self.actions(&s, cx);
         div()
             .relative()
             .pt(px(62. + 28.))
@@ -368,10 +379,127 @@ impl Collection {
                                     })
                                     .child(icon("shuffle", 16., s.text))
                                     .child("Casuale"),
-                            ),
+                            )
+                            .child(actions),
                     ),
             )
             .into_any_element()
+    }
+
+    /// Hero.svelte `actions`: rename and delete your playlists, save an album or a YouTube
+    /// playlist into the library.
+    fn actions(&mut self, s: &crate::theme::Scheme, cx: &mut Context<Self>) -> Div {
+        let me = cx.entity().downgrade();
+        let hero_icon = |id: &'static str, name: &'static str| {
+            div()
+                .id(id)
+                .group(id)
+                .size(px(40.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .hover(|d| d.bg(s.glass_tint))
+                .child(icon(name, if name == "plus" { 20. } else { 18. }, s.text2).group_hover(id, |d| d.text_color(s.text)))
+        };
+        let mut row = div().ml(px(4.)).flex().items_center().gap(px(6.));
+        match self.source.clone() {
+            Source::Local(id) => {
+                if let Some((input, _)) = &self.rename {
+                    row = row.child(
+                        div()
+                            .h(px(36.))
+                            .min_w(px(220.))
+                            .px(px(14.))
+                            .flex()
+                            .items_center()
+                            .rounded_full()
+                            .bg(s.glass_tint)
+                            .border_1()
+                            .border_color(s.accent.hsla(1.))
+                            .text_size(px(14.))
+                            .child(Input::new(input).appearance(false)),
+                    );
+                } else {
+                    let me = me.clone();
+                    row = row.child(hero_icon("rename", "edit").on_click(move |_, window, cx| {
+                        let _ = me.update(cx, |this, cx| this.start_rename(window, cx));
+                    }));
+                }
+                let asking = self.confirm_delete.is_some_and(|t| t.elapsed().as_secs() < 4);
+                let (library, nav) = (self.library.clone(), self.nav.clone());
+                let me = me.clone();
+                row = row.child(if asking {
+                    div()
+                        .id("delete")
+                        .h(px(36.))
+                        .px(px(14.))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .rounded_full()
+                        .bg(rgb(0xe5484d))
+                        .text_color(white())
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| {
+                            let id = id.clone();
+                            library.update(cx, |l, cx| l.delete_playlist(id, cx));
+                            nav.update(cx, |n, cx| n.go(Route::Library, cx));
+                        })
+                        .child(icon("trash", 15., white()))
+                        .child("Elimina? Non si può annullare")
+                } else {
+                    hero_icon("delete", "trash").on_click(move |_, _, cx| {
+                        let _ = me.update(cx, |this, cx| {
+                            this.confirm_delete = Some(std::time::Instant::now());
+                            cx.notify();
+                        });
+                    })
+                });
+            }
+            Source::Album(_) | Source::Playlist(_) if !self.tracks.is_empty() => {
+                let album = matches!(self.source, Source::Album(_));
+                let (title, cover) = (self.header.title.to_string(), self.header.cover_url.clone());
+                let tracks: Vec<Value> = self.tracks.iter().filter_map(|t| serde_json::to_value(t).ok()).collect();
+                let library = self.library.clone();
+                row = row.child(hero_icon("save", "plus").on_click(move |_, _, cx| {
+                    let (title, tracks, cover) = (title.clone(), tracks.clone(), if album { cover.clone() } else { None });
+                    library.update(cx, |l, cx| {
+                        l.create_playlist_with_cover(
+                            title,
+                            tracks,
+                            cover,
+                            move |_, name, cx| crate::toast::Toasts::say(if album { format!("\"{name}\" salvato nella libreria") } else { format!("\"{name}\" salvata nella libreria") }, cx),
+                            cx,
+                        )
+                    });
+                }));
+            }
+            _ => {}
+        }
+        row
+    }
+
+    fn start_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.header.title.to_string();
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(name));
+        let sub = cx.subscribe_in(&input, window, |this, state, ev: &InputEvent, _w, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                let name = state.read(cx).value().to_string();
+                this.rename = None;
+                if let (Source::Local(id), false) = (this.source.clone(), name.trim().is_empty()) {
+                    this.header.title = name.trim().to_string().into();
+                    this.library.update(cx, |l, cx| l.rename_playlist(id, name, cx));
+                }
+                cx.notify();
+            }
+        });
+        input.update(cx, |i, cx| i.focus(window, cx));
+        self.rename = Some((input, sub));
+        cx.notify();
     }
 }
 
@@ -384,8 +512,55 @@ impl Render for Collection {
                 if ix == 0 {
                     let hero = this.hero(cx);
                     let mut d = div().child(hero);
-                    if let Some(e) = &this.error {
+                    // `.p-empty`: a card with what is missing and the way on.
+                    let empty = |title: &'static str, text: Option<&'static str>, label: &'static str, ic: &'static str, route: Route, nav: Entity<Nav>| {
+                        div()
+                            .mx(px(24.))
+                            .my(px(8.))
+                            .py(px(36.))
+                            .px(px(24.))
+                            .rounded(px(18.))
+                            .bg(s.surface.hsla(0.55))
+                            .border_1()
+                            .border_color(crate::track_row::separator(&s))
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(8.))
+                            .text_color(s.text2)
+                            .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(s.text).child(title))
+                            .children(text)
+                            .child(
+                                div()
+                                    .id("empty-go")
+                                    .mt(px(6.))
+                                    .h(px(34.))
+                                    .px(px(16.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .rounded_full()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(s.text)
+                                    .bg(s.glass_tint)
+                                    .border_1()
+                                    .border_color(s.glass_border)
+                                    .cursor_pointer()
+                                    .on_click(move |_, _, cx| nav.update(cx, |n, cx| n.go(route.clone(), cx)))
+                                    .child(icon(ic, 15., s.text))
+                                    .child(label),
+                            )
+                    };
+                    let local = matches!(this.source, Source::Local(_));
+                    if let (Some(_), true) = (&this.error, local) {
+                        d = d.child(empty("Questa playlist non c'è più", None, "Vai alla libreria", "library", Route::Library, this.nav.clone()));
+                    } else if let Some(e) = &this.error {
                         d = d.child(div().px(px(24.)).py(px(8.)).text_color(s.text2).child(e.clone()));
+                    } else if !this.loading && this.tracks.is_empty() && local {
+                        d = d.child(empty("Playlist vuota", Some("Aggiungi brani dal menu ⋯ di qualsiasi canzone."), "Cerca qualcosa da aggiungere", "search", Route::Search, this.nav.clone()));
+                    } else if !this.loading && this.tracks.is_empty() && this.source == Source::Liked {
+                        d = d.child(empty("Ancora nessun brano", Some("I brani a cui metti il cuore compaiono qui."), "Cerca qualcosa da ascoltare", "search", Route::Search, this.nav.clone()));
                     } else if this.loading {
                         d = d.child(div().px(px(24.)).py(px(8.)).text_color(s.text2).child("Carico…"));
                     } else {
@@ -428,8 +603,14 @@ impl Render for Collection {
                     like: crate::core::track_ref(&t).map(|r| crate::menu::like_action(this.library.clone(), this.core.clone(), r)),
                 };
                 let last = i + 1 == this.tracks.len();
+                let facts = this.header.meta.clone();
                 div()
+                    .relative()
+                    // `.p-footer`: the facts again under the last song.
                     .when(last, |d| d.pb(px(104. + 32.)))
+                    .when(last && matches!(this.source, Source::Liked | Source::Local(_)), move |d| {
+                        d.child(div().absolute().bottom(px(104.)).left(px(24.)).text_size(px(12.)).text_color(s.text3).child(facts))
+                    })
                     .child(track_row(("track", i), row, show_album, &s, move |_, _, _| core.play(&tracks, i)))
                     .into_any_element()
             })

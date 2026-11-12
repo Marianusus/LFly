@@ -59,6 +59,8 @@ const GLYPHS: &[(&str, &str)] = &[
     ("volume-high", "M4 9.5v5h3.5L12 19V5L7.5 9.5H4ZM15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12"),
     ("output", "M6.5 17.5 12 12l5.5 5.5ZM8 15.5H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5h14A1.5 1.5 0 0 1 20.5 5v9a1.5 1.5 0 0 1-1.5 1.5h-3"),
     ("expand", "M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"),
+    ("grid", "M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z"),
+    ("list", "M8.5 6h12M8.5 12h12M8.5 18h12M4 6h.01M4 12h.01M4 18h.01"),
 ];
 
 const SOLID: &[&str] = &["play", "pause", "next", "previous"];

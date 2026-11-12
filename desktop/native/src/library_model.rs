@@ -22,6 +22,10 @@ pub struct LibraryModel {
     favorite_ids: std::collections::HashSet<String>,
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
 fn str_field(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
 }
@@ -130,11 +134,63 @@ impl LibraryModel {
 
     /// library.svelte.ts `createPlaylist`: first in the list; [done] gets its id and name.
     pub fn create_playlist(&mut self, name: String, tracks: Vec<Value>, done: impl FnOnce(String, String, &mut App) + 'static, cx: &mut Context<Self>) {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        self.create_playlist_with_cover(name, tracks, None, done, cx)
+    }
+
+    pub fn create_playlist_with_cover(
+        &mut self,
+        name: String,
+        tracks: Vec<Value>,
+        cover_url: Option<String>,
+        done: impl FnOnce(String, String, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let now = now_ms();
         let id = uuid::Uuid::new_v4().to_string();
         let name = if name.trim().is_empty() { "La mia playlist".to_string() } else { name.trim().to_string() };
-        let p = serde_json::json!({ "id": id, "name": name, "tracks": tracks, "schemaVersion": 2, "createdAt": now, "updatedAt": now });
+        let mut p = serde_json::json!({ "id": id, "name": name, "tracks": tracks, "schemaVersion": 2, "createdAt": now, "updatedAt": now });
+        if let Some(c) = cover_url {
+            p["coverUrl"] = Value::from(c);
+        }
         self.edit_playlists(move |list| list.insert(0, p), move |_, cx| done(id, name, cx), cx);
+    }
+
+    /// `renamePlaylist`.
+    pub fn rename_playlist(&mut self, id: String, name: String, cx: &mut Context<Self>) {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        let now = now_ms();
+        self.edit_playlists(
+            move |list| {
+                if let Some(p) = list.iter_mut().find(|p| p.get("id").and_then(Value::as_str) == Some(id.as_str())) {
+                    p["name"] = Value::from(name);
+                    p["updatedAt"] = Value::from(now);
+                }
+            },
+            |_, _| {},
+            cx,
+        );
+    }
+
+    /// `deletePlaylist`. Only ever from a confirmed click.
+    pub fn delete_playlist(&mut self, id: String, cx: &mut Context<Self>) {
+        self.edit_playlists(move |list| list.retain(|p| p.get("id").and_then(Value::as_str) != Some(id.as_str())), |_, _| {}, cx);
+    }
+
+    /// library.svelte.ts `importBackup`: a phone backup (.lfly) chosen by the person replaces the
+    /// library, then the window reads it again. [done] gets the summary or the error.
+    pub fn import_backup(&mut self, path: std::path::PathBuf, done: impl FnOnce(Result<lfly_core::library::ImportSummary, String>, &mut App) + 'static, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let r = cx
+                .background_executor()
+                .spawn(async move { lfly_core::library::dir().and_then(|d| lfly_core::library::import_backup(&path, &d)) })
+                .await;
+            let _ = this.update(cx, |this, cx| this.reload(cx));
+            let _ = cx.update(|cx| done(r, cx));
+        })
+        .detach();
     }
 
     /// `addToPlaylist`: the songs not in it yet, at its end; [done] gets how many went in.

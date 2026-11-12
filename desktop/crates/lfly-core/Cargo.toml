@@ -17,3 +17,5 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 lfly-audio = { path = "../lfly-audio" }
 lfly-yt = { path = "../lfly-yt" }
 tokio.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+futures-util.workspace = true
