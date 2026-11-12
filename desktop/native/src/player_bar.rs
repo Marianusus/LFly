@@ -173,7 +173,7 @@ impl Render for PlayerBar {
                         spread_radius: px(0.),
                         inset: false,
                     }])
-                    .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover))),
+                    .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.)))),
             )
             .child(
                 div()

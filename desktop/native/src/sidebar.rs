@@ -173,7 +173,7 @@ impl Render for Sidebar {
                 .rounded(px(11.))
                 .overflow_hidden()
                 .bg(c.text.opacity(0.08))
-                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover)))
+                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(11.))))
                 .into_any_element();
             entries.push(entry(
                 format!("playlist:{}", p.id),

@@ -290,7 +290,7 @@ impl Collection {
                             .child(icon("heart-fill", art * 0.33, white()))
                     })
                     .when(!liked_art, |d| d.bg(s.text.opacity(0.08)))
-                    .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover))),
+                    .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(12.)))),
             )
             .child(
                 div()

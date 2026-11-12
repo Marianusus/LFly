@@ -156,7 +156,7 @@ pub fn card(
                 .rounded(px(if round { art / 2. } else { 15. }))
                 .overflow_hidden()
                 .bg(s.text.opacity(0.08))
-                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover))),
+                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(if round { art / 2. } else { 15. })))),
         )
         .child(
             div()
@@ -257,7 +257,7 @@ pub fn song_tile(id: SharedString, item: &Item, width: f32, cover: Option<Arc<Im
                 .rounded(px(14.))
                 .overflow_hidden()
                 .bg(s.text.opacity(0.08))
-                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover)))
+                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.))))
                 .child(
                     div()
                         .absolute()
@@ -387,7 +387,7 @@ impl Render for Home {
                     .cursor_pointer()
                     .hover(|d| d.bg(s.surface2.hsla(0.85)))
                     .on_click(move |_, _, cx| nav.update(cx, |n, cx| n.go(route.clone(), cx)))
-                    .child(div().size(px(56.)).flex_none().bg(s.text.opacity(0.08)).children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover))))
+                    .child(div().size(px(56.)).flex_none().bg(s.text.opacity(0.08)).children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded_l(px(14.)))))
                     .child(
                         div()
                             .min_w_0()

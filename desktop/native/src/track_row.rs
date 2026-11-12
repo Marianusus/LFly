@@ -126,7 +126,7 @@ pub fn track_row(
                         .rounded(px(10.))
                         .overflow_hidden()
                         .bg(s.text.opacity(0.08))
-                        .children(d.cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover))),
+                        .children(d.cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(10.)))),
                 )
                 .child(
                     div()

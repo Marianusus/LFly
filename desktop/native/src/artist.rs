@@ -211,7 +211,7 @@ impl Render for Artist {
                                     .border_color(s.glass_border)
                                     .flex()
                                     .gap(px(18.))
-                                    .child(div().size(px(120.)).flex_none().rounded_full().overflow_hidden().bg(s.text.opacity(0.08)).children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover))))
+                                    .child(div().size(px(120.)).flex_none().rounded_full().overflow_hidden().bg(s.text.opacity(0.08)).children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded_full())))
                                     .child(
                                         div()
                                             .min_w_0()

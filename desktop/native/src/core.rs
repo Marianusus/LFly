@@ -76,6 +76,7 @@ impl Core {
         Ok((Arc::new(Self { yt, player, http }), rx))
     }
 
+    #[allow(dead_code)] // examples/smoke.rs
     pub async fn search(self: Arc<Self>, query: String) -> Result<Vec<Track>, String> {
         runtime()
             .spawn(async move { self.yt.search_songs(&query, 50).await.map_err(|e| e.to_string()) })
