@@ -6,6 +6,7 @@
 
 mod art;
 mod core;
+mod collection;
 mod covers;
 mod glass;
 mod home;
@@ -19,6 +20,7 @@ mod scene;
 mod sidebar;
 mod slider;
 mod theme;
+mod track_row;
 
 use std::sync::Arc;
 
@@ -29,6 +31,7 @@ use lfly_connect::protocol;
 use lfly_yt::Track;
 
 use crate::core::Core;
+use crate::collection::{Collection, Source};
 use crate::covers::Covers;
 use crate::home::Home;
 use crate::icons::icon;
@@ -50,6 +53,7 @@ struct Lfly {
     bar: Entity<PlayerBar>,
     sidebar: Entity<Sidebar>,
     home: Entity<Home>,
+    collection: Entity<Collection>,
     search: Entity<InputState>,
     tracks: Vec<Track>,
     status: SharedString,
@@ -68,7 +72,8 @@ impl Lfly {
         let nav = cx.new(|_| Nav::new());
         let library = cx.new(LibraryModel::new);
         let sidebar = cx.new(|cx| Sidebar::new(nav.clone(), library.clone(), look.clone(), covers.clone(), cx));
-        let home = cx.new(|cx| Home::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library, model.clone(), cx));
+        let home = cx.new(|cx| Home::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
+        let collection = cx.new(|cx| Collection::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library, model.clone(), cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Cerca brani su YouTube Music"));
         let subs = vec![
             cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _w, cx| {
@@ -108,6 +113,7 @@ impl Lfly {
             bar,
             sidebar,
             home,
+            collection,
             search,
             tracks: Vec::new(),
             status: "Cerca qualcosa da ascoltare.".into(),
@@ -117,6 +123,23 @@ impl Lfly {
         };
         if std::env::var_os("LFLY_MUTE").is_some() {
             this.core.command(protocol::CMD_VOLUME, 0);
+        }
+        // LFLY_ROUTE: open a page at start (liked, library, settings, album:<id>, playlist:<id>,
+        // local:<id>), for screenshots.
+        if let Ok(r) = std::env::var("LFLY_ROUTE") {
+            let (k, id) = r.split_once(':').unwrap_or((r.as_str(), ""));
+            let route = match k {
+                "liked" => Some(Route::Liked),
+                "library" => Some(Route::Library),
+                "settings" => Some(Route::Settings),
+                "album" => Some(Route::Album { id: id.into(), name: String::new() }),
+                "playlist" => Some(Route::Playlist { id: id.into(), name: String::new(), local: false }),
+                "local" => Some(Route::Playlist { id: id.into(), name: String::new(), local: true }),
+                _ => None,
+            };
+            if let Some(route) = route {
+                this.nav.update(cx, |n, cx| n.go(route, cx));
+            }
         }
         if let Ok(q) = std::env::var("LFLY_AUTOPLAY") {
             this.autoplay = true;
@@ -372,6 +395,11 @@ impl Lfly {
             )
     }
 
+    fn show_collection(&mut self, source: Source, name: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+        self.collection.update(cx, |c, cx| c.show(source, name, cx));
+        self.collection.clone().into_any_element()
+    }
+
     fn page(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let route = self.nav.read(cx).route.clone();
         let (text2, text3) = {
@@ -380,6 +408,11 @@ impl Lfly {
         };
         match route {
             Route::Home => self.home.clone().into_any_element(),
+            Route::Album { id, name } => self.show_collection(Source::Album(id), Some(name), cx),
+            Route::Playlist { id, name, local } => {
+                self.show_collection(if local { Source::Local(id) } else { Source::Playlist(id) }, Some(name), cx)
+            }
+            Route::Liked => self.show_collection(Source::Liked, None, cx),
             Route::Search => {
                 let count = self.tracks.len();
                 let list = uniform_list(
@@ -416,14 +449,11 @@ impl Lfly {
                 .gap(px(6.))
                 .child(div().text_size(px(28.)).font_weight(FontWeight::BOLD).child(match other {
                     Route::Library => "La tua libreria",
-                    Route::Liked => "Brani che ti piacciono",
                     Route::Downloads => "Scaricati",
-                    Route::Playlist { .. } => "Playlist",
                     Route::Artist { .. } => "Artista",
-                    Route::Album { .. } => "Album",
                     Route::Lyrics => "Testo",
                     Route::Settings => "Impostazioni",
-                    Route::Search | Route::Home => unreachable!(),
+                    Route::Search | Route::Home | Route::Album { .. } | Route::Playlist { .. } | Route::Liked => unreachable!(),
                 }))
                 .child(div().text_color(text3).child("Questa pagina non è ancora stata portata nella versione nativa."))
                 .into_any_element(),
@@ -448,6 +478,7 @@ impl Render for Lfly {
             h.width = win_w;
             h.page_width = stage_w;
         });
+        self.collection.update(cx, |c, _| c.width = win_w);
         let top = self.top_bar(window, cx);
         let page = self.page(cx);
         div()
