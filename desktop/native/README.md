@@ -40,9 +40,9 @@ gradient text), their fog fades whole lines (no masks), held notes do not glow (
 the ambient light behind the full player stands still (Tauri drifts two copies of the cover);
 the queue's playing bars stand still. The lyrics animate at most 60 frames a second, four when
 the window is behind another one (Tauri: the monitor's rate, 30 in the background).
-Missing: songs played here are not added to history.json (Tauri's window adds them), so Home's
-"Ascoltati di recente" only shows what the Tauri app played. Missing in the full player: the
-output menu's devices, the "more" menu. Lyrics settings
+Songs played here go into history.json as in Tauri (not in test runs: `LFLY_MUTE` or
+`LFLY_AUTOPLAY` set), though Settings' "pause history" is not read yet. Missing in the full
+player: the output menu's devices, the "more" menu. Lyrics settings
 (size, alignment, whole lines, source line) use Tauri's defaults until Settings is ported.
 
 To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte file with its

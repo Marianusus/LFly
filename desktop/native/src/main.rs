@@ -131,6 +131,8 @@ struct Lfly {
     toasts: Entity<crate::toast::Toasts>,
     menu: Entity<crate::menu::Menu>,
     menu_shown: bool,
+    library: Entity<LibraryModel>,
+    last_played: Option<String>,
     /// The sidebar's width (232..280, or 88 folded) and the panel's column, easing between
     /// (App.svelte: grid-template-columns 460 ms).
     side_w: Option<Tween>,
@@ -167,7 +169,7 @@ impl Lfly {
         let lyrics_np = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Panel, cx));
         let lyrics_pg = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Page, cx));
         let lyrics_side = cx.new(|cx| Lyrics::new(lyrics_data, model.clone(), look.clone(), Some(nav.clone()), Variant::Side, cx));
-        let now_playing = cx.new(|cx| NowPlaying::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), library, lyrics_np, cx));
+        let now_playing = cx.new(|cx| NowPlaying::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), lyrics_np, cx));
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
@@ -187,6 +189,7 @@ impl Lfly {
             cx.subscribe(&model, |this, _, ev: &PlayerEvent, cx| match ev {
                 PlayerEvent::StateChanged => {
                     this.refresh_colors(cx);
+                    this.record_play(cx);
                     // LFLY_MENU: the song's menu and a toast, once, for screenshots.
                     if std::env::var_os("LFLY_MENU").is_some() && !this.menu_shown {
                         if let Some(t) = this.model.read(cx).current().cloned() {
@@ -240,6 +243,8 @@ impl Lfly {
             toasts,
             menu,
             menu_shown: false,
+            library: library.clone(),
+            last_played: None,
             side_w: None,
             panel_w: None,
             panel_motion: None,
@@ -280,6 +285,23 @@ impl Lfly {
             }
         }
         this
+    }
+
+    /// What plays here goes into the history, as on the phone (App.svelte). Not in test runs
+    /// (LFLY_MUTE, LFLY_AUTOPLAY): they must not change the listener's library.
+    fn record_play(&mut self, cx: &mut Context<Self>) {
+        if std::env::var_os("LFLY_MUTE").is_some() || std::env::var_os("LFLY_AUTOPLAY").is_some() {
+            return;
+        }
+        let m = self.model.read(cx);
+        let Some(t) = m.current().cloned().filter(|_| m.playing()) else { return };
+        if self.last_played.as_deref() == Some(t.id.as_str()) {
+            return;
+        }
+        self.last_played = Some(t.id.clone());
+        if let Ok(v) = serde_json::to_value(&t) {
+            self.library.update(cx, |l, cx| l.played(v, cx));
+        }
     }
 
     /// The dynamic modes take their colours from the playing cover (coverArt.ts).

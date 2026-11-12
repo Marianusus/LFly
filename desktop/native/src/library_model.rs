@@ -156,6 +156,36 @@ impl LibraryModel {
         );
     }
 
+    /// library.svelte.ts `played`: newest first, no repeats, 500 songs, like the phone. The file
+    /// is read again first (the Tauri app adds to it too).
+    pub fn played(&mut self, track: Value, cx: &mut Context<Self>) {
+        let Some(id) = str_field(&track, "id") else { return };
+        cx.spawn(async move |this, cx| {
+            let saved = cx
+                .background_executor()
+                .spawn(async move {
+                    let dir = lfly_core::library::dir()?;
+                    let mut list = lfly_core::library::load(&dir).history.as_array().cloned().unwrap_or_default();
+                    list.retain(|t| str_field(t, "id").as_deref() != Some(id.as_str()));
+                    list.insert(0, track);
+                    list.truncate(500);
+                    lfly_core::library::save(&dir, "history.json", &Value::Array(list.clone()))?;
+                    Ok::<_, String>(list)
+                })
+                .await;
+            match saved {
+                Ok(list) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.history = list;
+                        cx.notify();
+                    });
+                }
+                Err(e) => log::warn!("history.json: {e}"),
+            }
+        })
+        .detach();
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut this = Self::default();
         this.reload(cx);
