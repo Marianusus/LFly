@@ -52,12 +52,12 @@ To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte
 CSS numbers, a screenshot against `mock.html` in Chromium):
 
 1. Foundations still missing: the SelectionPill spring in the sidebar.
-3. Search: suggestions, category chips, recent searches.
-4. Library: list view, import and create, the downloads filter; Downloads; the equalizer and
+2. Search: suggestions, category chips, recent searches.
+3. Library: list view, import and create, the downloads filter; Downloads; the equalizer and
    crossfade; custom themes, Spicetify and its marketplace; autostart.
-6. LFly Connect and library sync, Google Drive, system media controls, Discord, Spotify import,
+4. LFly Connect and library sync, Google Drive, system media controls, Discord, Spotify import,
    YouTube Music sign-in (a short-lived webview helper process: GPUI has no webview).
-7. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.
+5. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.
 
 Cannot be ported: a Spicetify `user.css` imported as a theme (arbitrary CSS needs a web
 engine). Its colours (`color.ini`) can.
