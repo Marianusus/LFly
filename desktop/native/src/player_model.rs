@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use gpui_kit::*;
-use lfly_connect::protocol::{self, State, TrackRef};
+use lfly_connect::protocol::{State, TrackRef};
 
 use crate::core::{Core, PlayerUpdate};
 
@@ -81,9 +81,5 @@ impl PlayerModel {
 
     pub fn command(&self, action: &str, value: i64) {
         self.core.command(action, value);
-    }
-
-    pub fn toggle(&self) {
-        self.command(protocol::CMD_TOGGLE, 0);
     }
 }

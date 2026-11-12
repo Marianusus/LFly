@@ -20,6 +20,7 @@ lfly-connect = { path = "../crates/lfly-connect" }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+tiny-skia = "0.11"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "6"
 log = "0.4"
