@@ -54,9 +54,11 @@ impl GlassLook {
     }
 
     /// The same glass with the "clear" tint (Glass.svelte `.clear`).
-    #[allow(dead_code)]
     pub fn clear(mut self) -> Self {
-        self.tint.a *= 0.35;
+        // apply.ts: without glass the clear tint stays nearly opaque too.
+        if self.on {
+            self.tint.a *= 0.35;
+        }
         self
     }
 

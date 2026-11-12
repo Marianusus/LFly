@@ -43,6 +43,8 @@ impl Home {
     ) -> Self {
         let subs = vec![
             cx.observe(&covers, |_, _, cx| cx.notify()),
+            // The playing song is marked in the rails (cached view: it must hear of it).
+            cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
         ];

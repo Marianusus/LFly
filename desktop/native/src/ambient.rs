@@ -272,7 +272,7 @@ impl Ambient {
 impl Render for Ambient {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure(cx);
-        let fade = self.since.map_or(1., |t| (t.elapsed().as_secs_f32() / 0.9).min(1.));
+        let fade = if crate::prefs::Prefs::reduce_motion(cx) { 1. } else { self.since.map_or(1., |t| (t.elapsed().as_secs_f32() / 0.9).min(1.)) };
         if fade >= 1. {
             self.previous = None;
         } else if window.is_window_active() {

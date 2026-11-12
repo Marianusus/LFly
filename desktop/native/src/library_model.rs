@@ -78,6 +78,22 @@ impl LibraryModel {
         Some(liked)
     }
 
+    fn set_playlists(&mut self, raw: Vec<Value>) {
+        self.playlists = raw
+            .iter()
+            .filter_map(|p| {
+                let tracks = p.get("tracks").and_then(Value::as_array).cloned().unwrap_or_default();
+                Some(PlaylistEntry {
+                    id: str_field(p, "id")?,
+                    name: str_field(p, "name").unwrap_or_default(),
+                    cover_url: str_field(p, "coverUrl").or_else(|| tracks.first().and_then(|t| str_field(t, "coverUrl"))),
+                    count: tracks.len(),
+                })
+            })
+            .collect();
+        self.raw_playlists = raw;
+    }
+
     /// Changes playlists.json: read again (the Tauri app may have written it), [apply], saved,
     /// then shown; [done] gets what [apply] returned. Only ever from a click.
     fn edit_playlists<R: Send + 'static>(
@@ -93,13 +109,17 @@ impl LibraryModel {
                     let dir = lfly_core::library::dir()?;
                     let mut list = lfly_core::library::load(&dir).playlists.as_array().cloned().unwrap_or_default();
                     let r = apply(&mut list);
-                    lfly_core::library::save(&dir, "playlists.json", &Value::Array(list))?;
-                    Ok::<_, String>(r)
+                    lfly_core::library::save(&dir, "playlists.json", &Value::Array(list.clone()))?;
+                    Ok::<_, String>((r, list))
                 })
                 .await;
             match saved {
-                Ok(r) => {
-                    let _ = this.update(cx, |this, cx| this.reload(cx));
+                Ok((r, list)) => {
+                    // The model holds the saved list before [done] runs (it may open the playlist).
+                    let _ = this.update(cx, |this, cx| {
+                        this.set_playlists(list);
+                        cx.notify();
+                    });
                     let _ = cx.update(|cx| done(r, cx));
                 }
                 Err(e) => log::warn!("playlists.json: {e}"),
@@ -213,26 +233,11 @@ impl LibraryModel {
                 .await;
             let Some(lib) = lib else { return };
             let list = |v: Value| v.as_array().cloned().unwrap_or_default();
-            let raw_playlists = list(lib.playlists);
-            let playlists = raw_playlists
-                .clone()
-                .into_iter()
-                .filter_map(|p| {
-                    let tracks = p.get("tracks").and_then(Value::as_array).cloned().unwrap_or_default();
-                    Some(PlaylistEntry {
-                        id: str_field(&p, "id")?,
-                        name: str_field(&p, "name").unwrap_or_default(),
-                        cover_url: str_field(&p, "coverUrl").or_else(|| tracks.first().and_then(|t| str_field(t, "coverUrl"))),
-                        count: tracks.len(),
-                    })
-                })
-                .collect();
             let _ = this.update(cx, |this, cx| {
                 this.favorites = list(lib.favorites);
                 this.favorite_ids = this.favorites.iter().filter_map(|t| str_field(t, "id")).collect();
-                this.raw_playlists = raw_playlists;
+                this.set_playlists(list(lib.playlists));
                 this.history = list(lib.history);
-                this.playlists = playlists;
                 cx.notify();
             });
         })

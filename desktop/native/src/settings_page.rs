@@ -853,8 +853,12 @@ impl SettingsPage {
                                 let _ = me.update(cx, |this, cx| {
                                     if this.asking("cache") {
                                         this.confirm = None;
-                                        if let Some(d) = cache_dir() {
-                                            let _ = std::fs::remove_dir_all(&d);
+                                        // What is in it, not the folder: the player keeps writing there.
+                                        if let Some(entries) = cache_dir().and_then(|d| std::fs::read_dir(d).ok()) {
+                                            for e in entries.flatten() {
+                                                let p = e.path();
+                                                let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+                                            }
                                         }
                                         Toasts::say("Cache audio svuotata", cx);
                                         this.refresh(cx);

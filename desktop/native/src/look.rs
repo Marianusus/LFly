@@ -32,7 +32,9 @@ impl Look {
     /// The look the person chose (in either app): mode, accent, glass.
     pub fn new() -> Self {
         let saved = lfly_core::store::get(KEY).ok().flatten().unwrap_or(serde_json::Value::Null);
-        let mode = saved.get("mode").and_then(|v| v.as_str()).and_then(Mode::parse).unwrap_or(Mode::DynamicDark);
+        // LFLY_MODE (AMOLED_BLACK, PURE_WHITE, ...): a mode for screenshots; nothing is saved then.
+        let forced = std::env::var("LFLY_MODE").ok().and_then(|m| Mode::parse(&m));
+        let mode = forced.or_else(|| saved.get("mode").and_then(|v| v.as_str()).and_then(Mode::parse)).unwrap_or(Mode::DynamicDark);
         let accent = saved
             .get("accent")
             .and_then(|v| v.as_str())
@@ -100,6 +102,9 @@ impl Look {
 
     /// Written over what is saved, so fields only Tauri knows (its custom theme) stay.
     fn save(&self) {
+        if std::env::var_os("LFLY_MODE").is_some() {
+            return;
+        }
         let mut v = lfly_core::store::get(KEY).ok().flatten().filter(|v| v.is_object()).unwrap_or_else(|| serde_json::json!({}));
         v["mode"] = self.mode.id().into();
         v["accent"] = self.accent.clone().into();
@@ -119,6 +124,11 @@ impl Look {
         // apply.ts --lfly-glass-tint: #fafafa or #121214; nearly opaque without glass.
         let alpha = if !self.glass_enabled { 0.97 } else if g.light { 0.5 + (1. - k) * 0.35 } else { 0.4 + (1. - k) * 0.4 };
         g.tint = if g.light { Rgb::hex(0xfafafa).hsla(alpha) } else { Rgb::hex(0x121214).hsla(alpha) };
+        // apply.ts --lfly-glass-highlight / --lfly-glass-shade for the light schemes.
+        if g.light {
+            g.highlight = white().opacity(0.9);
+            g.shade = black().opacity(0.08);
+        }
         g
     }
 

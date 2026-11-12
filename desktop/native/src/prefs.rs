@@ -65,6 +65,12 @@ impl Prefs {
         cx.global::<PrefsGlobal>().0.clone()
     }
 
+    /// Settings → Generale → Animazioni "Ridotte" (GPUI does not read the system's setting, so
+    /// "Come il sistema" means full here).
+    pub fn reduce_motion(cx: &App) -> bool {
+        cx.try_global::<PrefsGlobal>().is_some_and(|g| g.0.read(cx).v.motion == "reduce")
+    }
+
     pub fn get(cx: &App) -> PrefsData {
         cx.global::<PrefsGlobal>().0.read(cx).v.clone()
     }

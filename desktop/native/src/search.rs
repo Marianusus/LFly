@@ -77,6 +77,7 @@ impl Search {
                 }
             }),
             cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&library, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];

@@ -359,6 +359,7 @@ impl Render for Lyrics {
         let align = if prefs.lyrics_center { TextAlign::Center } else { TextAlign::Left };
         let center = prefs.lyrics_center;
         let show_source = prefs.lyrics_source;
+        let reduce = crate::prefs::Prefs::reduce_motion(cx);
         let side = self.variant == Variant::Side;
         // `--lyrics-ink`: white over the cover's light, the text colour in the panel.
         let base = if side { self.look.read(cx).scheme.text } else { white() };
@@ -437,7 +438,8 @@ impl Render for Lyrics {
         let generation = self.generation;
         let source: SharedString = format!("Testo da {}", lyrics.source).into();
         let weak = cx.entity().downgrade();
-        let active = window.is_window_active();
+        // LFLY_FORCE_ACTIVE: frames as for the window in front (to measure them from the back).
+        let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
         let font = {
             let mut f = window.text_style().font();
             f.weight = FontWeight::BOLD;
@@ -516,7 +518,7 @@ impl Render for Lyrics {
                 if now >= st.paused_until {
                     let view_h = st.view_h;
                     if let Some(d) = st.follower.decide(&lines, &st.boxes, at, view_h) {
-                        if st.placed {
+                        if st.placed && !reduce {
                             st.scroll.glide(d.top, d.anchor, now);
                         } else {
                             st.scroll.jump(d.top);

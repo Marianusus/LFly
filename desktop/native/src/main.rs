@@ -180,7 +180,7 @@ impl Lfly {
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
             cx.observe_window_activation(window, |this, window, cx| {
-                let active = window.is_window_active();
+                let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
                 log::debug!("window active: {active}");
                 // (LFLY_MENU keeps it for the screenshot, taken with the window in the back.)
                 if !active && std::env::var_os("LFLY_MENU").is_none() {
@@ -544,7 +544,7 @@ impl Lfly {
 
     fn show_collection(&mut self, source: Source, name: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         self.collection.update(cx, |c, cx| c.show(source, name, cx));
-        self.collection.clone().into_any_element()
+        cached(&self.collection)
     }
 
     fn page(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -554,7 +554,7 @@ impl Lfly {
         }
         let text3 = self.look.read(cx).scheme.text3;
         match route {
-            Route::Home => self.home.clone().into_any_element(),
+            Route::Home => cached(&self.home),
             Route::Album { id, name } => self.show_collection(Source::Album(id), Some(name), cx),
             Route::Playlist { id, name, local } => {
                 self.show_collection(if local { Source::Local(id) } else { Source::Playlist(id) }, Some(name), cx)
@@ -562,18 +562,18 @@ impl Lfly {
             Route::Liked => self.show_collection(Source::Liked, None, cx),
             Route::Artist { id, name } => {
                 self.artist.update(cx, |a, cx| a.show(id, name, cx));
-                self.artist.clone().into_any_element()
+                cached(&self.artist)
             }
-            Route::Search => self.search.clone().into_any_element(),
-            Route::Library => self.library_page.clone().into_any_element(),
-            Route::Lyrics => self.lyrics_page.clone().into_any_element(),
+            Route::Search => cached(&self.search),
+            Route::Library => cached(&self.library_page),
+            Route::Lyrics => cached(&self.lyrics_page),
             Route::Settings => {
                 // Read again what it shows each time it opens.
                 if !self.settings_shown {
                     self.settings_shown = true;
                     self.settings.update(cx, |s, cx| s.refresh(cx));
                 }
-                self.settings.clone().into_any_element()
+                cached(&self.settings)
             }
             other => div()
                 .size_full()
@@ -591,6 +591,21 @@ impl Lfly {
                 .into_any_element(),
         }
     }
+}
+
+/// Sets [slot] to [v]; true when it changed (the view must then be told: cached views draw again
+/// only when notified).
+fn put<T: PartialEq>(slot: &mut T, v: T) -> bool {
+    if *slot == v {
+        return false;
+    }
+    *slot = v;
+    true
+}
+
+/// A child view laid out at its parent's size and redrawn only when it changed.
+fn cached<V: Render>(e: &Entity<V>) -> AnyElement {
+    e.clone().cached(StyleRefinement::default().size_full()).into_any_element()
 }
 
 /// App.svelte's fold: cubic-bezier(0.32, 0.72, 0, 1), 460 ms.
@@ -618,10 +633,12 @@ impl Render for Lfly {
         let side_target = if side_wide { (win_w * 0.19).clamp(232., 280.) } else { 88. };
         let panel_target = if panel.is_some() && !compact { (win_w * 0.24).clamp(288., 360.) } else { 0. };
         let side = self.side_w.get_or_insert(Tween::still(side_target));
-        side.retarget(side_target, 460., &FOLD);
+        let reduce = crate::prefs::Prefs::reduce_motion(cx);
+        let fold_ms = if reduce { 1. } else { 460. };
+        side.retarget(side_target, fold_ms, &FOLD);
         let side_w = side.value(&FOLD);
         let pw = self.panel_w.get_or_insert(Tween::still(panel_target));
-        pw.retarget(panel_target, 460., &FOLD);
+        pw.retarget(panel_target, fold_ms, &FOLD);
         let panel_w = pw.value(&FOLD);
         let folding = self.side_w.is_some_and(|t| t.running()) || self.panel_w.is_some_and(|t| t.running());
 
@@ -633,7 +650,7 @@ impl Render for Lfly {
         }
         let panel_t = match self.panel_motion {
             Some((at, opening)) => {
-                let p = (at.elapsed().as_secs_f64() / 0.26).min(1.);
+                let p = if reduce { 1. } else { (at.elapsed().as_secs_f64() / 0.26).min(1.) };
                 if p >= 1. {
                     self.panel_motion = None;
                     None
@@ -646,37 +663,63 @@ impl Render for Lfly {
         };
         let show_panel = panel_open || panel_t.is_some();
 
-        self.sidebar.update(cx, |s, _| {
-            s.wide = side_wide;
-            s.can_toggle = !compact && !(sidebar_wide && !side_wide);
+        self.sidebar.update(cx, |s, cx| {
+            if put(&mut s.wide, side_wide) | put(&mut s.can_toggle, !compact && !(sidebar_wide && !side_wide)) {
+                cx.notify();
+            }
         });
-        self.right_panel.update(cx, |r, _| r.floating = compact);
+        self.right_panel.update(cx, |r, cx| {
+            if put(&mut r.floating, compact) {
+                cx.notify();
+            }
+        });
         let stage_w = win_w - side_w - panel_w;
         let bar_w = (stage_w - 24.).min(1180.);
-        self.bar.update(cx, |b, _| b.width = bar_w);
-        self.home.update(cx, |h, _| {
-            h.width = win_w;
-            h.page_width = stage_w;
+        // The sizes the views lay themselves out by; a change redraws them.
+        self.bar.update(cx, |b, cx| {
+            if put(&mut b.width, bar_w) {
+                cx.notify();
+            }
         });
-        self.collection.update(cx, |c, _| c.width = win_w);
-        self.library_page.update(cx, |l, _| l.page_width = stage_w);
-        self.settings.update(cx, |s, _| s.page_width = stage_w);
-        self.search.update(cx, |s, _| {
-            s.width = win_w;
-            s.page_width = stage_w;
+        self.home.update(cx, |h, cx| {
+            if put(&mut h.width, win_w) | put(&mut h.page_width, stage_w) {
+                cx.notify();
+            }
         });
-        self.artist.update(cx, |a, _| {
-            a.width = win_w;
-            a.height = win_h;
+        self.collection.update(cx, |c, cx| {
+            if put(&mut c.width, win_w) {
+                cx.notify();
+            }
         });
-        self.now_playing.update(cx, |n, _| {
-            n.width = win_w;
-            n.height = win_h;
+        self.library_page.update(cx, |l, cx| {
+            if put(&mut l.page_width, stage_w) {
+                cx.notify();
+            }
         });
-        self.lyrics_page.update(cx, |l, _| {
-            l.width = win_w;
-            l.page_width = stage_w;
-            l.height = win_h;
+        self.settings.update(cx, |s, cx| {
+            if put(&mut s.page_width, stage_w) {
+                cx.notify();
+            }
+        });
+        self.search.update(cx, |s, cx| {
+            if put(&mut s.width, win_w) | put(&mut s.page_width, stage_w) {
+                cx.notify();
+            }
+        });
+        self.artist.update(cx, |a, cx| {
+            if put(&mut a.width, win_w) | put(&mut a.height, win_h) {
+                cx.notify();
+            }
+        });
+        self.now_playing.update(cx, |n, cx| {
+            if put(&mut n.width, win_w) | put(&mut n.height, win_h) {
+                cx.notify();
+            }
+        });
+        self.lyrics_page.update(cx, |l, cx| {
+            if put(&mut l.width, win_w) | put(&mut l.page_width, stage_w) | put(&mut l.height, win_h) {
+                cx.notify();
+            }
         });
 
         // The full player flies in from 60 px below and fades (420 ms, cubicOut), and back out.
@@ -687,7 +730,7 @@ impl Render for Lfly {
         }
         let np_t = match self.np_motion {
             Some((at, opening)) => {
-                let p = (at.elapsed().as_secs_f64() / 0.42).min(1.);
+                let p = if reduce { 1. } else { (at.elapsed().as_secs_f64() / 0.42).min(1.) };
                 if p >= 1. {
                     self.np_motion = None;
                     None
@@ -728,13 +771,13 @@ impl Render for Lfly {
                     .left(px(24. * (1. - t)))
                     .w_full()
                     .opacity(t)
-                    .child(self.right_panel.clone())
+                    .child(cached(&self.right_panel))
             });
             let mut shell = div()
                 .absolute()
                 .inset_0()
                 .flex()
-                .child(div().w(px(side_w)).flex_none().h_full().pt(px(12.)).pb(px(12.)).pl(px(12.)).child(self.sidebar.clone()))
+                .child(div().w(px(side_w)).flex_none().h_full().pt(px(12.)).pb(px(12.)).pl(px(12.)).child(cached(&self.sidebar)))
                 .child(
                     div()
                         .relative()
@@ -753,7 +796,7 @@ impl Render for Lfly {
                                 .h(px(76.))
                                 .flex()
                                 .justify_center()
-                                .child(div().relative().h_full().w_full().max_w(px(1180.)).occlude().child(self.bar.clone())),
+                                .child(div().relative().h_full().w_full().max_w(px(1180.)).occlude().child(cached(&self.bar))),
                         ),
                 );
             if !compact {

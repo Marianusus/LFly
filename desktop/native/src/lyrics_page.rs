@@ -36,6 +36,7 @@ impl LyricsPage {
     ) -> Self {
         let subs = vec![
             cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         let ambient = cx.new(|_| Ambient::new(core, 0.5, 70.));

@@ -40,6 +40,7 @@ impl Artist {
     pub fn new(core: Arc<Core>, covers: Entity<Covers>, look: Entity<Look>, nav: Entity<Nav>, library: Entity<LibraryModel>, model: Entity<PlayerModel>, cx: &mut Context<Self>) -> Self {
         let subs = vec![
             cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&library, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];

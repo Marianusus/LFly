@@ -178,13 +178,16 @@ impl Render for NowPlaying {
         // The cover settles back when paused; the glyph pops when it changes.
         if self.was_playing != Some(playing) {
             if self.was_playing.is_some() {
-                self.pp = Tween { from: 0., to: 1., at: Instant::now(), ms: 260. };
+                if !crate::prefs::Prefs::reduce_motion(cx) {
+                    self.pp = Tween { from: 0., to: 1., at: Instant::now(), ms: 260. };
+                }
             } else {
                 self.art = Tween::still(if playing { 1. } else { 0.86 });
             }
             self.was_playing = Some(playing);
         }
-        self.art.retarget(if playing { 1. } else { 0.86 }, 700., &SPRING);
+        let reduce = crate::prefs::Prefs::reduce_motion(cx);
+        self.art.retarget(if playing { 1. } else { 0.86 }, if reduce { 1. } else { 700. }, &SPRING);
         let url = track.as_ref().and_then(|t| t.cover_url.clone());
         let bg = scheme.bg;
         self.ambient.update(cx, |a, _| {
