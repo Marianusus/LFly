@@ -9,10 +9,14 @@ app until this one has every screen.
 
 Test modes: `LFLY_AUTOPLAY="query"` plays the first result, `LFLY_ROUTE=liked|library|settings|lyrics|
 nowplaying|album:<id>|playlist:<id>|local:<id>|artist:<id>` opens a page (`examples/ids.rs` prints
-real ids), `LFLY_NP_PANEL=lyrics|queue|none` picks the full player's panel, `LFLY_MUTE=1`,
+real ids), `LFLY_NP_PANEL=lyrics|queue|none` picks the full player's panel, `LFLY_PANEL=queue|lyrics|devices`
+opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast, `LFLY_MUTE=1`,
 `LFLY_NO_GLASS=1` (no glass at all, to measure it), `LFLY_GLASS_BLEED=0|1`;
 `LFLY_GLASS_DEBUG`, `LFLY_GLASS_EMPTY`, `LFLY_GLASS_HIDE` for the glass check
 (`tools/glass-golden`).
+
+The window's app id is `lfly-native` while the Tauri app is the shipped one (so window rules and
+the desktop entry keep the two apart); it becomes `lfly` when this app replaces it.
 
 GPUI is `gpui-kit` 0.9.1 (GPUI snapshot `gpui-pre` 0.3.12), patched in `vendor/` for Liquid
 Glass (see `vendor/PATCHES.md`). Windows check from Linux:

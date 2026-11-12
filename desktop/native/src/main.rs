@@ -174,7 +174,8 @@ impl Lfly {
             cx.observe_window_activation(window, |this, window, cx| {
                 let active = window.is_window_active();
                 log::debug!("window active: {active}");
-                if !active {
+                // (LFLY_MENU keeps it for the screenshot, taken with the window in the back.)
+                if !active && std::env::var_os("LFLY_MENU").is_none() {
                     crate::menu::Menu::close(cx);
                 }
                 this.model.update(cx, |m, cx| {
@@ -729,7 +730,8 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(720.), px(480.))),
-            app_id: Some("lfly".into()),
+            // Not "lfly" while the Tauri app is the shipped one: the two windows stay apart (KWin rules).
+            app_id: Some("lfly-native".into()),
             // The title bar is ours (TitleBar draws the buttons); no second one from the system.
             window_decorations: Some(WindowDecorations::Client),
             ..gpui_kit::component::TitleBar::window_options()
