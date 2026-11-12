@@ -52,7 +52,8 @@ To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte
 CSS numbers, a screenshot against `mock.html` in Chromium):
 
 1. Foundations still missing: the SelectionPill spring in the sidebar.
-2. Search: suggestions, category chips, recent searches.
+2. Search: remembering the artists, albums and playlists opened from its shelves; Settings' "clear
+   recent searches".
 3. Library: list view, import and create, the downloads filter; Downloads; the equalizer and
    crossfade; custom themes, Spicetify and its marketplace; autostart.
 4. LFly Connect and library sync, Google Drive, system media controls, Discord, Spotify import,
