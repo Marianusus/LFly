@@ -8,6 +8,7 @@ mod art;
 mod core;
 mod covers;
 mod glass;
+mod home;
 mod icons;
 mod library_model;
 mod look;
@@ -29,6 +30,7 @@ use lfly_yt::Track;
 
 use crate::core::Core;
 use crate::covers::Covers;
+use crate::home::Home;
 use crate::icons::icon;
 use crate::library_model::LibraryModel;
 use crate::look::Look;
@@ -47,6 +49,7 @@ struct Lfly {
     nav: Entity<Nav>,
     bar: Entity<PlayerBar>,
     sidebar: Entity<Sidebar>,
+    home: Entity<Home>,
     search: Entity<InputState>,
     tracks: Vec<Track>,
     status: SharedString,
@@ -64,7 +67,8 @@ impl Lfly {
         let bar = cx.new(|cx| PlayerBar::new(model.clone(), covers.clone(), look.clone(), cx));
         let nav = cx.new(|_| Nav::new());
         let library = cx.new(LibraryModel::new);
-        let sidebar = cx.new(|cx| Sidebar::new(nav.clone(), library, look.clone(), covers.clone(), cx));
+        let sidebar = cx.new(|cx| Sidebar::new(nav.clone(), library.clone(), look.clone(), covers.clone(), cx));
+        let home = cx.new(|cx| Home::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library, model.clone(), cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Cerca brani su YouTube Music"));
         let subs = vec![
             cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _w, cx| {
@@ -103,6 +107,7 @@ impl Lfly {
             nav,
             bar,
             sidebar,
+            home,
             search,
             tracks: Vec::new(),
             status: "Cerca qualcosa da ascoltare.".into(),
@@ -374,6 +379,7 @@ impl Lfly {
             (s.text2, s.text3)
         };
         match route {
+            Route::Home => self.home.clone().into_any_element(),
             Route::Search => {
                 let count = self.tracks.len();
                 let list = uniform_list(
@@ -409,7 +415,6 @@ impl Lfly {
                 .flex_col()
                 .gap(px(6.))
                 .child(div().text_size(px(28.)).font_weight(FontWeight::BOLD).child(match other {
-                    Route::Home => "Home",
                     Route::Library => "La tua libreria",
                     Route::Liked => "Brani che ti piacciono",
                     Route::Downloads => "Scaricati",
@@ -418,7 +423,7 @@ impl Lfly {
                     Route::Album { .. } => "Album",
                     Route::Lyrics => "Testo",
                     Route::Settings => "Impostazioni",
-                    Route::Search => unreachable!(),
+                    Route::Search | Route::Home => unreachable!(),
                 }))
                 .child(div().text_color(text3).child("Questa pagina non è ancora stata portata nella versione nativa."))
                 .into_any_element(),
@@ -438,6 +443,11 @@ impl Render for Lfly {
         let side_w = (f32::from(size.width) * 0.19).clamp(232., 280.);
         let bar_w = (f32::from(size.width) - side_w - 24.).min(1180.);
         self.bar.update(cx, |b, _| b.width = bar_w);
+        let (win_w, stage_w) = (f32::from(size.width), f32::from(size.width) - side_w);
+        self.home.update(cx, |h, _| {
+            h.width = win_w;
+            h.page_width = stage_w;
+        });
         let top = self.top_bar(window, cx);
         let page = self.page(cx);
         div()

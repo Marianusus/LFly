@@ -89,6 +89,35 @@ impl Core {
         self.player.play_queue(queue, index as i32, 0, true);
     }
 
+    /// The Home shelves (lfly_core::pages, as the Tauri window gets them).
+    pub async fn home(self: Arc<Self>) -> Result<Vec<lfly_core::pages::Shelf>, String> {
+        runtime().spawn(async move { lfly_core::pages::home(&self.yt).await }).await.map_err(|e| e.to_string())?
+    }
+
+    /// Album and playlist pages, for playing a card.
+    pub async fn album_tracks(self: Arc<Self>, id: String) -> Result<Vec<Track>, String> {
+        runtime().spawn(async move { lfly_core::pages::album(&self.yt, id).await.map(|a| a.tracks) }).await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn playlist_tracks(self: Arc<Self>, id: String) -> Result<Vec<Track>, String> {
+        runtime().spawn(async move { lfly_core::pages::playlist(&self.yt, id).await.map(|p| p.tracks) }).await.map_err(|e| e.to_string())?
+    }
+
+    /// One song, then its radio queued after it, as YouTube Music does (items.ts
+    /// `playSongWithRadio`).
+    pub fn play_with_radio(self: &Arc<Self>, track: Track) {
+        self.play(std::slice::from_ref(&track), 0);
+        let me = self.clone();
+        runtime().spawn(async move {
+            if let Ok(radio) = lfly_core::pages::radio(&me.yt, track.clone()).await {
+                let more: Vec<TrackRef> = radio.iter().filter(|t| t.id != track.id).take(40).filter_map(track_ref).collect();
+                if !more.is_empty() {
+                    me.player.edit_queue("add", more, -1, -1);
+                }
+            }
+        });
+    }
+
     pub fn command(&self, action: &str, value: i64) {
         self.player.run(action, value);
     }
