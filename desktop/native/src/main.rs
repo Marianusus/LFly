@@ -24,6 +24,7 @@ mod nav;
 mod now_playing;
 mod player_bar;
 mod player_model;
+mod prefs;
 mod queue_list;
 mod right_panel;
 mod scene;
@@ -153,6 +154,7 @@ impl Lfly {
         let covers = cx.new(|_| Covers::new(core.clone()));
         let look = cx.new(|_| Look::new());
         let nav = cx.new(|_| Nav::new());
+        let start = crate::prefs::Prefs::new(cx).read(cx).v.start_page.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
         let bar = cx.new(|cx| PlayerBar::new(model.clone(), nav.clone(), ui.clone(), library.clone(), covers.clone(), look.clone(), cx));
@@ -266,6 +268,16 @@ impl Lfly {
         }
         // LFLY_ROUTE: open a page at start (liked, library, settings, album:<id>, playlist:<id>,
         // local:<id>), for screenshots.
+        // Settings → Generale: the page LFly opens on (not a step to go back to).
+        if std::env::var_os("LFLY_ROUTE").is_none() && std::env::var_os("LFLY_AUTOPLAY").is_none() {
+            let route = match start.as_str() {
+                "library" => Route::Library,
+                "liked" => Route::Liked,
+                "search" => Route::Search,
+                _ => Route::Home,
+            };
+            this.nav.update(cx, |n, _| n.route = route);
+        }
         if let Ok(r) = std::env::var("LFLY_ROUTE") {
             let (k, id) = r.split_once(':').unwrap_or((r.as_str(), ""));
             let route = match k {
@@ -291,6 +303,10 @@ impl Lfly {
     /// (LFLY_MUTE, LFLY_AUTOPLAY): they must not change the listener's library.
     fn record_play(&mut self, cx: &mut Context<Self>) {
         if std::env::var_os("LFLY_MUTE").is_some() || std::env::var_os("LFLY_AUTOPLAY").is_some() {
+            return;
+        }
+        // Settings → Spazio e privacy: "pause the history".
+        if crate::prefs::Prefs::get(cx).pause_history {
             return;
         }
         let m = self.model.read(cx);

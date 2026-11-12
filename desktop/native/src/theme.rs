@@ -5,7 +5,6 @@
 use gpui_kit::{Hsla, Rgba};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Mode {
     AmoledBlack,
     PureWhite,
@@ -14,7 +13,53 @@ pub enum Mode {
     DynamicCover,
 }
 
+/// palette.ts MODES: the phone's "Aspetto" modes, in its order and words.
+pub const MODES: [(Mode, &str, &str, &str); 5] = [
+    (Mode::AmoledBlack, "AMOLED_BLACK", "Nero AMOLED", "Nero assoluto con vetro satinato e accento LFly"),
+    (Mode::PureWhite, "PURE_WHITE", "Bianco", "Canvas chiaro, vetro avorio e testo scuro ad alto contrasto"),
+    (Mode::DynamicDark, "DYNAMIC_DARK", "Dinamico scuro", "Sfondo scuro derivato dalla copertina in riproduzione"),
+    (Mode::DynamicLight, "DYNAMIC_LIGHT", "Dinamico chiaro", "Sfondo chiaro pastello derivato dalla copertina"),
+    (Mode::DynamicCover, "DYNAMIC_COVER", "Copertina dinamica", "La copertina in riproduzione, sfocata e in movimento, come sfondo dell'app"),
+];
+
+/// palette.ts ACCENTS: id, Italian name, colour, premium.
+pub const ACCENTS: [(&str, &str, u32, bool); 20] = [
+    ("emerald", "Smeraldo", 0x1db954, false),
+    ("blue", "Blu", 0x4d7cff, false),
+    ("indigo", "Indaco", 0x5b5bd6, false),
+    ("violet", "Viola", 0x7c4dff, false),
+    ("pink", "Rosa", 0xff2d78, false),
+    ("red", "Rosso", 0xff3b30, false),
+    ("orange", "Arancio", 0xff7a00, false),
+    ("amber", "Ambra", 0xffb300, false),
+    ("teal", "Verde acqua", 0x00bfa5, false),
+    ("cyan", "Ciano", 0x00b8d9, false),
+    ("champagne_gold", "Champagne", 0xd4af37, true),
+    ("rose_gold", "Oro rosa", 0xb76e79, true),
+    ("platinum", "Platino", 0xc9ccd1, true),
+    ("titanium", "Titanio", 0x5c6670, true),
+    ("sapphire", "Zaffiro", 0x1f4fd8, true),
+    ("midnight", "Mezzanotte", 0x20304a, true),
+    ("burgundy", "Bordeaux", 0x8e1b3a, true),
+    ("bronze", "Bronzo", 0xa9714b, true),
+    ("obsidian", "Ossidiana", 0x3a3f44, true),
+    ("sand", "Sabbia", 0xc2a878, true),
+];
+
+/// accentById: the accent's colour, emerald when unknown.
+pub fn accent_color(id: &str) -> Rgb {
+    Rgb::hex(ACCENTS.iter().find(|a| a.0 == id).map_or(ACCENTS[0].2, |a| a.2))
+}
+
 impl Mode {
+    pub fn id(self) -> &'static str {
+        MODES.iter().find(|m| m.0 == self).map_or("DYNAMIC_DARK", |m| m.1)
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        MODES.iter().find(|m| m.1 == id).map(|m| m.0)
+    }
+
     pub fn light(self) -> bool {
         matches!(self, Mode::PureWhite | Mode::DynamicLight)
     }

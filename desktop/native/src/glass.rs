@@ -17,6 +17,8 @@ pub struct GlassLook {
     /// The lens setting (default on). Off, Tauri sets no SVG filter: no bending, and a clean
     /// blur (no edge bleed).
     pub lens: bool,
+    /// The glass setting itself: off, a plain surface in the (nearly opaque) tint, no blur.
+    pub on: bool,
 }
 
 /// With the lens on, the glass is drawn as the Windows (WebView2) build draws it: the blur fades
@@ -47,6 +49,7 @@ impl GlassLook {
             highlight: css(255, 255, 255, 0.5),
             shade: css(0, 0, 0, 0.35),
             lens: true,
+            on: true,
         }
     }
 
@@ -92,6 +95,10 @@ pub fn glass_layer(look: GlassLook, radius: Pixels, pointer: Pointer) -> impl In
             // LFLY_NO_GLASS: none at all (for measuring what the glass costs).
             static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
             if *OFF.get_or_init(|| std::env::var_os("LFLY_NO_GLASS").is_some()) {
+                return;
+            }
+            if !look.on {
+                window.paint_quad(quad(bounds, radius.min(bounds.size.width.min(bounds.size.height) / 2.0), look.tint, px(1.), look.border, BorderStyle::default()));
                 return;
             }
             let k = look.strength;

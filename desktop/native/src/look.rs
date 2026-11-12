@@ -7,10 +7,15 @@ use gpui_kit::*;
 
 use crate::glass::GlassLook;
 use crate::scene::{self, SceneSpec};
-use crate::theme::{build_scheme, Mode, Rgb, Scheme};
+use crate::theme::{accent_color, build_scheme, Mode, Rgb, Scheme};
+
+/// The store key Tauri keeps the look under (theme.svelte.ts SavedLook).
+const KEY: &str = "appearance";
 
 pub struct Look {
     pub mode: Mode,
+    /// palette.ts ACCENTS id.
+    pub accent: String,
     pub scheme: Scheme,
     /// The glass setting (theme.svelte.ts DEFAULT_GLASS).
     pub glass_enabled: bool,
@@ -24,14 +29,26 @@ pub struct Look {
 }
 
 impl Look {
+    /// The look the person chose (in either app): mode, accent, glass.
     pub fn new() -> Self {
-        let mode = Mode::DynamicDark;
+        let saved = lfly_core::store::get(KEY).ok().flatten().unwrap_or(serde_json::Value::Null);
+        let mode = saved.get("mode").and_then(|v| v.as_str()).and_then(Mode::parse).unwrap_or(Mode::DynamicDark);
+        let accent = saved
+            .get("accent")
+            .and_then(|v| v.as_str())
+            .filter(|a| crate::theme::ACCENTS.iter().any(|x| x.0 == *a))
+            .unwrap_or("emerald")
+            .to_string();
+        let g = saved.get("glass");
+        let flag = |k: &str, d: bool| g.and_then(|g| g.get(k)).and_then(|v| v.as_bool()).unwrap_or(d);
+        let a = accent_color(&accent);
         Self {
             mode,
-            scheme: build_scheme(mode, None, None),
-            glass_enabled: true,
-            lens: true,
-            strength: 0.75,
+            accent,
+            scheme: build_scheme(mode, Some(a), Some(a)),
+            glass_enabled: flag("enabled", true),
+            lens: flag("lens", true),
+            strength: g.and_then(|g| g.get("strength")).and_then(|v| v.as_f64()).map_or(0.75, |v| v.clamp(0., 1.) as f32),
             cover: None,
             scene: None,
             painted: None,
@@ -49,16 +66,54 @@ impl Look {
     }
 
     fn rebuild(&mut self, cx: &mut Context<Self>) {
-        let (p, s) = if self.mode.dynamic() { (self.cover.map(|c| c.0), self.cover.map(|c| c.1)) } else { (None, None) };
-        self.scheme = build_scheme(self.mode, p, s);
+        // theme.svelte.ts scheme: the cover's colours in the dynamic modes, else the accent.
+        let a = accent_color(&self.accent);
+        let c = if self.mode.dynamic() { self.cover } else { None };
+        self.scheme = build_scheme(self.mode, Some(c.map_or(a, |c| c.0)), Some(c.map_or(a, |c| c.1)));
         cx.notify();
+    }
+
+    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
+        self.mode = mode;
+        self.rebuild(cx);
+        self.save();
+    }
+
+    pub fn set_accent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.accent = id.to_string();
+        self.rebuild(cx);
+        self.save();
+    }
+
+    pub fn set_glass(&mut self, enabled: Option<bool>, lens: Option<bool>, strength: Option<f32>, cx: &mut Context<Self>) {
+        self.glass_enabled = enabled.unwrap_or(self.glass_enabled);
+        self.lens = lens.unwrap_or(self.lens);
+        self.strength = strength.map_or(self.strength, |s| s.clamp(0., 1.));
+        cx.notify();
+        self.save();
+    }
+
+    /// Written over what is saved, so fields only Tauri knows (its custom theme) stay.
+    fn save(&self) {
+        let mut v = lfly_core::store::get(KEY).ok().flatten().filter(|v| v.is_object()).unwrap_or_else(|| serde_json::json!({}));
+        v["mode"] = self.mode.id().into();
+        v["accent"] = self.accent.clone().into();
+        v["glass"] = serde_json::json!({ "enabled": self.glass_enabled, "lens": self.lens, "strength": self.strength });
+        if let Err(e) = lfly_core::store::set(KEY, &v) {
+            log::warn!("{KEY}: {e}");
+        }
     }
 
     pub fn glass(&self) -> GlassLook {
         let mut g = GlassLook::dark(self.strength);
+        let k = self.strength;
         g.light = self.scheme.light;
         g.border = self.scheme.glass_border;
         g.lens = self.lens && self.glass_enabled;
+        g.on = self.glass_enabled;
+        // apply.ts --lfly-glass-tint: #fafafa or #121214; nearly opaque without glass.
+        let alpha = if !self.glass_enabled { 0.97 } else if g.light { 0.5 + (1. - k) * 0.35 } else { 0.4 + (1. - k) * 0.4 };
+        g.tint = if g.light { Rgb::hex(0xfafafa).hsla(alpha) } else { Rgb::hex(0x121214).hsla(alpha) };
         g
     }
 

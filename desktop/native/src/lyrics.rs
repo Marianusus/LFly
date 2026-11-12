@@ -203,7 +203,7 @@ pub struct Lyrics {
     lyrics: Option<Rc<pages::Lyrics>>,
     lines: Rc<Vec<LineModel>>,
     /// Which sheet `lines` is, and the duration it was built with.
-    sheet: (u64, u64),
+    sheet: (u64, u64, bool),
     generation: u64,
     offset: f64,
     hovered: bool,
@@ -223,6 +223,10 @@ impl Lyrics {
         cx: &mut Context<Self>,
     ) -> Self {
         let subs = vec![
+            cx.observe(&crate::prefs::Prefs::entity(cx), |this, _, cx| {
+                this.motion.borrow_mut().measured = None;
+                cx.notify();
+            }),
             cx.observe(&data, |this, _, cx| {
                 this.loaded_for.clear();
                 cx.notify();
@@ -246,7 +250,7 @@ impl Lyrics {
             status: Status::Loading,
             lyrics: None,
             lines: Rc::new(Vec::new()),
-            sheet: (0, 0),
+            sheet: (0, 0, true),
             generation: 0,
             offset: 0.,
             hovered: false,
@@ -340,7 +344,12 @@ impl Render for Lyrics {
             let m = self.model.read(cx);
             (m.current().cloned(), m.duration_ms())
         };
-        let size = font_size(self.variant, self.window_width);
+        let prefs = crate::prefs::Prefs::get(cx);
+        // Settings → Testi: the size, centred lines, the source line.
+        let size = font_size(self.variant, self.window_width) * prefs.lyrics_scale();
+        let align = if prefs.lyrics_center { TextAlign::Center } else { TextAlign::Left };
+        let center = prefs.lyrics_center;
+        let show_source = prefs.lyrics_source;
         let side = self.variant == Variant::Side;
         // `--lyrics-ink`: white over the cover's light, the text colour in the panel.
         let base = if side { self.look.read(cx).scheme.text } else { white() };
@@ -395,15 +404,17 @@ impl Render for Lyrics {
                 .child(div().text_size(px(size * 0.7)).line_height(px(size * 0.7 * 1.55)).font_weight(FontWeight::BOLD).children(
                     lyrics.plain.clone().unwrap_or_default().lines().map(|l| div().min_h(px(size * 0.7 * 1.55)).child(l.to_string())).collect::<Vec<_>>(),
                 ))
-                .child(div().mt(px(24.)).text_size(px(12.)).text_color(ink(0.5)).child(format!("Testo da {}", lyrics.source)))
+                .when(show_source, |d| d.child(div().mt(px(24.)).text_size(px(12.)).text_color(ink(0.5)).child(format!("Testo da {}", lyrics.source))))
                 .child(div().h(relative(0.4)))
                 .into_any_element();
         };
 
         // The sheet, built again when the song or its duration changes.
-        if self.sheet != (self.generation, duration) {
-            self.lines = Rc::new(build_lines(synced, duration as f64, false));
-            self.sheet = (self.generation, duration);
+        // Whole lines instead of word by word, when asked.
+        let words = prefs.lyrics_words;
+        if self.sheet != (self.generation, duration, words) {
+            self.lines = Rc::new(build_lines(synced, duration as f64, !words));
+            self.sheet = (self.generation, duration, words);
             let mut st = self.motion.borrow_mut();
             st.measured = None;
             st.on = vec![(false, -1e9); self.lines.len()];
@@ -556,7 +567,9 @@ impl Render for Lyrics {
                                     1.
                                 };
                                 let d = 12. * s;
-                                let cx0 = PAD_X + 6. + k as f32 * 22.;
+                                // Three 12 px dots 10 apart: 56 px, centred when the lines are.
+                                let left = if center { PAD_X + (text_w - 56.) / 2. } else { PAD_X };
+                                let cx0 = left + 6. + k as f32 * 22.;
                                 let c = point(origin.x + px(cx0 - d / 2.), text_origin.y + px(10. + 6. - d / 2.));
                                 window.paint_quad(fill(Bounds::new(c, gpui_kit::size(px(d), px(d))), ink(if on { 1. } else { dim } * alpha)).corner_radii(px(d / 2.)));
                             }
@@ -595,7 +608,7 @@ impl Render for Lyrics {
                         if let Ok(shaped) = window.text_system().shape_text(text.into(), px(size), &runs, Some(px(text_w)), None) {
                             let mut oy = text_origin.y;
                             for l in &shaped {
-                                let _ = l.paint(point(text_origin.x, oy), px(main_lh), TextAlign::Left, None, window, cx);
+                                let _ = l.paint(point(text_origin.x, oy), px(main_lh), align, Some(Bounds::new(point(text_origin.x, oy), gpui_kit::size(px(text_w), px(main_lh)))), window, cx);
                                 oy += l.size(px(main_lh)).height;
                             }
                             if let Some(bg) = &line.bg {
@@ -607,7 +620,7 @@ impl Render for Lyrics {
                                 if let Ok(shaped) = window.text_system().shape_text(SharedString::from(bg.clone()), px(bg_size), &[run], Some(px(text_w)), None) {
                                     let mut oy = oy + px(4.);
                                     for l in &shaped {
-                                        let _ = l.paint(point(text_origin.x, oy), px(bg_lh), TextAlign::Left, None, window, cx);
+                                        let _ = l.paint(point(text_origin.x, oy), px(bg_lh), align, Some(Bounds::new(point(text_origin.x, oy), gpui_kit::size(px(text_w), px(bg_lh)))), window, cx);
                                         oy += l.size(px(bg_lh)).height;
                                     }
                                 }
@@ -616,11 +629,12 @@ impl Render for Lyrics {
                     }
                     // "Testo da …", riding with the last line.
                     let y = last_y as f32 + 24.;
-                    if y < view_h {
+                    if show_source && y < view_h {
                         let run = TextRun { len: source.len(), font: Font { weight: FontWeight::NORMAL, ..font.clone() }, color: ink(0.5 * fog(y + 8.)), background_color: None, underline: None, strikethrough: None };
                         if let Ok(shaped) = window.text_system().shape_text(source.clone(), px(12.), &[run], None, None) {
                             for l in &shaped {
-                                let _ = l.paint(point(origin.x + px(PAD_X), origin.y + px(y)), px(16.), TextAlign::Left, None, window, cx);
+                                let at = point(origin.x + px(PAD_X), origin.y + px(y));
+                                let _ = l.paint(at, px(16.), align, Some(Bounds::new(at, gpui_kit::size(px(text_w), px(16.)))), window, cx);
                             }
                         }
                     }
