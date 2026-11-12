@@ -21,6 +21,8 @@ pub struct PlayerModel {
     pub core: Arc<Core>,
     pub state: Option<State>,
     pub position_ms: u64,
+    /// When [position_ms] arrived: the lyrics carry it forward between the 4 Hz samples.
+    pub position_at: std::time::Instant,
     /// The window is in front: position ticks redraw only then.
     pub active: bool,
 }
@@ -42,19 +44,21 @@ impl PlayerModel {
             }
         })
         .detach();
-        Self { core, state: None, position_ms: 0, active: true }
+        Self { core, state: None, position_ms: 0, position_at: std::time::Instant::now(), active: true }
     }
 
     fn apply(&mut self, update: PlayerUpdate, cx: &mut Context<Self>) {
         match update {
             PlayerUpdate::State(state) => {
                 self.position_ms = state.position_ms.max(0) as u64;
+                self.position_at = std::time::Instant::now();
                 self.state = Some(*state);
                 cx.emit(PlayerEvent::StateChanged);
                 cx.notify();
             }
             PlayerUpdate::Position { ms } => {
                 self.position_ms = ms.max(0) as u64;
+                self.position_at = std::time::Instant::now();
                 // Behind a game nobody reads the bar: no frame at all.
                 if self.active {
                     cx.notify();
@@ -77,6 +81,18 @@ impl PlayerModel {
         let d = self.state.as_ref().map_or(0, |s| s.duration_ms);
         let d = if d > 0 { d } else { self.current().map_or(0, |t| t.duration_ms) };
         d.max(0) as u64
+    }
+
+    /// The position now (player.svelte.ts `livePosition`): the last sample, carried forward
+    /// while playing.
+    pub fn live_position(&self) -> f64 {
+        let p = self.position_ms as f64;
+        if !self.playing() {
+            return p;
+        }
+        let d = self.duration_ms() as f64;
+        let p = p + self.position_at.elapsed().as_secs_f64() * 1000.;
+        if d > 0. { p.min(d) } else { p }
     }
 
     pub fn command(&self, action: &str, value: i64) {

@@ -36,6 +36,31 @@ impl LibraryModel {
         self.favorite_ids.contains(id)
     }
 
+    /// The heart (library.svelte.ts `toggleFavorite`): first in the list when added, saved to
+    /// favorites.json as the Tauri app saves it. Only ever from a click.
+    pub fn toggle_favorite(&mut self, track: Value, cx: &mut Context<Self>) -> Option<bool> {
+        let id = str_field(&track, "id")?;
+        let liked = if self.favorite_ids.remove(&id) {
+            self.favorites.retain(|t| str_field(t, "id").as_deref() != Some(id.as_str()));
+            false
+        } else {
+            self.favorite_ids.insert(id);
+            self.favorites.insert(0, track);
+            true
+        };
+        let value = Value::Array(self.favorites.clone());
+        cx.background_executor()
+            .spawn(async move {
+                let saved = lfly_core::library::dir().and_then(|d| lfly_core::library::save(&d, "favorites.json", &value));
+                if let Err(e) = saved {
+                    log::warn!("favorites.json: {e}");
+                }
+            })
+            .detach();
+        cx.notify();
+        Some(liked)
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut this = Self::default();
         this.reload(cx);

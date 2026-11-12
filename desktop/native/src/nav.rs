@@ -14,6 +14,7 @@ pub enum Route {
     Artist { id: String, name: String },
     Album { id: String, name: String },
     Lyrics,
+    NowPlaying,
     Settings,
 }
 
@@ -30,6 +31,7 @@ impl Route {
             Route::Artist { .. } => "artist".into(),
             Route::Album { .. } => "album".into(),
             Route::Lyrics => "lyrics".into(),
+            Route::NowPlaying => "nowplaying".into(),
             Route::Settings => "settings".into(),
         }
     }
@@ -53,6 +55,15 @@ impl Nav {
         self.back.push(std::mem::replace(&mut self.route, route));
         self.forward.clear();
         cx.notify();
+    }
+
+    /// The page to show under the full player: the one it was opened from.
+    pub fn page_route(&self) -> Route {
+        if self.route == Route::NowPlaying {
+            self.back.iter().rev().find(|r| **r != Route::NowPlaying).cloned().unwrap_or(Route::Home)
+        } else {
+            self.route.clone()
+        }
     }
 
     pub fn can_back(&self) -> bool {

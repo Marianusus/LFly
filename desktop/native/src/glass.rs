@@ -89,6 +89,11 @@ pub fn glass_layer(look: GlassLook, radius: Pixels, pointer: Pointer) -> impl In
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
+            // LFLY_NO_GLASS: none at all (for measuring what the glass costs).
+            static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *OFF.get_or_init(|| std::env::var_os("LFLY_NO_GLASS").is_some()) {
+                return;
+            }
             let k = look.strength;
             let at = pointer.window.filter(|p| bounds.contains(p)).map(|p| {
                 let rel = p - bounds.origin;

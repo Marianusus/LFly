@@ -121,6 +121,8 @@ fn js_len(s: &str) -> usize {
     s.encode_utf16().count()
 }
 
+/// Svelte's cubicOut.
+pub const CUBIC_OUT: CubicBezier = CubicBezier::new(0.215, 0.61, 0.355, 1.);
 const EASE: CubicBezier = CubicBezier::new(0.25, 0.1, 0.25, 1.);
 /// Slow out, quick through the middle, soft landing: the glide of a line.
 pub const GLIDE_EASE: CubicBezier = CubicBezier::new(0.86, 0., 0.2, 1.);

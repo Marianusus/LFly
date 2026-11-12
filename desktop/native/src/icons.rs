@@ -52,6 +52,15 @@ const PATHS: &[(&str, &str)] = &[
     ("sparkles", "M12 3.5l1.6 4.4 4.4 1.6-4.4 1.6L12 15.5l-1.6-4.4L6 9.5l4.4-1.6L12 3.5ZM18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"),
 ];
 
+/// Glyph.svelte: the few glyphs the pages need beyond the icon set, served as `g-<name>`.
+const GLYPHS: &[(&str, &str)] = &[
+    ("chevron-down", "M5.5 9l6.5 6.5L18.5 9"),
+    ("volume-low", "M4 9.5v5h3.5L12 19V5L7.5 9.5H4ZM15.5 9a4 4 0 0 1 0 6"),
+    ("volume-high", "M4 9.5v5h3.5L12 19V5L7.5 9.5H4ZM15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12"),
+    ("output", "M6.5 17.5 12 12l5.5 5.5ZM8 15.5H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5h14A1.5 1.5 0 0 1 20.5 5v9a1.5 1.5 0 0 1-1.5 1.5h-3"),
+    ("expand", "M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"),
+];
+
 const SOLID: &[&str] = &["play", "pause", "next", "previous"];
 
 /// The LFly mark (LflyMark.svelte: plane, trail and note), filled even-odd.
@@ -74,6 +83,11 @@ fn svg_source(name: &str) -> Option<String> {
     if name == "mark" {
         return Some(format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" fill-rule="evenodd" d="{MARK}"/></svg>"#
+        ));
+    }
+    if let Some(d) = name.strip_prefix("g-").and_then(|g| GLYPHS.iter().find(|(n, _)| *n == g)).map(|(_, d)| d) {
+        return Some(format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="{d}" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>"#
         ));
     }
     // `<name>-fill`: Icon.svelte's `fill` prop, the stroked icon filled as well.

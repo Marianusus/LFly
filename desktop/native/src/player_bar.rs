@@ -15,6 +15,7 @@ use crate::slider::{slider, SliderBounds, SliderStyle};
 
 pub struct PlayerBar {
     model: Entity<PlayerModel>,
+    nav: Entity<crate::nav::Nav>,
     covers: Entity<Covers>,
     look: Entity<Look>,
     /// While the seek slider is held: where it is (ms).
@@ -30,7 +31,7 @@ pub struct PlayerBar {
 }
 
 impl PlayerBar {
-    pub fn new(model: Entity<PlayerModel>, covers: Entity<Covers>, look: Entity<Look>, cx: &mut Context<Self>) -> Self {
+    pub fn new(model: Entity<PlayerModel>, nav: Entity<crate::nav::Nav>, covers: Entity<Covers>, look: Entity<Look>, cx: &mut Context<Self>) -> Self {
         let subs = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
@@ -38,6 +39,7 @@ impl PlayerBar {
         ];
         Self {
             model,
+            nav,
             covers,
             look,
             scrubbing: None,
@@ -151,6 +153,15 @@ impl Render for PlayerBar {
         let medium = self.width <= 900.;
         let narrow = self.width <= 620.;
 
+        let open_player = {
+            let nav = self.nav.clone();
+            move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                if has {
+                    nav.update(cx, |n, cx| n.go(crate::nav::Route::NowPlaying, cx));
+                }
+            }
+        };
+        let (open1, open2, open3) = (open_player.clone(), open_player.clone(), open_player);
         // The three columns of `.bar`: minmax(0,1fr) minmax(300px,1.25fr) minmax(0,1fr).
         let now = div()
             .flex_grow(1.)
@@ -161,8 +172,11 @@ impl Render for PlayerBar {
             .gap(px(12.))
             .child(
                 div()
+                    .id("bar-art")
                     .size(px(if narrow { 46. } else { 52. }))
                     .flex_none()
+                    .when(has, |d| d.cursor_pointer())
+                    .on_click(open1)
                     .rounded(px(14.))
                     .overflow_hidden()
                     .bg(c.text.opacity(0.08))
@@ -183,6 +197,9 @@ impl Render for PlayerBar {
                     .flex_col()
                     .child(
                         div()
+                            .id("bar-title")
+                            .when(has, |d| d.cursor_pointer())
+                            .on_click(open2)
                             .text_size(px(14.))
                             .line_height(px(18.2))
                             .font_weight(FontWeight::SEMIBOLD)
@@ -221,6 +238,7 @@ impl Render for PlayerBar {
                                 .bg(c.text.opacity(0.1))
                                 .cursor_pointer()
                                 .hover(|s| s.bg(c.text.opacity(0.18)))
+                                .on_click(open3)
                                 .child(icon("chevron-up", 16., c.text)),
                         ),
                 )

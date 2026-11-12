@@ -57,6 +57,11 @@ pub fn track_ref(t: &Track) -> Option<TrackRef> {
     serde_json::from_value(serde_json::to_value(t).ok()?).ok()
 }
 
+/// The player's track as the pages want it (lyrics, radio): the same fields, by serde.
+pub fn track_of(r: &TrackRef) -> Option<Track> {
+    serde_json::from_value(serde_json::to_value(r).ok()?).ok()
+}
+
 impl Core {
     pub fn new() -> anyhow::Result<(Arc<Self>, mpsc::UnboundedReceiver<PlayerUpdate>)> {
         let yt = YtMusic::with_config(YtMusicConfig { preference: AudioPreference::AacFirst, ..Default::default() })
@@ -117,6 +122,25 @@ impl Core {
                 }
             }
         });
+    }
+
+    /// The synced (or plain) lyrics of [track], from the providers lfly-yt tries in turn.
+    pub async fn lyrics(self: Arc<Self>, track: Track) -> Result<Option<lfly_core::pages::Lyrics>, String> {
+        runtime().spawn(async move { lfly_core::pages::lyrics(&self.yt, track).await }).await.map_err(|e| e.to_string())?
+    }
+
+    /// Thumbs up (or nothing) on YouTube Music for a liked song; nothing when signed out.
+    pub fn rate(self: &Arc<Self>, id: String, liked: Option<bool>) {
+        let me = self.clone();
+        runtime().spawn(async move {
+            if let Err(e) = lfly_core::pages::rate(&me.yt, id, liked).await {
+                log::warn!("rate: {e}");
+            }
+        });
+    }
+
+    pub fn remove_from_queue(&self, index: usize) {
+        self.player.edit_queue("remove", Vec::new(), index as i32, -1);
     }
 
     pub fn command(&self, action: &str, value: i64) {

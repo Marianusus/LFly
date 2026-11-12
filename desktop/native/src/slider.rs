@@ -109,3 +109,58 @@ pub fn slider(
             )
         })
 }
+
+/// The full player's slider (Tauri: pages/parts/Slider.svelte): a 6 px bar at 22% of [ink],
+/// 10 px under the pointer, the fill at 82% (all of [ink] under the pointer), no knob.
+pub fn bar_slider(
+    id: impl Into<ElementId>,
+    frac: f32,
+    disabled: bool,
+    ink: Hsla,
+    bounds: SliderBounds,
+    on_drag: impl Fn(f32, &mut Window, &mut App) + 'static,
+    on_release: impl Fn(f32, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    let group: SharedString = format!("bar-slider-{id}").into();
+    let (b1, b2, b3) = (bounds.clone(), bounds.clone(), bounds.clone());
+    let on_drag = Rc::new(on_drag);
+    let on_drag2 = on_drag.clone();
+    div()
+        .id(id)
+        .group(group.clone())
+        .relative()
+        .h(px(22.))
+        .w_full()
+        .flex()
+        .items_center()
+        .when(disabled, |s| s.opacity(0.5))
+        .when(!disabled, |s| {
+            s.cursor_pointer()
+                .on_mouse_down(MouseButton::Left, move |e, w, cx| on_drag(b1.fraction(e.position), w, cx))
+                .on_mouse_move(move |e, w, cx| {
+                    if e.pressed_button == Some(MouseButton::Left) {
+                        on_drag2(b2.fraction(e.position), w, cx);
+                    }
+                })
+                .on_mouse_up(MouseButton::Left, move |e, w, cx| on_release(b3.fraction(e.position), w, cx))
+        })
+        .child(canvas(move |b, _, _| bounds.0.set(b), |_, _, _, _| {}).absolute().inset_0())
+        .child(
+            div()
+                .w_full()
+                .h(px(6.))
+                .rounded_full()
+                .bg(ink.opacity(0.22))
+                .overflow_hidden()
+                .when(!disabled, |s| s.group_hover(group.clone(), |s| s.h(px(10.))))
+                .child(
+                    div()
+                        .h_full()
+                        .rounded_full()
+                        .w(relative(frac.clamp(0., 1.)))
+                        .bg(ink.opacity(0.82))
+                        .when(!disabled, |s| s.group_hover(group, move |s| s.bg(ink))),
+                ),
+        )
+}
