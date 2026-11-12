@@ -25,6 +25,8 @@ const LOOP_MS = 36_000;
 // 24 frames: the flow is slow and heavily blurred, and every glass surface above re-blurs on each.
 const FLOW_FPS = 24;
 
+import { isIdle, onIdle } from "../idle";
+
 type Listener = () => void;
 
 class Scene {
@@ -57,6 +59,11 @@ class Scene {
       if (!document.hidden) this.repaint();
       this.kick();
     });
+    // Behind a game or another app the cover stops flowing: it picks up where it was.
+    onIdle((idle) => {
+      if (!idle) this.repaint();
+      this.kick();
+    });
     this.resize();
   }
 
@@ -68,7 +75,8 @@ class Scene {
   /** Shows [next]; a different key crossfades over [fadeMs]. */
   set(next: SceneState, fadeMs: number) {
     const changed = !this.state || this.state.key !== next.key;
-    if (changed && this.state && fadeMs > 0) {
+    // In the background nothing would run the fade: show the new picture straight away.
+    if (changed && this.state && fadeMs > 0 && !isIdle() && !document.hidden) {
       // Keep what is on screen, and fade it out over the new picture.
       this.prev.width = this.canvas.width;
       this.prev.height = this.canvas.height;
@@ -122,14 +130,14 @@ class Scene {
   }
 
   private kick() {
-    if (this.raf || document.hidden) return;
+    if (this.raf || document.hidden || isIdle()) return;
     if (!this.flowing && !this.fading) return;
     this.raf = requestAnimationFrame((now) => this.tick(now));
   }
 
   private tick(now: number) {
     this.raf = 0;
-    if (document.hidden) return;
+    if (document.hidden || isIdle()) return;
     const fading = this.fading;
     // The flow is slow: 30 frames a second are indistinguishable from 60 and cost half.
     if (fading || now - this.lastFlow >= 1000 / FLOW_FPS - 2) {

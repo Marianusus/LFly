@@ -11,7 +11,13 @@ use serde::Deserialize;
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig, SeekDirection};
 use tauri::{AppHandle, Emitter, Manager};
 
-pub struct Media(Mutex<Option<MediaControls>>);
+pub struct Media(Mutex<Option<Controls>>);
+
+/// The controls, and the song they show: Windows re-reads the cover on every `set_metadata`.
+struct Controls {
+    controls: MediaControls,
+    shown: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<u64>)>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +73,7 @@ pub fn start(app: &AppHandle) -> Media {
                 let _ = handle.emit("media:command", serde_json::json!({ "action": command.0, "value": command.1 }));
             });
             match attached {
-                Ok(()) => Some(controls),
+                Ok(()) => Some(Controls { controls, shown: None }),
                 Err(e) => {
                     log::warn!("Media controls not attached: {e:?}");
                     None
@@ -100,19 +106,23 @@ pub fn media_update(media: tauri::State<'_, Media>, discord: tauri::State<'_, cr
         _ => None,
     });
     let mut guard = media.0.lock().unwrap();
-    let Some(controls) = guard.as_mut() else { return };
-    let _ = controls.set_metadata(MediaMetadata {
-        title: now.title.as_deref(),
-        artist: now.artist.as_deref(),
-        album: now.album.as_deref(),
-        cover_url: now.cover_url.as_deref(),
-        duration: now.duration_ms.filter(|d| *d > 0).map(Duration::from_millis),
-    });
+    let Some(c) = guard.as_mut() else { return };
+    let song = (now.title.clone(), now.artist.clone(), now.album.clone(), now.cover_url.clone(), now.duration_ms);
+    if c.shown.as_ref() != Some(&song) {
+        let _ = c.controls.set_metadata(MediaMetadata {
+            title: now.title.as_deref(),
+            artist: now.artist.as_deref(),
+            album: now.album.as_deref(),
+            cover_url: now.cover_url.as_deref(),
+            duration: now.duration_ms.filter(|d| *d > 0).map(Duration::from_millis),
+        });
+        c.shown = Some(song);
+    }
     let progress = now.position_ms.map(|p| MediaPosition(Duration::from_millis(p)));
     let playback = match (now.title.is_some(), now.playing) {
         (false, _) => MediaPlayback::Stopped,
         (true, true) => MediaPlayback::Playing { progress },
         (true, false) => MediaPlayback::Paused { progress },
     };
-    let _ = controls.set_playback(playback);
+    let _ = c.controls.set_playback(playback);
 }

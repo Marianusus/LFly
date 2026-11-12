@@ -29,6 +29,13 @@ struct StateEvent {
     received_at: i64,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PositionEvent {
+    position_ms: i64,
+    received_at: i64,
+}
+
 struct Resolved {
     url: String,
     user_agent: Option<String>,
@@ -489,8 +496,14 @@ impl LocalPlayer {
     fn on_event(&self, event: PlayerEvent) {
         match event {
             PlayerEvent::Position { ms } => {
-                self.now.lock().unwrap().position_ms = ms as i64;
-                self.changed(false);
+                let position_ms = {
+                    let mut now = self.now.lock().unwrap();
+                    now.position_ms = ms as i64;
+                    now.position(self.audio.position_ms())
+                };
+                // Four times a second: only the position, never the whole queue. A full state here
+                // made every listener in the window (and the system media controls) run again.
+                let _ = self.app.emit("player:position", PositionEvent { position_ms, received_at: lfly_connect::controller::now_ms() });
             }
             PlayerEvent::Duration { ms } => {
                 if ms > 0 {
