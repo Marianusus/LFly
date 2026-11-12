@@ -1,144 +1,106 @@
 //! LFly for computer, drawn by GPUI: no webview, the GPU draws only when something changed.
 //!
-//! First step of the rewrite: search YouTube Music, a virtual list of songs with covers, play
-//! through the shared player (lfly-core, as the Tauri app), the cover's light behind the window.
+//! The rewrite of the Tauri window, a screen at a time. Logic lives in lfly-core (shared with
+//! the Tauri app); this crate only draws. Test modes: `LFLY_AUTOPLAY="query"` plays the first
+//! result, `LFLY_MUTE=1`, and the glass comparison flags in player_bar.rs.
 
 mod art;
 mod core;
+mod covers;
 mod glass;
+mod player_bar;
+mod player_model;
 
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme, TitleBar};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use lfly_connect::protocol::{self, State, TrackRef};
+use lfly_connect::protocol;
 use lfly_yt::Track;
 
-use crate::core::{Core, PlayerUpdate};
+use crate::core::Core;
+use crate::covers::Covers;
+use crate::player_bar::{clock, PlayerBar};
+use crate::player_model::{PlayerEvent, PlayerModel};
 
 const ROW_H: f32 = 56.0;
 
 struct Lfly {
     core: Arc<Core>,
+    model: Entity<PlayerModel>,
+    covers: Entity<Covers>,
+    bar: Entity<PlayerBar>,
     search: Entity<InputState>,
     tracks: Vec<Track>,
     status: SharedString,
-    covers: HashMap<String, Arc<Image>>,
-    loading_covers: HashSet<String>,
-    /// What the shared player reported last (queue, index, play/pause...).
-    state: Option<State>,
-    position_ms: u64,
     backdrop: Option<Arc<Image>>,
     /// The song the backdrop belongs to.
     backdrop_for: Option<String>,
-    /// The window is in front: position ticks redraw only then.
-    active: bool,
-    /// The pointer over the player glass (window coordinates), for its light.
-    pointer_at: Option<Point<Pixels>>,
     /// Measuring: play the first result of `LFLY_AUTOPLAY` as soon as it arrives.
     autoplay: bool,
     _subs: Vec<Subscription>,
 }
 
 impl Lfly {
-    fn new(
-        core: Arc<Core>,
-        mut updates: tokio::sync::mpsc::UnboundedReceiver<PlayerUpdate>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    fn new(core: Arc<Core>, model: Entity<PlayerModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let covers = cx.new(|_| Covers::new(core.clone()));
+        let bar = cx.new(|cx| PlayerBar::new(model.clone(), covers.clone(), cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Cerca brani su YouTube Music"));
-        let mut subs = vec![cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _w, cx| {
-            if let InputEvent::PressEnter { .. } = ev {
-                let q = state.read(cx).value().to_string();
-                this.run_search(q, cx);
-            }
-        })];
-        subs.push(cx.observe_window_activation(window, |this, window, cx| {
-            this.active = window.is_window_active();
-            cx.notify();
-        }));
-
-        // The player's reports: a foreground task, the receiver works on any executor.
-        cx.spawn(async move |this, cx| {
-            while let Some(update) = updates.recv().await {
-                if this.update(cx, |this, cx| this.on_player(update, cx)).is_err() {
-                    break;
+        let subs = vec![
+            cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _w, cx| {
+                if let InputEvent::PressEnter { .. } = ev {
+                    let q = state.read(cx).value().to_string();
+                    this.run_search(q, cx);
                 }
-            }
-        })
-        .detach();
-
-        Self {
+            }),
+            cx.observe_window_activation(window, |this, window, cx| {
+                let active = window.is_window_active();
+                this.model.update(cx, |m, cx| {
+                    m.active = active;
+                    cx.notify();
+                });
+            }),
+            // Only real changes reach this view: the position ticks stay in the bar.
+            cx.subscribe(&model, |this, _, ev: &PlayerEvent, cx| match ev {
+                PlayerEvent::StateChanged => {
+                    this.refresh_backdrop(cx);
+                    cx.notify();
+                }
+                PlayerEvent::Notice(text) => {
+                    this.status = text.clone();
+                    cx.notify();
+                }
+            }),
+            cx.observe(&covers, |_, _, cx| cx.notify()),
+        ];
+        let mut this = Self {
             core,
+            model,
+            covers,
+            bar,
             search,
             tracks: Vec::new(),
             status: "Cerca qualcosa da ascoltare.".into(),
-            covers: HashMap::new(),
-            loading_covers: HashSet::new(),
-            state: None,
-            position_ms: 0,
             backdrop: None,
             backdrop_for: None,
-            active: true,
             autoplay: false,
-            pointer_at: None,
             _subs: subs,
-        }
-        .start_autoplay(cx)
-    }
-
-    fn start_autoplay(mut self, cx: &mut Context<Self>) -> Self {
+        };
         if std::env::var_os("LFLY_MUTE").is_some() {
-            self.core.command(protocol::CMD_VOLUME, 0);
+            this.core.command(protocol::CMD_VOLUME, 0);
         }
         if let Ok(q) = std::env::var("LFLY_AUTOPLAY") {
-            self.autoplay = true;
-            self.run_search(q, cx);
+            this.autoplay = true;
+            this.run_search(q, cx);
         }
-        self
-    }
-
-    fn current(&self) -> Option<&TrackRef> {
-        let s = self.state.as_ref()?;
-        s.queue.get(usize::try_from(s.index).ok()?)
-    }
-
-    fn playing(&self) -> bool {
-        self.state.as_ref().is_some_and(|s| s.playing)
-    }
-
-    fn duration_ms(&self) -> u64 {
-        let d = self.state.as_ref().map_or(0, |s| s.duration_ms);
-        let d = if d > 0 { d } else { self.current().map_or(0, |t| t.duration_ms) };
-        d.max(0) as u64
-    }
-
-    fn on_player(&mut self, update: PlayerUpdate, cx: &mut Context<Self>) {
-        match update {
-            PlayerUpdate::State(state) => {
-                self.position_ms = state.position_ms.max(0) as u64;
-                self.state = Some(*state);
-                self.refresh_backdrop(cx);
-            }
-            PlayerUpdate::Position { ms } => {
-                self.position_ms = ms.max(0) as u64;
-                // Behind a game nobody reads the bar: no frame at all.
-                if !self.active {
-                    return;
-                }
-            }
-            PlayerUpdate::Notice(text) => self.status = text.into(),
-        }
-        cx.notify();
+        this
     }
 
     /// The light behind the window follows the song, from a bigger copy of its cover.
     fn refresh_backdrop(&mut self, cx: &mut Context<Self>) {
-        let Some(track) = self.current().cloned() else { return };
+        let Some(track) = self.model.read(cx).current().cloned() else { return };
         if self.backdrop_for.as_deref() == Some(track.id.as_str()) {
             return;
         }
@@ -174,7 +136,7 @@ impl Lfly {
                         this.status = if tracks.is_empty() { "Nessun risultato.".into() } else { "".into() };
                         this.tracks = tracks;
                         if std::mem::take(&mut this.autoplay) && !this.tracks.is_empty() {
-                            this.play(0, cx);
+                            this.core.play(&this.tracks, 0);
                         }
                     }
                     Err(e) => this.status = format!("Ricerca non riuscita: {e}").into(),
@@ -185,51 +147,10 @@ impl Lfly {
         .detach();
     }
 
-    fn play(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if ix >= self.tracks.len() {
-            return;
-        }
-        self.position_ms = 0;
-        // The shared player resolves the full stream, preloads the next song and retries
-        // expired URLs; its state comes back through `on_player`.
-        self.core.play(&self.tracks, ix);
-        cx.notify();
-    }
-
-    fn toggle(&mut self, cx: &mut Context<Self>) {
-        self.core.command(protocol::CMD_TOGGLE, 0);
-        cx.notify();
-    }
-
-    fn next(&mut self, delta: isize, cx: &mut Context<Self>) {
-        self.core.command(if delta > 0 { protocol::CMD_NEXT } else { protocol::CMD_PREVIOUS }, 0);
-        cx.notify();
-    }
-
-    /// Loads the covers of the rows on screen, once each.
-    fn want_cover(&mut self, track: &Track, cx: &mut Context<Self>) {
-        let Some(url) = track.cover_url.clone() else { return };
-        if self.covers.contains_key(&url) || !self.loading_covers.insert(url.clone()) {
-            return;
-        }
-        let core = self.core.clone();
-        cx.spawn(async move |this, cx| {
-            let bytes = core.fetch(url.clone()).await;
-            let _ = this.update(cx, |this, cx| {
-                if let Some(img) = bytes.and_then(art::image) {
-                    this.covers.insert(url, img);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
-    }
-
-    fn row(&mut self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
+    fn row(&mut self, ix: usize, current: Option<&str>, cx: &mut Context<Self>) -> impl IntoElement {
         let track = self.tracks[ix].clone();
-        self.want_cover(&track, cx);
-        let cover = track.cover_url.as_ref().and_then(|u| self.covers.get(u).cloned());
-        let on = self.current().is_some_and(|t| t.id == track.id);
+        let cover = track.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
+        let on = current == Some(track.id.as_str());
         let accent = cx.theme().primary;
         div()
             .id(ix)
@@ -243,11 +164,15 @@ impl Lfly {
             .cursor_pointer()
             .hover(|s| s.bg(white().opacity(0.06)))
             .when(on, |s| s.bg(white().opacity(0.09)))
-            .on_click(cx.listener(move |this, _, _, cx| this.play(ix, cx)))
+            .on_click(cx.listener(move |this, _, _, _| this.core.play(&this.tracks, ix)))
             .child(
-                div().size(px(40.)).flex_none().rounded_md().overflow_hidden().bg(white().opacity(0.08)).children(
-                    cover.map(|c| img(c).size_full().object_fit(ObjectFit::Cover)),
-                ),
+                div()
+                    .size(px(40.))
+                    .flex_none()
+                    .rounded_md()
+                    .overflow_hidden()
+                    .bg(white().opacity(0.08))
+                    .children(cover.map(|c| img(c).size_full().object_fit(ObjectFit::Cover))),
             )
             .child(
                 div()
@@ -269,127 +194,19 @@ impl Lfly {
                 s.child(div().text_xs().text_color(white().opacity(0.5)).child(clock(track.duration_ms as u64)))
             })
     }
-
-    fn player_bar(&self, cx: &mut Context<Self>) -> AnyElement {
-        // LFLY_GLASS_HIDE: no player at all (the backdrop for the comparison).
-        if std::env::var_os("LFLY_GLASS_HIDE").is_some() {
-            return div().into_any_element();
-        }
-        let track = self.current();
-        let cover = track.and_then(|t| t.cover_url.as_ref()).and_then(|u| self.covers.get(u).cloned());
-        let duration_ms = self.duration_ms();
-        let frac = if duration_ms > 0 { (self.position_ms as f32 / duration_ms as f32).clamp(0., 1.) } else { 0. };
-        let accent = cx.theme().primary;
-        let button = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .size(px(36.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .cursor_pointer()
-                .hover(|s| s.bg(white().opacity(0.1)))
-                .child(label)
-        };
-        let look = glass::GlassLook::dark(0.75);
-        // A pill of glass floating over the list, as the Tauri PlayerBar.
-        div()
-            .id("player")
-            .absolute()
-            .left(px(12.))
-            .right(px(12.))
-            // LFLY_GLASS_DEBUG: over the list, to look at the bending and the blur.
-            .bottom(px(if std::env::var_os("LFLY_GLASS_DEBUG").is_some() { 330. } else { 12. }))
-            .h(px(76.))
-            .rounded(px(38.))
-            .px_4()
-            .flex()
-            .items_center()
-            .gap_4()
-            .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
-                this.pointer_at = Some(e.position);
-                let _ = window;
-                cx.notify();
-            }))
-            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                if !*hovered {
-                    this.pointer_at = None;
-                    cx.notify();
-                }
-            }))
-            .child(glass::glass_layer(look, px(38.), glass::Pointer { window: self.pointer_at }))
-            // LFLY_GLASS_EMPTY: the glass alone, for comparing it with the Tauri one.
-            .when(std::env::var_os("LFLY_GLASS_EMPTY").is_none(), |bar| bar
-            .child(
-                div().size(px(52.)).flex_none().rounded_md().overflow_hidden().bg(white().opacity(0.08)).children(
-                    cover.map(|c| img(c).size_full().object_fit(ObjectFit::Cover)),
-                ),
-            )
-            .child(
-                div()
-                    .w(px(220.))
-                    .flex_none()
-                    .flex()
-                    .flex_col()
-                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(
-                        track.map_or(SharedString::from("Niente in riproduzione"), |t| t.title.clone().into()),
-                    ))
-                    .child(div().text_xs().text_color(white().opacity(0.6)).truncate().child(
-                        track.map_or(SharedString::default(), |t| t.artist.clone().into()),
-                    )),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(button("prev", "⏮").on_click(cx.listener(|this, _, _, cx| this.next(-1, cx))))
-                            .child(
-                                button("toggle", if self.playing() { "⏸" } else { "▶" })
-                                    .bg(white().opacity(0.12))
-                                    .on_click(cx.listener(|this, _, _, cx| this.toggle(cx))),
-                            )
-                            .child(button("next", "⏭").on_click(cx.listener(|this, _, _, cx| this.next(1, cx)))),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .max_w(px(560.))
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .text_xs()
-                            .text_color(white().opacity(0.6))
-                            .child(clock(self.position_ms))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .h(px(4.))
-                                    .rounded_full()
-                                    .bg(white().opacity(0.15))
-                                    .child(div().h_full().rounded_full().bg(accent).w(relative(frac))),
-                            )
-                            .child(clock(duration_ms)),
-                    ),
-            )
-            .child(div().w(px(220.)).flex_none()))
-            .into_any_element()
-    }
 }
 
 impl Render for Lfly {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.tracks.len();
-        let list = uniform_list("tracks", count, cx.processor(|this, range: std::ops::Range<usize>, _w, cx| {
-            range.map(|ix| this.row(ix, cx)).collect::<Vec<_>>()
-        }))
+        let list = uniform_list(
+            "tracks",
+            count,
+            cx.processor(|this, range: std::ops::Range<usize>, _w, cx| {
+                let current = this.model.read(cx).current().map(|t| t.id.clone());
+                range.map(|ix| this.row(ix, current.as_deref(), cx)).collect::<Vec<_>>()
+            }),
+        )
         .flex_1()
         .px_2()
         .pt_2()
@@ -402,9 +219,11 @@ impl Render for Lfly {
             .bg(rgb(0x0b0b0f))
             .text_color(white())
             // The cover's light, stretched: a 64 px picture, drawn again only when it changes.
-            .children(self.backdrop.clone().map(|b| {
-                div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill))
-            }))
+            .children(
+                self.backdrop
+                    .clone()
+                    .map(|b| div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill))),
+            )
             .child(
                 div()
                     .absolute()
@@ -418,13 +237,8 @@ impl Render for Lfly {
                     })
                     .child(list),
             )
-            .child(self.player_bar(cx))
+            .child(self.bar.clone())
     }
-}
-
-fn clock(ms: u64) -> SharedString {
-    let s = ms / 1000;
-    format!("{}:{:02}", s / 60, s % 60).into()
 }
 
 fn main() {
@@ -448,7 +262,8 @@ fn main() {
             window_decorations: Some(WindowDecorations::Client),
             ..TitleBar::window_options()
         };
-        gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Lfly::new(core, updates, window, cx)))
+        let model = cx.new(|cx| PlayerModel::new(core.clone(), updates, cx));
+        gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Lfly::new(core, model, window, cx)))
             .expect("window");
         cx.activate(true);
     });

@@ -32,6 +32,7 @@ struct GlassUniform {
     shadow0: [f32; 4],
     shadow1: [f32; 4],
     shadow_geometry: [f32; 4],
+    p4: [f32; 4],
 }
 
 #[repr(C)]
@@ -287,7 +288,12 @@ impl GlassDx {
         viewport: &D3D11_VIEWPORT,
         glass: &[Glass],
     ) -> Result<()> {
-        let (width, height) = (viewport.Width as u32, viewport.Height as u32);
+        // The copy must match the back buffer exactly (CopyResource), so size it from there.
+        let (width, height) = unsafe {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            render_target.GetDesc(&mut desc);
+            (desc.Width, desc.Height)
+        };
         let sigma = glass.iter().map(|g| g.blur.0).fold(0.0f32, f32::max);
         let factor = if sigma >= 16.0 { 4 } else if sigma >= 6.0 { 2 } else { 1 };
         self.ensure_targets(device, width, height, factor)?;
@@ -339,6 +345,8 @@ impl GlassDx {
                 shadow0: rgba(g.shadow_colors[0]),
                 shadow1: rgba(g.shadow_colors[1]),
                 shadow_geometry: g.shadow_geometry,
+                // Glass.svelte: --g-lip is 0.14, 0.7 on light canvases.
+                p4: [if g.light_scheme > 0.5 { 0.7 } else { 0.14 }, 0.0, 0.0, 0.0],
             };
             write(context, buffer, &u)?;
             unsafe { context.Draw(4, 0) };

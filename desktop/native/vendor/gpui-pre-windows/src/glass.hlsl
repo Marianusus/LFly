@@ -15,6 +15,7 @@ cbuffer GlassParams : register(b2) {
     float4 g_shadow0;
     float4 g_shadow1;
     float4 g_shadow_geometry; // y offset 0, blur 0, y offset 1, blur 1
+    float4 g_p4;              // lip alpha (--g-lip), unused...
 };
 
 cbuffer BlurParams : register(b3) {
@@ -183,7 +184,7 @@ float4 glass_fragment(GlassVarying input) : SV_Target {
     color = over(color, g_tint);
     alpha = alpha + g_tint.a * (1.0 - alpha);
     float lip_top = inset_shadow(p, half_size, radius, 1.0 * scale, 0.5 * scale, 0.0);
-    color = over(color, float4(1.0, 1.0, 1.0, 0.14 * lip_top));
+    color = over(color, float4(1.0, 1.0, 1.0, g_p4.x * lip_top));
     float lip_bottom = inset_shadow(p, half_size, radius, -1.0 * scale, 0.5 * scale, 0.0);
     color = over(color, float4(0.0, 0.0, 0.0, 0.06 * lip_bottom));
     float low = inset_shadow(p, half_size, radius, -14.0 * scale, 24.0 * scale, -18.0 * scale);

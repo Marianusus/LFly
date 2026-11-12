@@ -14,14 +14,20 @@ pub struct GlassLook {
     pub border: Hsla,
     pub highlight: Hsla,
     pub shade: Hsla,
-    /// 1 draws the glass as the Windows (WebView2) build does, where the blur fades out toward
-    /// the edges and the sharp content shows through; 0 is a clean blur. `LFLY_GLASS_BLEED`.
-    pub edge_bleed: f32,
+    /// The lens setting (default on). Off, Tauri sets no SVG filter: no bending, and a clean
+    /// blur (no edge bleed).
+    pub lens: bool,
 }
 
-fn edge_bleed() -> f32 {
-    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("LFLY_GLASS_BLEED").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0))
+/// With the lens on, the glass is drawn as the Windows (WebView2) build draws it: the blur fades
+/// out toward the edges and the sharp content shows through (1). `LFLY_GLASS_BLEED` overrides it.
+fn edge_bleed(lens: bool) -> f32 {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    let forced = *V.get_or_init(|| std::env::var("LFLY_GLASS_BLEED").ok().and_then(|v| v.parse().ok()));
+    if !lens {
+        return 0.0;
+    }
+    forced.unwrap_or(1.0)
 }
 
 fn css(r: u8, g: u8, b: u8, a: f32) -> Hsla {
@@ -40,7 +46,7 @@ impl GlassLook {
             border: css(255, 255, 255, 0.15),
             highlight: css(255, 255, 255, 0.5),
             shade: css(0, 0, 0, 0.35),
-            edge_bleed: edge_bleed(),
+            lens: true,
         }
     }
 
@@ -101,8 +107,8 @@ pub fn glass_layer(look: GlassLook, radius: Pixels, pointer: Pointer) -> impl In
                     blur: look.blur(),
                     saturation: look.saturation(),
                     // lens.ts buildSvg.
-                    refraction_height: px(10.0 + 18.0 * k).min(min_half),
-                    refraction_amount: px(8.0 + 26.0 * k),
+                    refraction_height: if look.lens { px(10.0 + 18.0 * k).min(min_half) } else { px(0.) },
+                    refraction_amount: if look.lens { px(8.0 + 26.0 * k) } else { px(0.) },
                     dispersion: 0.06 + 0.06 * k,
                     light_angle: light_deg.to_radians(),
                     pointer: at,
@@ -114,7 +120,7 @@ pub fn glass_layer(look: GlassLook, radius: Pixels, pointer: Pointer) -> impl In
                     highlight: look.highlight,
                     shade: look.shade,
                     shadows: look.shadows(),
-                    edge_bleed: look.edge_bleed,
+                    edge_bleed: edge_bleed(look.lens),
                 },
             );
         },

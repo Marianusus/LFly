@@ -21,6 +21,7 @@ struct GlassParams {
     shadow0: vec4<f32>,
     shadow1: vec4<f32>,
     shadow_geometry: vec4<f32>, // y offset 0, blur 0, y offset 1, blur 1
+    p4: vec4<f32>,         // lip alpha (--g-lip), unused...
 }
 
 @group(0) @binding(0) var<uniform> g: GlassParams;
@@ -203,7 +204,7 @@ fn fs_glass(input: GlassVarying) -> @location(0) vec4<f32> {
     color = over(color, g.tint);
     alpha = alpha + g.tint.a * (1.0 - alpha);
     let lip_top = inset_shadow(p, half, radius, 1.0 * scale, 0.5 * scale, 0.0);
-    color = over(color, vec4<f32>(1.0, 1.0, 1.0, 0.14 * lip_top));
+    color = over(color, vec4<f32>(1.0, 1.0, 1.0, g.p4.x * lip_top));
     let lip_bottom = inset_shadow(p, half, radius, -1.0 * scale, 0.5 * scale, 0.0);
     color = over(color, vec4<f32>(0.0, 0.0, 0.0, 0.06 * lip_bottom));
     let low = inset_shadow(p, half, radius, -14.0 * scale, 24.0 * scale, -18.0 * scale);

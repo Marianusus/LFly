@@ -23,6 +23,7 @@ struct GlassUniform {
     shadow0: [f32; 4],
     shadow1: [f32; 4],
     shadow_geometry: [f32; 4],
+    p4: [f32; 4],
 }
 
 #[repr(C)]
@@ -422,6 +423,8 @@ impl GlassRenderer {
                 shadow0: rgba(g.shadow_colors[0]),
                 shadow1: rgba(g.shadow_colors[1]),
                 shadow_geometry: g.shadow_geometry,
+                // Glass.svelte: --g-lip is 0.14, 0.7 on light canvases.
+                p4: [if g.light_scheme > 0.5 { 0.7 } else { 0.14 }, 0.0, 0.0, 0.0],
             };
             let Some(offset) = self.slot(queue, bytemuck::bytes_of(&u)) else { return };
             pass.set_bind_group(0, &group, &[offset]);
