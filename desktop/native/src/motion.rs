@@ -465,6 +465,41 @@ impl Follower {
     }
 }
 
+/// A value easing from `from` to `to` since `at`.
+#[derive(Clone, Copy)]
+pub struct Tween {
+    pub from: f32,
+    pub to: f32,
+    pub at: std::time::Instant,
+    pub ms: f32,
+}
+
+impl Tween {
+    pub fn still(v: f32) -> Self {
+        Self { from: v, to: v, at: std::time::Instant::now() - std::time::Duration::from_secs(10), ms: 1. }
+    }
+
+    pub fn progress(&self) -> f32 {
+        (self.at.elapsed().as_secs_f32() * 1000. / self.ms).min(1.)
+    }
+
+    pub fn value(&self, curve: &CubicBezier) -> f32 {
+        self.from + (self.to - self.from) * curve.at(self.progress() as f64) as f32
+    }
+
+    pub fn running(&self) -> bool {
+        self.progress() < 1.
+    }
+
+    pub fn retarget(&mut self, to: f32, ms: f32, curve: &CubicBezier) {
+        if (to - self.to).abs() < f32::EPSILON {
+            return;
+        }
+        *self = Self { from: self.value(curve), to, at: std::time::Instant::now(), ms };
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

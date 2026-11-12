@@ -16,6 +16,10 @@ use crate::theme::Rgb;
 
 pub struct Sidebar {
     nav: Entity<Nav>,
+    ui: Entity<crate::ui::Ui>,
+    /// Set by the window before it draws: `ui.sideWide`, and whether the toggle shows.
+    pub wide: bool,
+    pub can_toggle: bool,
     library: Entity<LibraryModel>,
     look: Entity<Look>,
     covers: Entity<Covers>,
@@ -23,14 +27,21 @@ pub struct Sidebar {
 }
 
 impl Sidebar {
-    pub fn new(nav: Entity<Nav>, library: Entity<LibraryModel>, look: Entity<Look>, covers: Entity<Covers>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        nav: Entity<Nav>,
+        ui: Entity<crate::ui::Ui>,
+        library: Entity<LibraryModel>,
+        look: Entity<Look>,
+        covers: Entity<Covers>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let subs = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
         ];
-        Self { nav, library, look, covers, _subs: subs }
+        Self { nav, ui, wide: true, can_toggle: true, library, look, covers, _subs: subs }
     }
 }
 
@@ -75,7 +86,9 @@ impl Render for Sidebar {
                 l.glass(),
             )
         };
-        let key = self.nav.read(cx).route.key();
+        let key = self.nav.read(cx).page_route().key();
+        // Folded: every icon stays where it is, the words go (Sidebar.svelte `.narrow`).
+        let wide = self.wide;
         let lib = self.library.read(cx);
         let favorites = lib.favorites.len();
         let playlists = lib.playlists.clone();
@@ -115,7 +128,7 @@ impl Render for Sidebar {
                             .when(!on, |i| i.group_hover(group.clone(), |s| s.text_color(c.text))),
                     ),
                 )
-                .child(label)
+                .when(wide, |d| d.child(div().whitespace_nowrap().child(label)))
         };
 
         // `.entry`: 6 px padding, a 40 px art, name 500 13.5px and a 12px subtitle.
@@ -134,15 +147,17 @@ impl Render for Sidebar {
                 .when(!on, |s| s.hover(|s| s.bg(c.text.opacity(0.06))))
                 .on_click(go(route))
                 .child(art)
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.))
-                        .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).text_color(c.text).truncate().child(name))
-                        .child(div().text_size(px(12.)).text_color(c.text3).truncate().child(sub)),
-                )
+                .when(wide, |d| {
+                    d.child(
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).text_color(c.text).truncate().child(name))
+                            .child(div().text_size(px(12.)).text_color(c.text3).truncate().child(sub)),
+                    )
+                })
                 .into_any_element()
         };
 
@@ -201,8 +216,26 @@ impl Render for Sidebar {
                     .flex()
                     .flex_col()
                     .min_h_0()
-                    .child(
+                    .child({
+                        // The brand: the mark, the word, the toggle (under the mark when folded,
+                        // shown on hover).
+                        let ui = self.ui.clone();
+                        let toggle = div()
+                            .id("sb-toggle")
+                            .size(px(32.))
+                            .flex_none()
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .group("sb-toggle")
+                            .hover(|d| d.bg(c.tint))
+                            .on_click(move |_, _, cx| ui.update(cx, |u, cx| u.toggle_sidebar(cx)))
+                            .child(icon("sidebar", 17., c.text2).group_hover("sb-toggle", |s| s.text_color(c.text)));
                         div()
+                            .relative()
+                            .group("sb-brand")
                             .flex()
                             .items_center()
                             .gap(px(10.))
@@ -210,10 +243,47 @@ impl Render for Sidebar {
                             .px(px(8.))
                             .pb(px(14.))
                             .min_h(px(44.))
-                            .child(div().size(px(32.)).flex().items_center().justify_center().child(icon("mark", 28., c.text)))
-                            .child(div().text_size(px(20.)).font_weight(FontWeight::BOLD).text_color(c.text).child("LFly"))
-                            .child(div().ml_auto().child(icon("sidebar", 17., c.text2))),
-                    )
+                            .child(
+                                div()
+                                    .size(px(32.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .when(!wide && self.can_toggle, |d| d.group_hover("sb-brand", |d| d.invisible()))
+                                    .child(icon("mark", if wide { 28. } else { 30. }, c.text)),
+                            )
+                            .when(wide, |d| d.child(div().text_size(px(20.)).font_weight(FontWeight::BOLD).text_color(c.text).child("LFly")))
+                            .when(self.can_toggle && wide, |d| d.child(div().ml_auto().child(toggle)))
+                            .when_some(
+                                (self.can_toggle && !wide).then(|| {
+                                    div()
+                                        .id("sb-toggle-wrap")
+                                        .absolute()
+                                        .left(px(8.))
+                                        .top(px(2.))
+                                        .rounded_full()
+                                        .bg(c.tint)
+                                        .invisible()
+                                        .group_hover("sb-brand", |d| d.visible())
+                                        .child(
+                                            div()
+                                                .id("sb-toggle-n")
+                                                .size(px(32.))
+                                                .rounded_full()
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .cursor_pointer()
+                                                .on_click({
+                                                    let ui = self.ui.clone();
+                                                    move |_, _, cx| ui.update(cx, |u, cx| u.toggle_sidebar(cx))
+                                                })
+                                                .child(icon("sidebar", 17., c.text)),
+                                        )
+                                }),
+                                |d, t| d.child(t),
+                            )
+                    })
                     .child(
                         div()
                             .px(px(4.))
@@ -225,16 +295,33 @@ impl Render for Sidebar {
                             .child(item("library", "Libreria", "library", 20., Route::Library)),
                     )
                     .child(
+                        // `.section`: the caption and the way to the library; folded, a rule.
                         div()
+                            .relative()
                             .flex()
                             .items_center()
                             .justify_between()
+                            .h(px(26. + 24.))
                             .pt(px(18.))
                             .pr(px(12.))
                             .pb(px(6.))
                             .pl(px(18.))
-                            .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c.text3).child("PLAYLIST"))
-                            .child(icon("expand", 13., c.text3)),
+                            .when(wide, |d| {
+                                d.child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c.text3).whitespace_nowrap().child("PLAYLIST")).child(
+                                    div()
+                                        .id("sb-mini")
+                                        .size(px(26.))
+                                        .rounded_full()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .cursor_pointer()
+                                        .hover(|d| d.bg(c.tint))
+                                        .on_click(go(Route::Library))
+                                        .child(icon("expand", 13., c.text3)),
+                                )
+                            })
+                            .when(!wide, |d| d.child(div().absolute().left(px(14.)).right(px(14.)).top(px(25.)).h(px(1.)).bg(c.separator))),
                     )
                     .child(
                         div()

@@ -30,7 +30,6 @@ use crate::player_model::PlayerModel;
 const OFFSETS_KEY: &str = "lyrics-offsets";
 /// The fog's own easing (cubic-bezier(0.22, 1, 0.36, 1), 450 ms).
 const FOG_EASE: CubicBezier = CubicBezier::new(0.22, 1., 0.36, 1.);
-const PAD_X: f32 = 4.;
 const PAD_TOP: f32 = 24.;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -39,6 +38,8 @@ pub enum Variant {
     Page,
     /// Beside the full player: clamp(24px, 2.2vw, 34px).
     Panel,
+    /// The right panel: 21 px in the theme's text colour, 14 px in from the sides.
+    Side,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -121,13 +122,78 @@ impl Default for Motion {
     }
 }
 
-pub struct Lyrics {
+/// The lyrics fetched so far and the timing corrections, shared by every lyrics view (the side
+/// panel, the page and the full player read the same songs: one fetch each).
+pub struct LyricsData {
     core: Arc<Core>,
+    cache: HashMap<String, Option<Rc<pages::Lyrics>>>,
+    loading: std::collections::HashSet<String>,
+    /// Per-song timing correction in ms (positive: the words come later), kept as Tauri keeps it.
+    offsets: serde_json::Map<String, Value>,
+}
+
+impl LyricsData {
+    pub fn new(core: Arc<Core>) -> Self {
+        let offsets = lfly_core::store::get(OFFSETS_KEY).ok().flatten().and_then(|v| v.as_object().cloned()).unwrap_or_default();
+        Self { core, cache: HashMap::new(), loading: Default::default(), offsets }
+    }
+
+    /// The song's lyrics: `None` while they are being fetched (the fetch starts here).
+    fn get(&mut self, t: &lfly_connect::protocol::TrackRef, cx: &mut Context<Self>) -> Option<Option<Rc<pages::Lyrics>>> {
+        if let Some(l) = self.cache.get(&t.id) {
+            return Some(l.clone());
+        }
+        if self.loading.insert(t.id.clone()) {
+            let id = t.id.clone();
+            let Some(track) = track_of(t) else {
+                self.cache.insert(id, None);
+                return Some(None);
+            };
+            let core = self.core.clone();
+            cx.spawn(async move |this, cx| {
+                let got = core.lyrics(track).await;
+                let _ = this.update(cx, |this, cx| {
+                    let l = match got {
+                        Ok(l) => l.map(Rc::new),
+                        Err(e) => {
+                            log::info!("lyrics: {e}");
+                            None
+                        }
+                    };
+                    this.loading.remove(&id);
+                    this.cache.insert(id, l);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        None
+    }
+
+    fn offset(&self, id: &str) -> f64 {
+        self.offsets.get(id).and_then(Value::as_f64).unwrap_or(0.)
+    }
+
+    fn set_offset(&mut self, id: &str, ms: f64, cx: &mut Context<Self>) {
+        if ms == 0. {
+            self.offsets.remove(id);
+        } else {
+            self.offsets.insert(id.to_string(), Value::from(ms));
+        }
+        if let Err(e) = lfly_core::store::set(OFFSETS_KEY, &Value::Object(self.offsets.clone())) {
+            log::warn!("{OFFSETS_KEY}: {e}");
+        }
+        cx.notify();
+    }
+}
+
+pub struct Lyrics {
+    data: Entity<LyricsData>,
     model: Entity<PlayerModel>,
     look: Entity<Look>,
+    nav: Option<Entity<crate::nav::Nav>>,
     pub variant: Variant,
     pub window_width: f32,
-    cache: HashMap<String, Option<Rc<pages::Lyrics>>>,
     loaded_for: String,
     status: Status,
     lyrics: Option<Rc<pages::Lyrics>>,
@@ -136,7 +202,6 @@ pub struct Lyrics {
     sheet: (u64, u64),
     generation: u64,
     offset: f64,
-    offsets: serde_json::Map<String, Value>,
     hovered: bool,
     epoch: Instant,
     motion: Rc<RefCell<Motion>>,
@@ -144,8 +209,20 @@ pub struct Lyrics {
 }
 
 impl Lyrics {
-    pub fn new(core: Arc<Core>, model: Entity<PlayerModel>, look: Entity<Look>, cx: &mut Context<Self>) -> Self {
+    /// [nav]: the side panel's lyrics open the page from their capsule.
+    pub fn new(
+        data: Entity<LyricsData>,
+        model: Entity<PlayerModel>,
+        look: Entity<Look>,
+        nav: Option<Entity<crate::nav::Nav>>,
+        variant: Variant,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let subs = vec![
+            cx.observe(&data, |this, _, cx| {
+                this.loaded_for.clear();
+                cx.notify();
+            }),
             // The song moved, played or paused: wake the loop.
             cx.observe(&model, |this, _, cx| {
                 let now = this.now();
@@ -154,14 +231,13 @@ impl Lyrics {
             }),
             cx.observe(&look, |_, _, cx| cx.notify()),
         ];
-        let offsets = lfly_core::store::get(OFFSETS_KEY).ok().flatten().and_then(|v| v.as_object().cloned()).unwrap_or_default();
         Self {
-            core,
+            data,
             model,
             look,
-            variant: Variant::Page,
+            nav,
+            variant,
             window_width: 1100.,
-            cache: HashMap::new(),
             loaded_for: String::new(),
             status: Status::Loading,
             lyrics: None,
@@ -169,7 +245,6 @@ impl Lyrics {
             sheet: (0, 0),
             generation: 0,
             offset: 0.,
-            offsets,
             hovered: false,
             epoch: Instant::now(),
             motion: Rc::new(RefCell::new(Motion::default())),
@@ -183,63 +258,47 @@ impl Lyrics {
 
     fn show(&mut self, l: Option<Rc<pages::Lyrics>>) {
         let ready = l.as_ref().is_some_and(|l| l.synced.as_ref().is_some_and(|s| !s.is_empty()) || l.plain.is_some());
+        let same = match (&self.lyrics, &l) {
+            (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
         self.status = if ready { Status::Ready } else { Status::None };
-        self.lyrics = l;
-        self.generation += 1;
+        if !same {
+            self.lyrics = l;
+            self.generation += 1;
+        }
     }
 
-    /// Fetches the lyrics when the song changes (the cache keeps the ones read already).
+    /// The playing song's lyrics, from the shared data (which fetches them once).
     fn follow_track(&mut self, cx: &mut Context<Self>) {
         let Some(t) = self.model.read(cx).current().cloned() else { return };
         if t.id == self.loaded_for {
             return;
         }
-        let id = t.id.clone();
-        self.loaded_for = id.clone();
-        self.offset = self.offsets.get(&id).and_then(Value::as_f64).unwrap_or(0.);
-        if let Some(l) = self.cache.get(&id).cloned() {
-            self.show(l);
-            return;
-        }
-        self.status = Status::Loading;
-        self.lyrics = None;
-        self.generation += 1;
-        let Some(track) = track_of(&t) else {
-            self.status = Status::None;
-            return;
-        };
-        let core = self.core.clone();
-        cx.spawn(async move |this, cx| {
-            let got = core.lyrics(track).await;
-            let _ = this.update(cx, |this, cx| {
-                let l = match got {
-                    Ok(l) => l.map(Rc::new),
-                    Err(e) => {
-                        log::info!("lyrics: {e}");
-                        None
-                    }
-                };
-                this.cache.insert(id.clone(), l.clone());
-                if this.loaded_for == id {
-                    this.show(l);
-                    cx.notify();
+        let got = self.data.update(cx, |d, cx| d.get(&t, cx));
+        self.offset = self.data.read(cx).offset(&t.id);
+        match got {
+            Some(l) => {
+                self.loaded_for = t.id.clone();
+                self.show(l);
+            }
+            None => {
+                // Asked again when the data arrives (it notifies).
+                if self.status != Status::Loading || self.lyrics.is_some() {
+                    self.status = Status::Loading;
+                    self.lyrics = None;
+                    self.generation += 1;
                 }
-            });
-        })
-        .detach();
+            }
+        }
     }
 
     fn nudge(&mut self, ms: f64, cx: &mut Context<Self>) {
         self.offset = if ms == 0. { 0. } else { (self.offset + ms).clamp(-10_000., 10_000.) };
         if !self.loaded_for.is_empty() {
-            if self.offset == 0. {
-                self.offsets.remove(&self.loaded_for);
-            } else {
-                self.offsets.insert(self.loaded_for.clone(), Value::from(self.offset));
-            }
-            if let Err(e) = lfly_core::store::set(OFFSETS_KEY, &Value::Object(self.offsets.clone())) {
-                log::warn!("{OFFSETS_KEY}: {e}");
-            }
+            let (id, offset) = (self.loaded_for.clone(), self.offset);
+            self.data.update(cx, |d, cx| d.set_offset(&id, offset, cx));
         }
         self.motion.borrow_mut().woke = self.now();
         cx.notify();
@@ -266,12 +325,8 @@ fn font_size(variant: Variant, window_width: f32) -> f32 {
     match variant {
         Variant::Page => (window_width * 0.027).clamp(28., 40.),
         Variant::Panel => (window_width * 0.022).clamp(24., 34.),
+        Variant::Side => 21.,
     }
-}
-
-/// Ink at [a] of its alpha.
-fn ink(a: f32) -> Hsla {
-    white().opacity(a)
 }
 
 impl Render for Lyrics {
@@ -282,6 +337,13 @@ impl Render for Lyrics {
             (m.current().cloned(), m.duration_ms())
         };
         let size = font_size(self.variant, self.window_width);
+        let side = self.variant == Variant::Side;
+        // `--lyrics-ink`: white over the cover's light, the text colour in the panel.
+        let base = if side { self.look.read(cx).scheme.text } else { white() };
+        let ink = move |a: f32| base.opacity(a);
+        #[allow(non_snake_case)]
+        let PAD_X: f32 = if side { 14. } else { 4. };
+        let (fog_top_on, fog_bottom_on) = if side { (0.14, 0.18) } else { (0.22, 0.26) };
         let glass_look = {
             let l = self.look.read(cx).glass();
             // LyricsLines `.sync`: blur(18px) saturate(1.6) over the glass tint, no lens.
@@ -439,8 +501,8 @@ impl Render for Lyrics {
                     }
                 }
                 st.scroll.step(now, dt);
-                st.fog_top.set(if st.scroll.pos <= 4. { 0. } else { 0.22 }, now);
-                st.fog_bottom.set(if st.scroll.max - st.scroll.pos <= 4. { 0. } else { 0.26 }, now);
+                st.fog_top.set(if st.scroll.pos <= 4. { 0. } else { fog_top_on }, now);
+                st.fog_bottom.set(if st.scroll.max - st.scroll.pos <= 4. { 0. } else { fog_bottom_on }, now);
                 let (fog_t, fog_b) = (st.fog_top.value(now), st.fog_bottom.value(now));
                 let view_h = st.view_h as f32;
                 // The mask: transparent at the edges, opaque past the fog.
@@ -635,7 +697,29 @@ impl Render for Lyrics {
                             .text_color(text)
                             .child(nudge("lyr-earlier", "−".into(), -250., 30., false))
                             .child(nudge("lyr-reset", offset_label.into(), 0., 64., self.offset != 0.))
-                            .child(nudge("lyr-later", "+".into(), 250., 30., false)),
+                            .child(nudge("lyr-later", "+".into(), 250., 30., false))
+                            // The side panel's way to the page: a rule, then "expand".
+                            .when_some(self.nav.clone().filter(|_| side), |d, nav| {
+                                d.child(div().w(px(1.)).h(px(16.)).mx(px(2.)).bg(crate::track_row::separator(&self.look.read(cx).scheme)))
+                                    .child(
+                                        div()
+                                            .id("lyr-expand")
+                                            .min_w(px(30.))
+                                            .h(px(28.))
+                                            .px(px(8.))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_full()
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(ink(0.1)))
+                                            .on_click(move |_, _, cx| {
+                                                cx.stop_propagation();
+                                                nav.update(cx, |n, cx| n.go(crate::nav::Route::Lyrics, cx));
+                                            })
+                                            .child(icon("g-expand", 13., text)),
+                                    )
+                            }),
                     ),
             );
 

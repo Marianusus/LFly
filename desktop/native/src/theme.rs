@@ -52,6 +52,15 @@ pub fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
     Rgb(a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f, a.2 + (b.2 - a.2) * f).round()
 }
 
+/// CSS `color-mix(in srgb, a p, b)` with alpha: premultiplied, as browsers mix.
+pub fn color_mix(a: gpui_kit::Hsla, p: f32, b: gpui_kit::Hsla) -> gpui_kit::Hsla {
+    let (a, b): (gpui_kit::Rgba, gpui_kit::Rgba) = (a.into(), b.into());
+    let q = 1. - p;
+    let alpha = p * a.a + q * b.a;
+    let ch = |x: f32, y: f32| if alpha > 1e-4 { (p * a.a * x + q * b.a * y) / alpha } else { 0. };
+    gpui_kit::Rgba { r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b), a: alpha }.into()
+}
+
 /// Rec.601 luma, 0..1.
 pub fn luma(c: Rgb) -> f32 {
     ((0.299 * c.0 + 0.587 * c.1 + 0.114 * c.2) / 255.).clamp(0., 1.)

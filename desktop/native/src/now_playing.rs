@@ -4,7 +4,7 @@
 //! (Still missing: the output menu's list of devices, the "more" menu.)
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -17,7 +17,7 @@ use crate::icons::icon;
 use crate::library_model::LibraryModel;
 use crate::look::Look;
 use crate::lyrics::{Lyrics, Variant};
-use crate::motion::CubicBezier;
+use crate::motion::{CubicBezier, Tween};
 use crate::nav::{Nav, Route};
 use crate::player_bar::clock;
 use crate::player_model::PlayerModel;
@@ -34,40 +34,6 @@ const PANEL_KEY: &str = "native.nowplaying.panel";
 
 /// `--lfly-ease-spring`: past the mark and back.
 const SPRING: CubicBezier = CubicBezier::new(0.34, 1.56, 0.64, 1.);
-
-/// A value easing from `from` to `to` since `at`.
-#[derive(Clone, Copy)]
-struct Tween {
-    from: f32,
-    to: f32,
-    at: Instant,
-    ms: f32,
-}
-
-impl Tween {
-    fn still(v: f32) -> Self {
-        Self { from: v, to: v, at: Instant::now() - Duration::from_secs(10), ms: 1. }
-    }
-
-    fn progress(&self) -> f32 {
-        (self.at.elapsed().as_secs_f32() * 1000. / self.ms).min(1.)
-    }
-
-    fn value(&self, curve: &CubicBezier) -> f32 {
-        self.from + (self.to - self.from) * curve.at(self.progress() as f64) as f32
-    }
-
-    fn running(&self) -> bool {
-        self.progress() < 1.
-    }
-
-    fn retarget(&mut self, to: f32, ms: f32, curve: &CubicBezier) {
-        if (to - self.to).abs() < f32::EPSILON {
-            return;
-        }
-        *self = Self { from: self.value(curve), to, at: Instant::now(), ms };
-    }
-}
 
 pub struct NowPlaying {
     core: Arc<Core>,

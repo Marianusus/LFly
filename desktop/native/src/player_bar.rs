@@ -11,11 +11,13 @@ use crate::glass;
 use crate::icons::icon;
 use crate::look::Look;
 use crate::player_model::PlayerModel;
+use crate::ui::SidePanel;
 use crate::slider::{slider, SliderBounds, SliderStyle};
 
 pub struct PlayerBar {
     model: Entity<PlayerModel>,
     nav: Entity<crate::nav::Nav>,
+    ui: Entity<crate::ui::Ui>,
     covers: Entity<Covers>,
     look: Entity<Look>,
     /// While the seek slider is held: where it is (ms).
@@ -31,8 +33,17 @@ pub struct PlayerBar {
 }
 
 impl PlayerBar {
-    pub fn new(model: Entity<PlayerModel>, nav: Entity<crate::nav::Nav>, covers: Entity<Covers>, look: Entity<Look>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        model: Entity<PlayerModel>,
+        nav: Entity<crate::nav::Nav>,
+        ui: Entity<crate::ui::Ui>,
+        covers: Entity<Covers>,
+        look: Entity<Look>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let subs = vec![
+            cx.observe(&ui, |_, _, cx| cx.notify()),
+            cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&model, |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
@@ -40,6 +51,7 @@ impl PlayerBar {
         Self {
             model,
             nav,
+            ui,
             covers,
             look,
             scrubbing: None,
@@ -333,6 +345,8 @@ impl Render for PlayerBar {
                     .child(div().min_w(px(34.)).text_size(px(11.)).text_color(c.text3).child(clock(duration_ms))),
             ));
 
+        let panel = self.ui.read(cx).panel;
+        let on_lyrics = self.nav.read(cx).route == crate::nav::Route::Lyrics;
         let volume_icon = if volume == 0 { "volume-mute" } else if volume < 50 { "speaker-wave" } else { "volume" };
         let right = div()
             .when(!medium, |s| s.flex_grow(1.).flex_basis(relative(0.)))
@@ -342,9 +356,25 @@ impl Render for PlayerBar {
             .items_center()
             .justify_end()
             .gap(px(4.))
-            .when(!narrow, |s| s.child(ctl("lyrics", "lyrics", 17., 34., false, !has, None, &c)))
-            .child(ctl("queue", "queue", 17., 34., false, false, None, &c))
-            .child(ctl("devices", "devices", 17., 34., false, false, None, &c))
+            .when(!narrow, |s| {
+                // On the lyrics page it goes back; elsewhere it opens the lyrics beside the page.
+                let (ui, nav) = (self.ui.clone(), self.nav.clone());
+                s.child(ctl("lyrics", "lyrics", 17., 34., panel == Some(SidePanel::Lyrics) || on_lyrics, !has, None, &c).on_click(move |_, _, cx| {
+                    if nav.read(cx).route == crate::nav::Route::Lyrics {
+                        nav.update(cx, |n, cx| n.go_back(cx));
+                    } else {
+                        ui.update(cx, |u, cx| u.toggle_panel(SidePanel::Lyrics, cx));
+                    }
+                }))
+            })
+            .child(ctl("queue", "queue", 17., 34., panel == Some(SidePanel::Queue), false, None, &c).on_click({
+                let ui = self.ui.clone();
+                move |_, _, cx| ui.update(cx, |u, cx| u.toggle_panel(SidePanel::Queue, cx))
+            }))
+            .child(ctl("devices", "devices", 17., 34., panel == Some(SidePanel::Devices), false, None, &c).on_click({
+                let ui = self.ui.clone();
+                move |_, _, cx| ui.update(cx, |u, cx| u.toggle_panel(SidePanel::Devices, cx))
+            }))
             .when(!narrow, |s| s.child(
                 div()
                     .flex()
