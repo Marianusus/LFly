@@ -36,6 +36,8 @@ mod theme;
 mod toast;
 mod track_row;
 mod ui;
+#[cfg(test)]
+mod ui_tests;
 
 use std::sync::Arc;
 
