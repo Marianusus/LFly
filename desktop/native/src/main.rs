@@ -5,6 +5,7 @@
 //! result, `LFLY_MUTE=1`, and the glass comparison flags in player_bar.rs.
 
 mod art;
+mod artist;
 mod core;
 mod collection;
 mod covers;
@@ -31,6 +32,7 @@ use lfly_connect::protocol;
 use lfly_yt::Track;
 
 use crate::core::Core;
+use crate::artist::Artist;
 use crate::collection::{Collection, Source};
 use crate::covers::Covers;
 use crate::home::Home;
@@ -54,6 +56,7 @@ struct Lfly {
     sidebar: Entity<Sidebar>,
     home: Entity<Home>,
     collection: Entity<Collection>,
+    artist: Entity<Artist>,
     search: Entity<InputState>,
     tracks: Vec<Track>,
     status: SharedString,
@@ -73,7 +76,8 @@ impl Lfly {
         let library = cx.new(LibraryModel::new);
         let sidebar = cx.new(|cx| Sidebar::new(nav.clone(), library.clone(), look.clone(), covers.clone(), cx));
         let home = cx.new(|cx| Home::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
-        let collection = cx.new(|cx| Collection::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library, model.clone(), cx));
+        let collection = cx.new(|cx| Collection::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
+        let artist = cx.new(|cx| Artist::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library, model.clone(), cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Cerca brani su YouTube Music"));
         let subs = vec![
             cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _w, cx| {
@@ -114,6 +118,7 @@ impl Lfly {
             sidebar,
             home,
             collection,
+            artist,
             search,
             tracks: Vec::new(),
             status: "Cerca qualcosa da ascoltare.".into(),
@@ -135,6 +140,7 @@ impl Lfly {
                 "album" => Some(Route::Album { id: id.into(), name: String::new() }),
                 "playlist" => Some(Route::Playlist { id: id.into(), name: String::new(), local: false }),
                 "local" => Some(Route::Playlist { id: id.into(), name: String::new(), local: true }),
+                "artist" => Some(Route::Artist { id: id.into(), name: String::new() }),
                 _ => None,
             };
             if let Some(route) = route {
@@ -413,6 +419,10 @@ impl Lfly {
                 self.show_collection(if local { Source::Local(id) } else { Source::Playlist(id) }, Some(name), cx)
             }
             Route::Liked => self.show_collection(Source::Liked, None, cx),
+            Route::Artist { id, name } => {
+                self.artist.update(cx, |a, cx| a.show(id, name, cx));
+                self.artist.clone().into_any_element()
+            }
             Route::Search => {
                 let count = self.tracks.len();
                 let list = uniform_list(
@@ -450,10 +460,9 @@ impl Lfly {
                 .child(div().text_size(px(28.)).font_weight(FontWeight::BOLD).child(match other {
                     Route::Library => "La tua libreria",
                     Route::Downloads => "Scaricati",
-                    Route::Artist { .. } => "Artista",
                     Route::Lyrics => "Testo",
                     Route::Settings => "Impostazioni",
-                    Route::Search | Route::Home | Route::Album { .. } | Route::Playlist { .. } | Route::Liked => unreachable!(),
+                    Route::Search | Route::Home | Route::Album { .. } | Route::Playlist { .. } | Route::Liked | Route::Artist { .. } => unreachable!(),
                 }))
                 .child(div().text_color(text3).child("Questa pagina non è ancora stata portata nella versione nativa."))
                 .into_any_element(),
@@ -479,6 +488,11 @@ impl Render for Lfly {
             h.page_width = stage_w;
         });
         self.collection.update(cx, |c, _| c.width = win_w);
+        let win_h = f32::from(size.height);
+        self.artist.update(cx, |a, _| {
+            a.width = win_w;
+            a.height = win_h;
+        });
         let top = self.top_bar(window, cx);
         let page = self.page(cx);
         div()

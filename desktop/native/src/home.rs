@@ -70,7 +70,7 @@ impl Home {
 }
 
 /// items.ts `openItem`.
-fn open_item(item: &Item, core: &Arc<Core>, nav: &Entity<Nav>, cx: &mut App) {
+pub fn open_item(item: &Item, core: &Arc<Core>, nav: &Entity<Nav>, cx: &mut App) {
     match item.kind {
         "song" => {
             if let Some(t) = item.track.clone() {
@@ -85,7 +85,7 @@ fn open_item(item: &Item, core: &Arc<Core>, nav: &Entity<Nav>, cx: &mut App) {
 }
 
 /// items.ts `playItem`.
-fn play_item(item: &Item, core: &Arc<Core>, cx: &mut App) {
+pub fn play_item(item: &Item, core: &Arc<Core>, cx: &mut App) {
     let core = core.clone();
     match item.kind {
         "song" => {
@@ -116,7 +116,7 @@ fn glass_tile_shadow(s: &Scheme) -> Hsla {
 /// Card.svelte: glass, 22 px corners, an 8 px inset cover (15 px corners), title (600 14px, two
 /// lines) and subtitle; the accent play button rises on hover.
 #[allow(clippy::too_many_arguments)]
-fn card(
+pub fn card(
     id: SharedString,
     item: &Item,
     width: f32,
@@ -205,7 +205,7 @@ fn card(
         })
 }
 
-trait CloneItem {
+pub trait CloneItem {
     fn clone_item(&self) -> Item;
 }
 
@@ -223,7 +223,7 @@ impl CloneItem for Item {
 }
 
 /// Shelf.svelte's song tile (the phone's HomeShelf.kt): glass, 20 px corners, a 56 px cover.
-fn song_tile(id: SharedString, item: &Item, width: f32, cover: Option<Arc<Image>>, current: bool, s: &Scheme, core: &Arc<Core>) -> impl IntoElement {
+pub fn song_tile(id: SharedString, item: &Item, width: f32, cover: Option<Arc<Image>>, current: bool, s: &Scheme, core: &Arc<Core>) -> impl IntoElement {
     let group: SharedString = format!("tile-{id}").into();
     let open = item.clone_item();
     let core = core.clone();
@@ -282,7 +282,51 @@ fn song_tile(id: SharedString, item: &Item, width: f32, cover: Option<Arc<Image>
         )
 }
 
-fn shelf_header(title: SharedString, s: &Scheme) -> impl IntoElement {
+/// Shelf.svelte `.row`: a horizontal rail (cards), or two rows of song tiles.
+pub fn rail(id: SharedString, children: Vec<AnyElement>, two_rows: bool) -> impl IntoElement {
+    div()
+        .id(id)
+        .overflow_x_scroll()
+        .px(px(24.))
+        .pt(px(6.))
+        .pb(px(14.))
+        .child(
+            div()
+                .flex()
+                .when(two_rows, |d| d.flex_col().flex_wrap().h(px(2. * 74. + 10.)).gap_y(px(10.)).gap_x(px(12.)))
+                .when(!two_rows, |d| d.gap(px(14.)))
+                .children(children),
+        )
+}
+
+/// A titled shelf of cards (Shelf.svelte), nothing when empty.
+#[allow(clippy::too_many_arguments)]
+pub fn card_shelf(
+    key: &str,
+    title: &str,
+    items: &[Item],
+    card_w: f32,
+    covers: &Entity<Covers>,
+    s: &Scheme,
+    core: &Arc<Core>,
+    nav: &Entity<Nav>,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    if items.is_empty() {
+        return None;
+    }
+    let children = items
+        .iter()
+        .enumerate()
+        .map(|(i, it)| {
+            let cover = it.cover_url.as_deref().and_then(|u| covers.update(cx, |c, cx| c.get(u, cx)));
+            card(format!("{key}-{i}").into(), it, card_w, cover, s, core, nav).into_any_element()
+        })
+        .collect();
+    Some(div().mb(px(36.)).child(shelf_header(title.to_string().into(), s)).child(rail(key.to_string().into(), children, false)).into_any_element())
+}
+
+pub fn shelf_header(title: SharedString, s: &Scheme) -> impl IntoElement {
     div()
         .px(px(24.))
         .mb(px(12.))
@@ -357,21 +401,6 @@ impl Render for Home {
             })
             .collect();
 
-        let rail = |id: SharedString, children: Vec<AnyElement>, two_rows: bool| {
-            div()
-                .id(id)
-                .overflow_x_scroll()
-                .px(px(24.))
-                .pt(px(6.))
-                .pb(px(14.))
-                .child(
-                    div()
-                        .flex()
-                        .when(two_rows, |d| d.flex_col().flex_wrap().h(px(2. * 74. + 10.)).gap_y(px(10.)).gap_x(px(12.)))
-                        .when(!two_rows, |d| d.gap(px(14.)))
-                        .children(children),
-                )
-        };
 
         let mut sections: Vec<AnyElement> = Vec::new();
         if !recent.is_empty() {
