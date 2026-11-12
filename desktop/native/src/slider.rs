@@ -13,6 +13,15 @@ use gpui_kit::*;
 pub struct SliderBounds(Rc<Cell<Bounds<Pixels>>>);
 
 impl SliderBounds {
+    /// Bottom 0, top 1 (a vertical slider).
+    pub fn fraction_y(&self, at: Point<Pixels>) -> f32 {
+        let b = self.0.get();
+        if b.size.height <= px(0.) {
+            return 0.;
+        }
+        (1. - (at.y - b.origin.y) / b.size.height).clamp(0., 1.)
+    }
+
     pub fn fraction(&self, at: Point<Pixels>) -> f32 {
         let b = self.0.get();
         if b.size.width <= px(0.) {
@@ -162,5 +171,63 @@ pub fn bar_slider(
                         .bg(ink.opacity(0.82))
                         .when(!disabled, |s| s.group_hover(group, move |s| s.bg(ink))),
                 ),
+        )
+}
+
+/// EqualizerPanel.svelte `.band input`: a vertical 6 px track (accent from the bottom) with a
+/// 20 px white thumb; a drag sets it, a double click calls [on_reset].
+pub fn vslider(
+    id: impl Into<ElementId>,
+    frac: f32,
+    accent: Hsla,
+    track: Hsla,
+    height: f32,
+    bounds: SliderBounds,
+    on_drag: impl Fn(f32, &mut Window, &mut App) + 'static,
+    on_reset: impl Fn(&mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let f = frac.clamp(0., 1.);
+    let (b1, b2) = (bounds.clone(), bounds.clone());
+    let on_drag = Rc::new(on_drag);
+    let on_drag2 = on_drag.clone();
+    div()
+        .id(id)
+        .relative()
+        .w(px(24.))
+        .h(px(height))
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, move |e, w, cx| {
+            if e.click_count == 2 {
+                on_reset(w, cx);
+            } else {
+                on_drag(b1.fraction_y(e.position), w, cx);
+            }
+        })
+        .on_mouse_move(move |e, w, cx| {
+            if e.pressed_button == Some(MouseButton::Left) {
+                on_drag2(b2.fraction_y(e.position), w, cx);
+            }
+        })
+        .child(canvas(move |b, _, _| bounds.0.set(b), |_, _, _, _| {}).absolute().inset_0())
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(9.))
+                .w(px(6.))
+                .rounded_full()
+                .bg(track)
+                .child(div().absolute().left_0().right_0().bottom_0().h(relative(f)).rounded_full().bg(accent)),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(2.))
+                .top(px((1. - f) * (height - 20.)))
+                .size(px(20.))
+                .rounded_full()
+                .bg(white())
+                .shadow(vec![BoxShadow { color: black().opacity(0.35), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(0.), inset: false }]),
         )
 }

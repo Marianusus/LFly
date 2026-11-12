@@ -3961,6 +3961,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "image",
+ "lfly-audio",
  "lfly-connect",
  "lfly-core",
  "lfly-yt",

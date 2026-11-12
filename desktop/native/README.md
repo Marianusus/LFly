@@ -31,7 +31,7 @@ the window, Inter in its five weights (the face the Tauri window bundles; Segoe 
 Windows, as there), the icon set, the full player bar (with its 900/620 px layouts), Home, Album,
 YouTube and library playlists, Liked songs, Artist, search, the library (grid), the full player
 (Now Playing) with its queue and lyrics panels, the lyrics page, Settings (look,
-general, playback, lyrics, space and privacy, about; the sections that need unported parts say
+general, playback with the equalizer, Automix crossfade and output, lyrics, space and privacy, about; the sections that need unported parts say
 so), the keyboard shortcuts and the mouse's back/forward buttons, the heart (saved to
 favorites.json as the Tauri app saves it, read again first; Drive backup and library sync are
 not told yet, as Tauri's `library_save` does), the shared player (queue, gapless preload,
@@ -45,8 +45,9 @@ the queue's playing bars stand still; Copertina dinamica flows at a sixth of the
 third) without the grain over it. The lyrics animate at most 60 frames a second, four when
 the window is behind another one (Tauri: the monitor's rate, 30 in the background).
 Songs played here go into history.json as in Tauri (not in test runs: `LFLY_MUTE` or
-`LFLY_AUTOPLAY` set) unless Settings pauses it. Missing in the full
-player: the output menu's devices. 
+`LFLY_AUTOPLAY` set) unless Settings pauses it. The output is picked from a list in Settings
+(Tauri: a `<select>`); the full player's output menu lists this computer's devices, not yet
+LFly Connect's.
 
 To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte file with its
 CSS numbers, a screenshot against `mock.html` in Chromium):
@@ -54,8 +55,8 @@ CSS numbers, a screenshot against `mock.html` in Chromium):
 1. Foundations still missing: the SelectionPill spring in the sidebar.
 2. Search: remembering the artists, albums and playlists opened from its shelves; Settings' "clear
    recent searches".
-3. Library: list view, import and create, the downloads filter; Downloads; the equalizer and
-   crossfade; custom themes, Spicetify and its marketplace; autostart.
+3. Library: the downloads filter; Downloads; custom themes, Spicetify and its marketplace;
+   autostart.
 4. LFly Connect and library sync, Google Drive, system media controls, Discord, Spotify import,
    YouTube Music sign-in (a short-lived webview helper process: GPUI has no webview).
 5. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.

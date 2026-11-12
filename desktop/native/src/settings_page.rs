@@ -99,6 +99,9 @@ pub struct SettingsPage {
     pub page_width: f32,
     playback: lfly_core::settings::Playback,
     glass_bounds: SliderBounds,
+    bass_bounds: SliderBounds,
+    cross_bounds: SliderBounds,
+    band_bounds: [SliderBounds; 5],
     strength_draft: Option<f32>,
     confirm: Option<Confirm>,
     cache_size: Option<u64>,
@@ -151,6 +154,7 @@ impl SettingsPage {
             cx.observe(&library, |_, _, cx| cx.notify()),
             cx.observe(&Prefs::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         Self {
@@ -173,6 +177,9 @@ impl SettingsPage {
             page_width: 800.,
             playback: lfly_core::settings::playback(),
             glass_bounds: SliderBounds::default(),
+            bass_bounds: SliderBounds::default(),
+            cross_bounds: SliderBounds::default(),
+            band_bounds: Default::default(),
             strength_draft: None,
             confirm: None,
             cache_size: None,
@@ -184,6 +191,9 @@ impl SettingsPage {
     /// Called when the page is opened: what it shows is read again.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.playback = lfly_core::settings::playback();
+        if self.section == Section::Sound {
+            crate::audio::AudioModel::entity(cx).update(cx, |a, cx| a.load_devices(cx));
+        }
         self.health = lfly_core::pages::health(&self.core.yt);
         cx.spawn(async move |this, cx| {
             let n = cx.background_executor().spawn(async move { cache_dir().map_or(0, |d| dir_size(&d)) }).await;
@@ -778,8 +788,183 @@ impl SettingsPage {
                     i,
                 ))
                 .into_any_element(),
-            group("Equalizzatore", Some("L'equalizzatore e la dissolvenza tra i brani non sono ancora nella versione nativa."), i).into_any_element(),
+            div().mt(px(28.)).max_w(px(720.)).flex().flex_col().gap(px(14.)).children(self.equalizer(i, cx)).into_any_element(),
         ]
+    }
+
+    /// EqualizerPanel.svelte: the equalizer, the crossfade (Automix), the output.
+    fn equalizer(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use crate::audio::{AudioModel, BANDS, MAX_DB, PRESETS};
+        let audio = AudioModel::entity(cx);
+        let a = audio.read(cx);
+        let (eq, crossfade, device, devices, preset) = (a.v.eq, a.v.crossfade, a.v.device.clone(), a.devices.clone(), a.preset());
+        let text3 = self.look.read(cx).scheme.text3;
+        let card = || {
+            div().pt(px(18.)).px(px(20.)).pb(px(20.)).rounded(px(24.)).bg(self.look.read(cx).scheme.glass_tint).border_1().border_color(i.border)
+        };
+        let h2 = |t: &str| div().text_size(px(17.)).line_height(px(21.)).font_weight(FontWeight::SEMIBOLD).child(t.to_string());
+        let help = |t: &str| div().mt(px(8.)).line_height(px(19.5)).text_color(i.text2).child(t.to_string());
+
+        let au = audio.clone();
+        let enabled = eq.enabled;
+        let head = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(h2("Equalizzatore"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(i.text2)
+                    .child(if enabled { "Attivo" } else { "Spento" })
+                    .child(switch("eq-on", enabled, false, i, move |cx| au.update(cx, |a, cx| a.set_enabled(!enabled, cx)))),
+            );
+        let presets = div().mt(px(16.)).flex().flex_wrap().gap(px(6.)).children(PRESETS.iter().map(|(name, _, _)| {
+            let on = preset == *name;
+            let au = audio.clone();
+            let name = *name;
+            div()
+                .id(SharedString::from(format!("preset-{name}")))
+                .h(px(30.))
+                .px(px(14.))
+                .flex()
+                .items_center()
+                .rounded_full()
+                .text_size(px(12.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .when(on, |d| d.bg(i.accent).text_color(i.on_accent))
+                .when(!on, |d| d.bg(i.s_text.opacity(0.08)).hover(|d| d.bg(i.s_text.opacity(0.14))))
+                .on_click(move |_, _, cx| au.update(cx, |a, cx| a.use_preset(name, cx)))
+                .child(name)
+        }))
+        .when(preset == "Personalizzato", |d| {
+            d.child(div().h(px(30.)).px(px(14.)).flex().items_center().rounded_full().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).bg(i.accent).text_color(i.on_accent).child("Personalizzato"))
+        });
+        let bands = div()
+            .relative()
+            .mt(px(18.))
+            .pt(px(20.))
+            .px(px(12.))
+            .pb(px(16.))
+            .rounded(px(20.))
+            .bg(i.bg.opacity(0.4))
+            .border_1()
+            .border_color(i.sep)
+            .when(!enabled, |d| d.opacity(0.5))
+            .flex()
+            .gap(px(12.))
+            // The 0 dB line across the bands.
+            .child(div().absolute().left(px(16.)).right(px(16.)).top(px(20. + 26. + 80.)).h(px(1.)).bg(i.sep))
+            .children(BANDS.iter().enumerate().map(|(k, label)| {
+                let db = eq.bands_db[k];
+                let (au1, au2) = (audio.clone(), audio.clone());
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .h(px(16.))
+                            .text_size(px(11.))
+                            .text_color(if db != 0. { i.accent } else { text3 })
+                            .when(db != 0., |d| d.font_weight(FontWeight::SEMIBOLD))
+                            .child(format!("{}{:.1} dB", if db > 0. { "+" } else { "" }, db).replace('.', ",")),
+                    )
+                    .child(crate::slider::vslider(
+                        ("band", k),
+                        (db + MAX_DB) / (2. * MAX_DB),
+                        i.accent,
+                        i.s_text.opacity(0.16),
+                        160.,
+                        self.band_bounds[k].clone(),
+                        move |f, _, cx| au1.update(cx, |a, cx| a.set_band(k, f * 2. * MAX_DB - MAX_DB, cx)),
+                        move |_, cx| au2.update(cx, |a, cx| a.set_band(k, 0., cx)),
+                    ))
+                    .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(i.text2).child(label.to_string()))
+            }));
+        let (au3, au4) = (audio.clone(), audio.clone());
+        let bass = div()
+            .mt(px(16.))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .text_color(i.text2)
+            .child(div().flex().gap(px(4.)).child("Potenziamento bassi:").child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(format!("{}%", eq.bass_boost / 10))))
+            .child(div().flex().child(slider(
+                "bass",
+                eq.bass_boost as f32 / 1000.,
+                false,
+                SliderStyle { text: i.s_text, accent: i.accent },
+                self.bass_bounds.clone(),
+                move |f, _, cx| au3.update(cx, |a, cx| a.set_bass(f * 1000., cx)),
+                move |f, _, cx| au4.update(cx, |a, cx| a.set_bass(f * 1000., cx)),
+            )));
+        let eq_card = card()
+            .child(head)
+            .child(help("Lo stesso equalizzatore del telefono, dentro il player: suona uguale su casse, cuffie e DAC. Quando è piatto l'audio passa intatto, bit per bit."))
+            .child(presets)
+            .child(bands)
+            .child(bass);
+
+        let (au5, au6) = (audio.clone(), audio.clone());
+        let automix = card()
+            .child(h2("Automix"))
+            .child(
+                div()
+                    .mt(px(12.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .text_color(i.text2)
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(4.))
+                            .child("Dissolvenza tra i brani:")
+                            .child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(if crossfade > 0 { format!("{crossfade} s") } else { "spenta".into() })),
+                    )
+                    .child(div().flex().child(slider(
+                        "crossfade",
+                        crossfade as f32 / 12.,
+                        false,
+                        SliderStyle { text: i.s_text, accent: i.accent },
+                        self.cross_bounds.clone(),
+                        move |f, _, cx| au5.update(cx, |a, cx| a.set_crossfade(f * 12., cx)),
+                        move |f, _, cx| au6.update(cx, |a, cx| a.set_crossfade(f * 12., cx)),
+                    ))),
+            )
+            .child(help("Ogni brano sfuma nel successivo. Con la dissolvenza spenta i brani si susseguono senza pause, come negli album dal vivo."));
+
+        // `<select>`: the system's default, then each device; the chosen one ticked.
+        let mut options: Vec<(Option<String>, String)> = vec![(None, "Predefinita del sistema".into())];
+        options.extend(devices.iter().map(|d| (Some(d.id.clone()), format!("{}{}", d.name, if d.is_default { " (predefinita)" } else { "" }))));
+        let output = card().child(h2("Uscita audio")).child(
+            div().mt(px(8.)).flex().flex_col().gap(px(2.)).children(options.into_iter().enumerate().map(|(k, (id, name))| {
+                let on = id == device;
+                let au = audio.clone();
+                div()
+                    .id(("out", k))
+                    .h(px(38.))
+                    .px(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .rounded(px(12.))
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(i.s_text.opacity(0.08)))
+                    .hover(|d| d.bg(i.s_text.opacity(0.06)))
+                    .on_click(move |_, _, cx| au.update(cx, |a, cx| a.set_device(id.clone(), cx)))
+                    .child(div().flex_1().truncate().child(name))
+                    .when(on, |d| d.child(icon("check", 16., i.accent)))
+            })),
+        );
+        vec![eq_card.into_any_element(), automix.into_any_element(), output.into_any_element()]
     }
 
     fn lyrics(&mut self, i: &Ink, p: &PrefsData, cx: &mut Context<Self>) -> Vec<AnyElement> {

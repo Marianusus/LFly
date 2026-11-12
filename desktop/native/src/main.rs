@@ -6,6 +6,7 @@
 
 mod ambient;
 mod art;
+mod audio;
 mod artist;
 mod core;
 mod collection;
@@ -163,6 +164,7 @@ impl Lfly {
         let look = cx.new(|_| Look::new());
         let nav = cx.new(|_| Nav::new());
         let start = crate::prefs::Prefs::new(cx).read(cx).v.start_page.clone();
+        crate::audio::AudioModel::new(core.clone(), cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);

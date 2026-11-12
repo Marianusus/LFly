@@ -83,6 +83,8 @@ impl Core {
             cache,
         )
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+        // The saved sound (equalizer, crossfade, output), as the Tauri window applies it.
+        lfly_core::settings::apply_audio(&player, &lfly_core::settings::audio());
         let http = reqwest::Client::builder().user_agent("Mozilla/5.0").build()?;
         Ok((Arc::new(Self { yt, player, http }), rx))
     }

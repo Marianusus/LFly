@@ -1,7 +1,7 @@
 //! The full-window player (Tauri: pages/NowPlaying.svelte), after the phone's PlayerScreenV2: the
 //! cover large over its own blurred light, the song, the progress, the transport, then the lyrics
 //! or the queue beside it. It covers the whole window; the shell is not drawn under it.
-//! (Still missing: the output menu's list of devices, the "more" menu.)
+//! The output menu lists this computer's devices (LFly Connect's are not ported yet).
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,6 +23,7 @@ use crate::player_bar::clock;
 use crate::player_model::PlayerModel;
 use crate::queue_list::queue_list;
 use crate::slider::{bar_slider, SliderBounds};
+use crate::theme::Rgb;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Panel {
@@ -54,6 +55,8 @@ pub struct NowPlaying {
     /// The play/pause glyph popping in.
     pp: Tween,
     was_playing: Option<bool>,
+    /// OutputMenu.svelte `open`.
+    output_open: bool,
     ambient: Entity<crate::ambient::Ambient>,
     pub width: f32,
     pub height: f32,
@@ -73,6 +76,7 @@ impl NowPlaying {
     ) -> Self {
         let subs = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
+            cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
@@ -101,6 +105,7 @@ impl NowPlaying {
             art: Tween::still(1.),
             pp: Tween::still(1.),
             was_playing: None,
+            output_open: false,
             ambient,
             width: 1100.,
             height: 720.,
@@ -580,23 +585,123 @@ impl Render for NowPlaying {
             )
             .child(vol_ic("np-vol-high", "g-volume-high", 100));
 
-        // OutputMenu's trigger. The device list waits for the audio-output port.
+        // OutputMenu.svelte: the output in use; a click lists this computer's devices.
+        let audio = crate::audio::AudioModel::entity(cx);
+        let (device_id, devices) = {
+            let a = audio.read(cx);
+            (a.v.device.clone(), a.devices.clone())
+        };
+        let local_name = devices
+            .iter()
+            .find(|d| Some(&d.id) == device_id.as_ref())
+            .or_else(|| devices.iter().find(|d| d.is_default))
+            .map_or("Questo computer".to_string(), |d| d.name.clone());
+        let open = self.output_open;
+        let me_out = cx.entity().downgrade();
+        let menu = open.then(|| {
+            let empty = devices.is_empty();
+            let mut opts: Vec<(Option<String>, String, bool)> = devices
+                .iter()
+                .map(|d| (if d.is_default { None } else { Some(d.id.clone()) }, d.name.clone(), if device_id.is_some() { device_id.as_deref() == Some(d.id.as_str()) } else { d.is_default }))
+                .collect();
+            if opts.is_empty() {
+                opts.push((None, "Questo computer".into(), true));
+            }
+            let mut mg = glass_look;
+            mg.tint = Rgb::hex(0x1c1c20).hsla(0.72);
+            deferred(
+                div()
+                    .absolute()
+                    .bottom(px(32. + 10.))
+                    .left(px(-150. + 0.))
+                    .w(px(300.))
+                    .max_h(px(self.height * 0.6))
+                    .rounded(px(22.))
+                    .occlude()
+                    .shadow(vec![BoxShadow { color: black().opacity(0.5), offset: point(px(0.), px(24.)), blur_radius: px(60.), spread_radius: px(0.), inset: false }])
+                    .child(glass::glass_layer(mg, px(22.), glass::Pointer::default()))
+                    .child(
+                        div()
+                            .id("np-out-list")
+                            .relative()
+                            .max_h(px(self.height * 0.6))
+                            .overflow_y_scroll()
+                            .p(px(8.))
+                            .flex()
+                            .flex_col()
+                            .child(div().mt(px(8.)).mx(px(10.)).mb(px(4.)).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(white().opacity(0.5)).child("QUESTO COMPUTER"))
+                            .children(opts.into_iter().enumerate().map(|(k, (id, name, on))| {
+                                let (au, me) = (audio.clone(), me_out.clone());
+                                div()
+                                    .id(("np-out", k))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(12.))
+                                    .py(px(9.))
+                                    .px(px(10.))
+                                    .rounded(px(12.))
+                                    .text_size(px(14.))
+                                    // With no device listed: "Questo computer", only shown.
+                                    .when(!empty, |d| {
+                                        d.cursor_pointer().hover(|d| d.bg(white().opacity(0.1))).on_click(move |_, _, cx| {
+                                            au.update(cx, |a, cx| a.set_device(id.clone(), cx));
+                                            let _ = me.update(cx, |this, cx| {
+                                                this.output_open = false;
+                                                cx.notify();
+                                            });
+                                        })
+                                    })
+                                    .child(
+                                        div()
+                                            .size(px(32.))
+                                            .flex_none()
+                                            .rounded_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .bg(if on { accent } else { white().opacity(0.1) })
+                                            .child(icon(if empty { "desktop" } else { "volume" }, 18., if on { scheme.on_accent.hsla(1.) } else { white() })),
+                                    )
+                                    .child(div().flex_1().min_w_0().truncate().when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                                    .when(on, |d| d.child(icon("check", 16., accent)))
+                            })),
+                    ),
+            )
+            .with_priority(2)
+        });
+        let audio2 = audio.clone();
+        let me_t = cx.entity().downgrade();
         let device = div().flex().justify_center().child(
             div()
-                .id("np-output")
-                .h(px(32.))
-                .px(px(12.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .rounded_full()
-                .text_size(px(13.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(white().opacity(0.75))
-                .hover(|d| d.bg(white().opacity(0.12)).text_color(white()))
-                .group("np-output")
-                .child(icon("g-output", 17., white().opacity(0.75)).group_hover("np-output", |s| s.text_color(white())))
-                .child("Questo computer"),
+                .relative()
+                .child(
+                    div()
+                        .id("np-output")
+                        .h(px(32.))
+                        .max_w(px(260.))
+                        .px(px(12.))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .rounded_full()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(if open { white() } else { white().opacity(0.75) })
+                        .when(open, |d| d.bg(white().opacity(0.12)))
+                        .hover(|d| d.bg(white().opacity(0.12)).text_color(white()))
+                        .cursor_pointer()
+                        .group("np-output")
+                        .on_click(move |_, _, cx| {
+                            audio2.update(cx, |a, cx| a.load_devices(cx));
+                            let _ = me_t.update(cx, |this, cx| {
+                                this.output_open = !this.output_open;
+                                cx.notify();
+                            });
+                        })
+                        .child(icon("g-output", 17., white().opacity(0.75)).group_hover("np-output", |s| s.text_color(white())))
+                        .child(div().truncate().child(local_name)),
+                )
+                .child(div().absolute().left(relative(0.5)).top_0().bottom_0().children(menu)),
         );
 
         let player = div()
@@ -656,6 +761,16 @@ impl Render for NowPlaying {
             .child(ambient)
             .child(bar)
             .child(stage)
+            // OutputMenu's `.catch`: a click anywhere else closes the menu and goes no further.
+            .when(open, |d| {
+                let me = cx.entity().downgrade();
+                d.child(div().id("np-out-catch").absolute().inset_0().occlude().on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    let _ = me.update(cx, |this, cx| {
+                        this.output_open = false;
+                        cx.notify();
+                    });
+                }))
+            })
             .into_any_element()
     }
 }
