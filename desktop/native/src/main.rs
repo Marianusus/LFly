@@ -13,6 +13,7 @@ mod glass;
 mod home;
 mod icons;
 mod library_model;
+mod library_page;
 mod look;
 mod nav;
 mod player_bar;
@@ -37,6 +38,7 @@ use crate::covers::Covers;
 use crate::home::Home;
 use crate::icons::icon;
 use crate::library_model::LibraryModel;
+use crate::library_page::LibraryPage;
 use crate::look::Look;
 use crate::nav::{Nav, Route};
 use crate::player_bar::PlayerBar;
@@ -55,6 +57,7 @@ struct Lfly {
     collection: Entity<Collection>,
     artist: Entity<Artist>,
     search: Entity<Search>,
+    library_page: Entity<LibraryPage>,
     /// The song whose cover colours the look.
     colors_for: Option<String>,
     _subs: Vec<Subscription>,
@@ -71,7 +74,8 @@ impl Lfly {
         let home = cx.new(|cx| Home::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
         let collection = cx.new(|cx| Collection::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
         let artist = cx.new(|cx| Artist::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
-        let search = cx.new(|cx| Search::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library, model.clone(), window, cx));
+        let search = cx.new(|cx| Search::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), window, cx));
+        let library_page = cx.new(|cx| LibraryPage::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library, cx));
         let subs = vec![
             cx.observe_window_activation(window, |this, window, cx| {
                 let active = window.is_window_active();
@@ -103,6 +107,7 @@ impl Lfly {
             collection,
             artist,
             search,
+            library_page,
             colors_for: None,
             _subs: subs,
         };
@@ -328,6 +333,7 @@ impl Lfly {
                 self.artist.clone().into_any_element()
             }
             Route::Search => self.search.clone().into_any_element(),
+            Route::Library => self.library_page.clone().into_any_element(),
             other => div()
                 .size_full()
                 .pt(px(80.))
@@ -336,11 +342,10 @@ impl Lfly {
                 .flex_col()
                 .gap(px(6.))
                 .child(div().text_size(px(28.)).font_weight(FontWeight::BOLD).child(match other {
-                    Route::Library => "La tua libreria",
                     Route::Downloads => "Scaricati",
                     Route::Lyrics => "Testo",
                     Route::Settings => "Impostazioni",
-                    Route::Search | Route::Home | Route::Album { .. } | Route::Playlist { .. } | Route::Liked | Route::Artist { .. } => unreachable!(),
+                    Route::Search | Route::Home | Route::Album { .. } | Route::Playlist { .. } | Route::Liked | Route::Artist { .. } | Route::Library => unreachable!(),
                 }))
                 .child(div().text_color(text3).child("Questa pagina non è ancora stata portata nella versione nativa."))
                 .into_any_element(),
@@ -366,6 +371,7 @@ impl Render for Lfly {
             h.page_width = stage_w;
         });
         self.collection.update(cx, |c, _| c.width = win_w);
+        self.library_page.update(cx, |l, _| l.page_width = stage_w);
         self.search.update(cx, |s, _| {
             s.width = win_w;
             s.page_width = stage_w;
