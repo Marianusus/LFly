@@ -15,6 +15,7 @@ mod icons;
 mod library_model;
 mod library_page;
 mod look;
+mod motion;
 mod nav;
 mod player_bar;
 mod player_model;
