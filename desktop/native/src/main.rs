@@ -436,6 +436,8 @@ impl Render for Lfly {
         };
         // App.svelte: --side-w: clamp(232px, 19vw, 280px); --edge: 12px.
         let side_w = (f32::from(size.width) * 0.19).clamp(232., 280.);
+        let bar_w = (f32::from(size.width) - side_w - 24.).min(1180.);
+        self.bar.update(cx, |b, _| b.width = bar_w);
         let top = self.top_bar(window, cx);
         let page = self.page(cx);
         div()

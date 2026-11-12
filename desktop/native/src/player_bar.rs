@@ -24,6 +24,8 @@ pub struct PlayerBar {
     last_volume: i64,
     seek_bounds: SliderBounds,
     volume_bounds: SliderBounds,
+    /// The bar's width, set by the window before it draws (PlayerBar.svelte's container queries).
+    pub width: f32,
     _subs: Vec<Subscription>,
 }
 
@@ -43,6 +45,7 @@ impl PlayerBar {
             last_volume: 60,
             seek_bounds: SliderBounds::default(),
             volume_bounds: SliderBounds::default(),
+            width: 1180.,
             _subs: subs,
         }
     }
@@ -144,6 +147,9 @@ impl Render for PlayerBar {
         let me = cx.entity().downgrade();
         let (me1, me2, me3, me4) = (me.clone(), me.clone(), me.clone(), me.clone());
         let mute_to = if volume > 0 { 0 } else { self.last_volume.max(1) };
+        // @container bar (max-width: 900px) / (max-width: 620px).
+        let medium = self.width <= 900.;
+        let narrow = self.width <= 620.;
 
         // The three columns of `.bar`: minmax(0,1fr) minmax(300px,1.25fr) minmax(0,1fr).
         let now = div()
@@ -155,7 +161,7 @@ impl Render for PlayerBar {
             .gap(px(12.))
             .child(
                 div()
-                    .size(px(52.))
+                    .size(px(if narrow { 46. } else { 52. }))
                     .flex_none()
                     .rounded(px(14.))
                     .overflow_hidden()
@@ -193,7 +199,7 @@ impl Render for PlayerBar {
                             .child(track.as_ref().map_or(SharedString::from("Scegli un brano per iniziare"), |t| t.artist.clone().into())),
                     ),
             )
-            .when(has, |s| {
+            .when(has && !narrow, |s| {
                 s.child(
                     div()
                         .flex()
@@ -201,7 +207,7 @@ impl Render for PlayerBar {
                         .gap(px(2.))
                         .flex_none()
                         .child(ctl("like", "heart", 16., 30., false, false, None, &c))
-                        .child(ctl("more", "more", 18., 30., false, false, None, &c))
+                        .when(!medium, |s| s.child(ctl("more", "more", 18., 30., false, false, None, &c)))
                         .child(
                             div()
                                 .id("open")
@@ -222,11 +228,14 @@ impl Render for PlayerBar {
 
         // 1.25fr against the sides' 1fr, never under 300 px.
         let center = div()
-            .flex_grow(1.25)
-            .flex_basis(relative(0.))
-            .flex_shrink_0()
-            .min_w(px(300.))
-            .pt(px(4.))
+            .when(!narrow, |s| {
+                s.flex_grow(if medium { 1.2 } else { 1.25 })
+                    .flex_basis(relative(0.))
+                    .flex_shrink_0()
+                    .min_w(px(if medium { 240. } else { 300. }))
+            })
+            .when(narrow, |s| s.flex_none())
+            .when(!narrow, |s| s.pt(px(4.)))
             .flex()
             .flex_col()
             .items_center()
@@ -236,7 +245,9 @@ impl Render for PlayerBar {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(ctl("shuffle", "shuffle", 16., 34., shuffle, !has, None, &c).on_click(cmd(protocol::CMD_SHUFFLE, if shuffle { 0 } else { 1 })))
+                    .when(!medium, |s| {
+                        s.child(ctl("shuffle", "shuffle", 16., 34., shuffle, !has, None, &c).on_click(cmd(protocol::CMD_SHUFFLE, if shuffle { 0 } else { 1 })))
+                    })
                     .child(
                         ctl("previous", "previous", 19., 38., false, !has, Some(c.text), &c)
                             .on_click(cmd(protocol::CMD_PREVIOUS, 0)),
@@ -264,15 +275,17 @@ impl Render for PlayerBar {
                             .child(icon(if playing { "pause" } else { "play" }, 18., c.bg)),
                     )
                     .child(ctl("next", "next", 19., 38., false, !has, Some(c.text), &c).on_click(cmd(protocol::CMD_NEXT, 0)))
-                    .child(
-                        ctl("repeat", "repeat", 16., 34., repeat != "off", !has, None, &c)
-                            .on_click(cmd(protocol::CMD_REPEAT, next_repeat))
-                            .when(repeat == "one", |s| {
-                                s.child(div().absolute().top(px(4.)).right(px(4.)).text_size(px(8.)).font_weight(FontWeight::EXTRA_BOLD).child("1"))
-                            }),
-                    ),
+                    .when(!medium, |s| {
+                        s.child(
+                            ctl("repeat", "repeat", 16., 34., repeat != "off", !has, None, &c)
+                                .on_click(cmd(protocol::CMD_REPEAT, next_repeat))
+                                .when(repeat == "one", |s| {
+                                    s.child(div().absolute().top(px(4.)).right(px(4.)).text_size(px(8.)).font_weight(FontWeight::EXTRA_BOLD).child("1"))
+                                }),
+                        )
+                    }),
             )
-            .child(
+            .when(!narrow, |s| s.child(
                 div()
                     .w_full()
                     .flex()
@@ -300,21 +313,21 @@ impl Render for PlayerBar {
                         },
                     ))
                     .child(div().min_w(px(34.)).text_size(px(11.)).text_color(c.text3).child(clock(duration_ms))),
-            );
+            ));
 
         let volume_icon = if volume == 0 { "volume-mute" } else if volume < 50 { "speaker-wave" } else { "volume" };
         let right = div()
-            .flex_grow(1.)
-            .flex_basis(relative(0.))
+            .when(!medium, |s| s.flex_grow(1.).flex_basis(relative(0.)))
+            .when(medium, |s| s.flex_none())
             .min_w_0()
             .flex()
             .items_center()
             .justify_end()
             .gap(px(4.))
-            .child(ctl("lyrics", "lyrics", 17., 34., false, !has, None, &c))
+            .when(!narrow, |s| s.child(ctl("lyrics", "lyrics", 17., 34., false, !has, None, &c)))
             .child(ctl("queue", "queue", 17., 34., false, false, None, &c))
             .child(ctl("devices", "devices", 17., 34., false, false, None, &c))
-            .child(
+            .when(!narrow, |s| s.child(
                 div()
                     .flex()
                     .items_center()
@@ -331,7 +344,7 @@ impl Render for PlayerBar {
                             });
                         }
                     }))
-                    .child(div().w(px(112.)).flex().child(slider(
+                    .when(!medium, |s| s.child(div().w(px(112.)).flex().child(slider(
                         "volume",
                         volume as f32 / 100.,
                         false,
@@ -351,8 +364,8 @@ impl Render for PlayerBar {
                                 cx.notify();
                             });
                         },
-                    ))),
-            );
+                    )))),
+            ));
 
         div()
             .id("player")
@@ -361,7 +374,7 @@ impl Render for PlayerBar {
             .right_0()
             // LFLY_GLASS_DEBUG: over the list, to look at the bending and the blur.
             .bottom(px(if std::env::var_os("LFLY_GLASS_DEBUG").is_some() { 318. } else { 0. }))
-            .h(px(76.))
+            .h(px(if narrow { 64. } else { 76. }))
             .rounded(px(999.))
             // PlayerBar.svelte's Glass is not `interactive`: no pointer light.
             .child(glass::glass_layer(look, px(38.), glass::Pointer::default()))
@@ -375,14 +388,29 @@ impl Render for PlayerBar {
                         .overflow_hidden()
                         // Pages scroll under the bar: a little of the canvas colour keeps it legible.
                         .bg(c.bg.opacity(0.58))
-                        .pl(px(12.))
-                        .pr(px(18.))
+                        .pl(px(if narrow { 8. } else { 12. }))
+                        .pr(px(if narrow { 10. } else { 18. }))
                         .flex()
                         .items_center()
-                        .gap(px(16.))
+                        .gap(px(if narrow { 6. } else { 16. }))
                         .child(now)
                         .child(center)
-                        .child(right),
+                        .child(right)
+                        // Narrow: a hairline of progress along the bottom (`.line`).
+                        .when(narrow, |s| {
+                            s.child(
+                                div()
+                                    .absolute()
+                                    .left(px(28.))
+                                    .right(px(28.))
+                                    .bottom_0()
+                                    .h(px(2.))
+                                    .rounded(px(2.))
+                                    .bg(c.text.opacity(0.14))
+                                    .overflow_hidden()
+                                    .child(div().h_full().bg(c.accent).w(relative(seek_frac.clamp(0., 1.)))),
+                            )
+                        }),
                 )
             })
             .into_any_element()

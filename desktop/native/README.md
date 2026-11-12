@@ -17,17 +17,18 @@ Glass (see `vendor/PATCHES.md`). Windows check from Linux:
 
 ## Port status
 
-Done: window and title bar, search (songs), virtual track list with covers, player bar (glass
-pill), the cover's light behind the window, the shared player (queue, gapless preload,
-expired-URL retry), Liquid Glass on wgpu (checked against Chromium) and Direct3D 11 (not run yet).
+Done: the shell (sidebar with the library's playlists, top bar with the glass pills and window
+controls, navigation), the theme (palette.ts, checked number for number) and the scene behind
+the window, the icon set, the full player bar (with its 900/620 px layouts), search (songs) with
+a virtual track list, the shared player (queue, gapless preload, expired-URL retry), Liquid Glass
+on wgpu (checked against Chromium) and Direct3D 11 (not run yet).
 
 To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte file with its
 CSS numbers, a screenshot against `mock.html` in Chromium):
 
-1. Foundations: theme tokens (`theme/apply.ts`, `palette.ts`), icons (`Icon.svelte`) as SVG,
-   fonts, TrackRow, Shelf, Card.
-2. Shell: the scene backdrop (`glass/scene.ts`), sidebar, nav pills, the full player bar, the
-   right panel (queue, lyrics, devices).
+1. Foundations still missing: fonts, TrackRow, Shelf, Card, the SelectionPill spring, the
+   sidebar's narrow mode, the Copertina dinamica flowing scene.
+2. Shell still missing: the right panel (queue, lyrics, devices), the context menu, toasts.
 3. Search (all result kinds), Home, Album, Playlist, Artist.
 4. Now Playing, Lyrics.
 5. Library, Liked, local playlists, Downloads, Settings, equalizer.
