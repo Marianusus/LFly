@@ -462,9 +462,8 @@ fun MainScreen(
         aggregateDownloadProgress(favorites, downloadStates)
     }
 
-    // Home does not need the 4 Hz playback position ticker: the resume hero is hidden
-    // while a track is playing. Keeping the last state for unrelated fields prevents
-    // the whole Home glass tree from recomposing on every position update.
+    // Home, Search, Artist and YouTube songs never show the playback position: they get this copy
+    // without the 4 Hz position ticker, so their whole trees do not recompose on every update.
     val homePlaybackState = remember(
         playbackState.currentTrack,
         playbackState.isPlaying,
@@ -814,7 +813,7 @@ fun MainScreen(
                                     isTyping = isSearchTyping,
                                     suggestions = searchSuggestions,
                                     searchHistory = searchHistory,
-                                    playbackState = playbackState,
+                                    playbackState = homePlaybackState,
                                     isFavorite = favoriteLookup,
                                     isDisliked = { id -> viewModel.isDisliked(id) },
                                     onQueryChange = { q -> viewModel.onSearchQueryChange(q) },
@@ -1032,7 +1031,7 @@ fun MainScreen(
                             albums = artistAlbums,
                             isLoading = isLoadingArtistDetail,
                             errorMessage = artistDetailError,
-                            playbackState = playbackState,
+                            playbackState = homePlaybackState,
                             isFavorite = favoriteLookup,
                             onBackClick = { viewModel.navigateBack() },
                             onTrackClick = { track -> viewModel.playTrack(track, activityContext.getString(R.string.main_context_popular_tracks_fmt, selectedArtist?.name ?: track.artist)) },
@@ -1398,7 +1397,7 @@ fun MainScreen(
                             isLoading = isLoadingYtSongs,
                             errorMessage = ytSongsError,
                             hasMore = !page?.continuation.isNullOrBlank(),
-                            playbackState = playbackState,
+                            playbackState = homePlaybackState,
                             isFavorite = favoriteLookup,
                             onBackClick = { viewModel.navigateBack() },
                             onTrackClick = { track, index ->
