@@ -30,7 +30,8 @@ pub enum Panel {
     Queue,
 }
 
-const PANEL_KEY: &str = "native.nowplaying.panel";
+// Letters, digits, - and _ only (lfly_core::store).
+const PANEL_KEY: &str = "native-nowplaying-panel";
 
 /// `--lfly-ease-spring`: past the mark and back.
 const SPRING: CubicBezier = CubicBezier::new(0.34, 1.56, 0.64, 1.);

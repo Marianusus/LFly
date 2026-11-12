@@ -321,7 +321,8 @@ impl Render for Menu {
             .id("cm-catch")
             .absolute()
             .inset_0()
-            // Anywhere else: closed, and that click does nothing more.
+            // Anywhere else: closed, and the click goes on to what is there (Tauri closes it from
+            // a window listener, so the click lands too).
             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 let _ = close.update(cx, |m, cx| {
                     m.open = None;
@@ -348,6 +349,7 @@ impl Render for Menu {
                     .opacity(crate::motion::CUBIC_OUT.at(p as f64) as f32)
                     .bg(s.surface.hsla(0.86))
                     .shadow(vec![BoxShadow { color: black().opacity(0.45), offset: point(px(0.), px(18.)), blur_radius: px(48.), spread_radius: px(0.), inset: false }])
+                    .occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .child(glass::glass_layer(look, px(18.), glass::Pointer::default()))

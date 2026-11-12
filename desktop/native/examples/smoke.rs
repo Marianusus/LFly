@@ -65,6 +65,27 @@ fn main() {
     println!("  duration from the player: {duration} ms");
     core.command(protocol::CMD_SEEK, duration - 4_000);
     ok &= wait(&mut rx, 25, "moves on to the next song at the end", index_is(1));
+    // The queue edits behind the menu and the panels: play next, add, remove.
+    let r = |i: usize| core::track_ref(&tracks[i]).expect("track ref");
+    let first = tracks[0].id.clone();
+    core.player.edit_queue(protocol::EDIT_NEXT, vec![r(0)], -1, -1);
+    ok &= wait(&mut rx, 5, "play next goes right after the playing song", |u| {
+        matches!(u, PlayerUpdate::State(s) if s.queue.get((s.index + 1) as usize).is_some_and(|t| t.id == first))
+    });
+    let third = tracks[2].id.clone();
+    core.player.edit_queue(protocol::EDIT_ADD, vec![r(2)], -1, -1);
+    let mut len = 0;
+    ok &= wait(&mut rx, 5, "add goes to the end", |u| {
+        if let PlayerUpdate::State(s) = u {
+            if s.queue.last().is_some_and(|t| t.id == third) {
+                len = s.queue.len();
+                return true;
+            }
+        }
+        false
+    });
+    core.remove_from_queue(len - 1);
+    ok &= wait(&mut rx, 5, "remove takes it out", |u| matches!(u, PlayerUpdate::State(s) if s.queue.len() == len - 1));
     println!("{}", if ok { "smoke: all good" } else { "smoke: FAILED" });
     std::process::exit(if ok { 0 } else { 1 });
 }

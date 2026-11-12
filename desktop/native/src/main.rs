@@ -207,7 +207,8 @@ impl Lfly {
         // Esc closes the full player.
         let esc_nav = nav.clone();
         let esc_menu = menu.clone();
-        cx.observe_keystrokes(move |_, e, _, cx| {
+        // Intercepted, not observed: a focused field (search) or gpui-kit may take Esc first.
+        cx.intercept_keystrokes(move |e, _, cx| {
             if e.keystroke.key != "escape" {
                 return;
             }
@@ -347,10 +348,14 @@ impl Lfly {
         let (n1, n2, n3, n4) = (nav.clone(), nav.clone(), nav.clone(), nav);
         let maximized = window.is_maximized();
         div()
+            .id("topbar")
             .absolute()
             .top_0()
             .left_0()
             .right_0()
+            // GPUI lets clicks through to what is under an element unless told: the strip
+            // covers the page as Tauri's sticky bar does (the wheel still scrolls it).
+            .block_mouse_except_scroll()
             .flex()
             .items_center()
             .gap(px(10.))
@@ -643,7 +648,7 @@ impl Render for Lfly {
                                 .h(px(76.))
                                 .flex()
                                 .justify_center()
-                                .child(div().relative().h_full().w_full().max_w(px(1180.)).child(self.bar.clone())),
+                                .child(div().relative().h_full().w_full().max_w(px(1180.)).occlude().child(self.bar.clone())),
                         ),
                 );
             if !compact {
@@ -673,6 +678,7 @@ impl Render for Lfly {
                             .absolute()
                             .inset_0()
                             .bg(black().opacity(0.32 * t))
+                            .occlude()
                             .on_click(move |_, _, cx| ui.update(cx, |u, cx| u.set_panel(None, cx))),
                     )
                     .child(
@@ -683,7 +689,7 @@ impl Render for Lfly {
                             .right_0()
                             .w(px(372f32.min(win_w)))
                             .p(px(12.))
-                            .child(div().relative().size_full().children(panel_el.take())),
+                            .child(div().relative().size_full().occlude().children(panel_el.take())),
                     );
             }
         }
@@ -697,6 +703,7 @@ impl Render for Lfly {
                     .top(px(60. * (1. - t)))
                     .h(px(win_h))
                     .opacity(t)
+                    .occlude()
                     .child(self.now_playing.clone()),
             );
         }

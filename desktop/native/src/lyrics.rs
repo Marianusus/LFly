@@ -175,6 +175,10 @@ impl LyricsData {
     }
 
     fn set_offset(&mut self, id: &str, ms: f64, cx: &mut Context<Self>) {
+        // Read again first: the Tauri app may have kept others since.
+        if let Some(saved) = lfly_core::store::get(OFFSETS_KEY).ok().flatten().and_then(|v| v.as_object().cloned()) {
+            self.offsets = saved;
+        }
         if ms == 0. {
             self.offsets.remove(id);
         } else {

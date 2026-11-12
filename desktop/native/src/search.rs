@@ -100,8 +100,9 @@ impl Search {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 if let (true, Ok(res)) = (std::mem::take(&mut this.autoplay), &r) {
-                    if let Some(first) = res.songs.first() {
-                        this.core.play(std::slice::from_ref(first), 0);
+                    // The whole list from the first song, so the queue has rows to show.
+                    if !res.songs.is_empty() {
+                        this.core.play(&res.songs, 0);
                     }
                 }
                 this.results = Some(r);
