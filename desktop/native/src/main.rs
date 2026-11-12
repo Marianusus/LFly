@@ -9,17 +9,19 @@ mod core;
 mod covers;
 mod glass;
 mod icons;
+mod library_model;
 mod look;
+mod nav;
 mod player_bar;
 mod player_model;
 mod scene;
+mod sidebar;
 mod slider;
 mod theme;
 
 use std::sync::Arc;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::TitleBar;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use lfly_connect::protocol;
@@ -27,9 +29,13 @@ use lfly_yt::Track;
 
 use crate::core::Core;
 use crate::covers::Covers;
+use crate::icons::icon;
+use crate::library_model::LibraryModel;
 use crate::look::Look;
+use crate::nav::{Nav, Route};
 use crate::player_bar::{clock, PlayerBar};
 use crate::player_model::{PlayerEvent, PlayerModel};
+use crate::sidebar::Sidebar;
 
 const ROW_H: f32 = 56.0;
 
@@ -38,7 +44,9 @@ struct Lfly {
     model: Entity<PlayerModel>,
     look: Entity<Look>,
     covers: Entity<Covers>,
+    nav: Entity<Nav>,
     bar: Entity<PlayerBar>,
+    sidebar: Entity<Sidebar>,
     search: Entity<InputState>,
     tracks: Vec<Track>,
     status: SharedString,
@@ -54,6 +62,9 @@ impl Lfly {
         let covers = cx.new(|_| Covers::new(core.clone()));
         let look = cx.new(|_| Look::new());
         let bar = cx.new(|cx| PlayerBar::new(model.clone(), covers.clone(), look.clone(), cx));
+        let nav = cx.new(|_| Nav::new());
+        let library = cx.new(LibraryModel::new);
+        let sidebar = cx.new(|cx| Sidebar::new(nav.clone(), library, look.clone(), covers.clone(), cx));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Cerca brani su YouTube Music"));
         let subs = vec![
             cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _w, cx| {
@@ -82,13 +93,16 @@ impl Lfly {
             }),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
+            cx.observe(&nav, |_, _, cx| cx.notify()),
         ];
         let mut this = Self {
             core,
             model,
             look,
             covers,
+            nav,
             bar,
+            sidebar,
             search,
             tracks: Vec::new(),
             status: "Cerca qualcosa da ascoltare.".into(),
@@ -101,6 +115,7 @@ impl Lfly {
         }
         if let Ok(q) = std::env::var("LFLY_AUTOPLAY") {
             this.autoplay = true;
+            this.nav.update(cx, |n, cx| n.go(Route::Search, cx));
             this.run_search(q, cx);
         }
         this
@@ -204,50 +219,260 @@ impl Lfly {
     }
 }
 
+/// A round 32 px control of the top bar's glass pills (App.svelte `.round`).
+fn round(id: &'static str, name: &'static str, disabled: bool, text: Hsla) -> Stateful<Div> {
+    div()
+        .id(id)
+        .size(px(32.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .when(disabled, |s| s.opacity(0.32))
+        .when(!disabled, |s| s.cursor_pointer().hover(|s| s.bg(text.opacity(0.12))))
+        .child(icon(name, 16., text))
+}
+
+/// WindowControls.svelte: 28 px discs, text-2 on an 8% wash; close turns red under the pointer.
+fn window_button(id: &'static str, name: &'static str, close: bool, text: Hsla, text2: Hsla) -> Stateful<Div> {
+    let group: SharedString = format!("wc-{id}").into();
+    div()
+        .id(id)
+        .group(group.clone())
+        .size(px(28.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(text.opacity(0.08))
+        .cursor_pointer()
+        .hover(move |s| if close { s.bg(rgb(0xe5484d)) } else { s.bg(text.opacity(0.16)) })
+        .child(icon(name, 12., text2).group_hover(group, move |s| s.text_color(if close { white() } else { text })))
+}
+
+impl Lfly {
+    fn top_bar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (text, text2, text3, look) = {
+            let l = self.look.read(cx);
+            (l.scheme.text, l.scheme.text2, l.scheme.text3, l.glass())
+        };
+        let n = self.nav.read(cx);
+        let (can_back, can_forward, on_search) = (n.can_back(), n.can_forward(), n.route == Route::Search);
+        let nav = self.nav.clone();
+        let (n1, n2, n3, n4) = (nav.clone(), nav.clone(), nav.clone(), nav);
+        let maximized = window.is_maximized();
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .pt(px(14.))
+            .px(px(24.))
+            .pb(px(10.))
+            // The back/forward pair (App.svelte `.nav-pair`): a glass pill, 3 px around 32 px discs.
+            .child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .rounded_full()
+                    .child(glass::glass_layer(look, px(19.), glass::Pointer::default()))
+                    .child(
+                        div()
+                            .relative()
+                            .flex()
+                            .gap(px(2.))
+                            .p(px(3.))
+                            .child(round("back", "back", !can_back, text).on_click(move |_, _, cx| n1.update(cx, |n, cx| n.go_back(cx))))
+                            .child(round("forward", "forward", !can_forward, text).on_click(move |_, _, cx| n2.update(cx, |n, cx| n.go_forward(cx)))),
+                    ),
+            )
+            .when(!on_search, |s| {
+                s.child(
+                    div()
+                        .id("search-pill")
+                        .relative()
+                        .h(px(38.))
+                        .flex_shrink(1.)
+                        .min_w_0()
+                        .w(px(400.))
+                        .rounded_full()
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| n3.update(cx, |n, cx| n.go(Route::Search, cx)))
+                        .child(glass::glass_layer(look, px(19.), glass::Pointer::default()))
+                        .child(
+                            div()
+                                .relative()
+                                .size_full()
+                                .flex()
+                                .items_center()
+                                .gap(px(10.))
+                                .pl(px(15.))
+                                .pr(px(8.))
+                                .text_size(px(13.5))
+                                .text_color(text2)
+                                .child(icon("search", 16., text2))
+                                .child(div().flex_1().truncate().child("Cosa vuoi ascoltare?"))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_size(px(10.5))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(text3)
+                                        .bg(text.opacity(0.08))
+                                        .rounded_full()
+                                        .px(px(9.))
+                                        .py(px(5.))
+                                        .child("Ctrl K"),
+                                ),
+                        ),
+                )
+            })
+            // The free space moves the window (Tauri: data-tauri-drag-region).
+            .child(
+                div()
+                    .id("drag")
+                    .flex_1()
+                    .h(px(38.))
+                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+                    .on_click(|e, window, _| {
+                        if e.click_count() == 2 {
+                            window.zoom_window()
+                        }
+                    }),
+            )
+            .child(
+                div()
+                    .id("theme")
+                    .relative()
+                    .size(px(38.))
+                    .flex_none()
+                    .rounded_full()
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| n4.update(cx, |n, cx| n.go(Route::Settings, cx)))
+                    .child(glass::glass_layer(look, px(19.), glass::Pointer::default()))
+                    .child(div().relative().size_full().flex().items_center().justify_center().child(icon("palette", 17., text))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .flex_none()
+                    .child(window_button("min", "wc-min", false, text, text2).on_click(|_, w, _| w.minimize_window()))
+                    .child(window_button("max", if maximized { "wc-restore" } else { "wc-max" }, false, text, text2).on_click(|_, w, _| w.zoom_window()))
+                    .child(window_button("close", "wc-close", true, text, text2).on_click(|_, w, _| w.remove_window())),
+            )
+    }
+
+    fn page(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let route = self.nav.read(cx).route.clone();
+        let (text2, text3) = {
+            let s = &self.look.read(cx).scheme;
+            (s.text2, s.text3)
+        };
+        match route {
+            Route::Search => {
+                let count = self.tracks.len();
+                let list = uniform_list(
+                    "tracks",
+                    count,
+                    cx.processor(|this, range: std::ops::Range<usize>, _w, cx| {
+                        let current = this.model.read(cx).current().map(|t| t.id.clone());
+                        range.map(|ix| this.row(ix, current.as_deref(), cx)).collect::<Vec<_>>()
+                    }),
+                )
+                .flex_1()
+                .px_2()
+                .pt_2()
+                // Room for the floating player (App.svelte --bar-space: 104 px).
+                .pb(px(104.));
+                div()
+                    .size_full()
+                    .pt(px(62.))
+                    .flex()
+                    .flex_col()
+                    .child(div().px(px(24.)).pt_3().pb_2().child(Input::new(&self.search).cleanable(true)))
+                    .when(!self.status.is_empty(), |s| {
+                        s.child(div().px(px(28.)).py_2().text_sm().text_color(text2).child(self.status.clone()))
+                    })
+                    .child(list)
+                    .into_any_element()
+            }
+            other => div()
+                .size_full()
+                .pt(px(80.))
+                .px(px(28.))
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(div().text_size(px(28.)).font_weight(FontWeight::BOLD).child(match other {
+                    Route::Home => "Home",
+                    Route::Library => "La tua libreria",
+                    Route::Liked => "Brani che ti piacciono",
+                    Route::Downloads => "Scaricati",
+                    Route::Playlist { .. } => "Playlist",
+                    Route::Artist { .. } => "Artista",
+                    Route::Album { .. } => "Album",
+                    Route::Lyrics => "Testo",
+                    Route::Settings => "Impostazioni",
+                    Route::Search => unreachable!(),
+                }))
+                .child(div().text_color(text3).child("Questa pagina non è ancora stata portata nella versione nativa."))
+                .into_any_element(),
+        }
+    }
+}
+
 impl Render for Lfly {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let count = self.tracks.len();
         let size = window.viewport_size();
         let scene_img = self.look.update(cx, |l, cx| l.scene(size, cx));
-        let (bg, text, text2) = {
+        let (bg, text) = {
             let s = &self.look.read(cx).scheme;
-            (s.bg.hsla(1.), s.text, s.text2)
+            (s.bg.hsla(1.), s.text)
         };
-        let list = uniform_list(
-            "tracks",
-            count,
-            cx.processor(|this, range: std::ops::Range<usize>, _w, cx| {
-                let current = this.model.read(cx).current().map(|t| t.id.clone());
-                range.map(|ix| this.row(ix, current.as_deref(), cx)).collect::<Vec<_>>()
-            }),
-        )
-        .flex_1()
-        .px_2()
-        .pt_2()
-        // Room for the floating player: the last rows scroll out from under the glass.
-        .pb(px(100.));
-
+        // App.svelte: --side-w: clamp(232px, 19vw, 280px); --edge: 12px.
+        let side_w = (f32::from(size.width) * 0.19).clamp(232., 280.);
+        let top = self.top_bar(window, cx);
+        let page = self.page(cx);
         div()
             .size_full()
             .relative()
             .bg(bg)
             .text_color(text)
-            // The scene (scene.rs): a third of the window, stretched; painted again only on change.
+            // The scene (scene.rs), painted again only on change.
             .children(scene_img.map(|b| div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill))))
             .child(
                 div()
                     .absolute()
                     .inset_0()
                     .flex()
-                    .flex_col()
-                    .child(TitleBar::new().child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("LFly")))
-                    .child(div().px_4().pt_3().pb_2().child(Input::new(&self.search).cleanable(true)))
-                    .when(!self.status.is_empty(), |s| {
-                        s.child(div().px_5().py_2().text_sm().text_color(text2).child(self.status.clone()))
-                    })
-                    .child(list),
+                    .child(div().w(px(side_w)).flex_none().h_full().pt(px(12.)).pb(px(12.)).pl(px(12.)).child(self.sidebar.clone()))
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(page)
+                            .child(top)
+                            // App.svelte `.bottom`: 12 px from the edges, at most 1180 px, centred.
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(12.))
+                                    .right(px(12.))
+                                    .bottom(px(12.))
+                                    .h(px(76.))
+                                    .flex()
+                                    .justify_center()
+                                    .child(div().relative().h_full().w_full().max_w(px(1180.)).child(self.bar.clone())),
+                            ),
+                    ),
             )
-            .child(self.bar.clone())
     }
 }
 
@@ -270,7 +495,7 @@ fn main() {
             app_id: Some("lfly".into()),
             // The title bar is ours (TitleBar draws the buttons); no second one from the system.
             window_decorations: Some(WindowDecorations::Client),
-            ..TitleBar::window_options()
+            ..gpui_kit::component::TitleBar::window_options()
         };
         let model = cx.new(|cx| PlayerModel::new(core.clone(), updates, cx));
         gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Lfly::new(core, model, window, cx)))

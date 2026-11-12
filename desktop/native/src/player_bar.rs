@@ -357,10 +357,10 @@ impl Render for PlayerBar {
         div()
             .id("player")
             .absolute()
-            .left(px(12.))
-            .right(px(12.))
+            .left_0()
+            .right_0()
             // LFLY_GLASS_DEBUG: over the list, to look at the bending and the blur.
-            .bottom(px(if std::env::var_os("LFLY_GLASS_DEBUG").is_some() { 330. } else { 12. }))
+            .bottom(px(if std::env::var_os("LFLY_GLASS_DEBUG").is_some() { 318. } else { 0. }))
             .h(px(76.))
             .rounded(px(999.))
             // PlayerBar.svelte's Glass is not `interactive`: no pointer light.
