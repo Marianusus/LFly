@@ -78,6 +78,84 @@ impl LibraryModel {
         Some(liked)
     }
 
+    /// Changes playlists.json: read again (the Tauri app may have written it), [apply], saved,
+    /// then shown; [done] gets what [apply] returned. Only ever from a click.
+    fn edit_playlists<R: Send + 'static>(
+        &mut self,
+        apply: impl FnOnce(&mut Vec<Value>) -> R + Send + 'static,
+        done: impl FnOnce(R, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let saved = cx
+                .background_executor()
+                .spawn(async move {
+                    let dir = lfly_core::library::dir()?;
+                    let mut list = lfly_core::library::load(&dir).playlists.as_array().cloned().unwrap_or_default();
+                    let r = apply(&mut list);
+                    lfly_core::library::save(&dir, "playlists.json", &Value::Array(list))?;
+                    Ok::<_, String>(r)
+                })
+                .await;
+            match saved {
+                Ok(r) => {
+                    let _ = this.update(cx, |this, cx| this.reload(cx));
+                    let _ = cx.update(|cx| done(r, cx));
+                }
+                Err(e) => log::warn!("playlists.json: {e}"),
+            }
+        })
+        .detach();
+    }
+
+    /// library.svelte.ts `createPlaylist`: first in the list; [done] gets its id and name.
+    pub fn create_playlist(&mut self, name: String, tracks: Vec<Value>, done: impl FnOnce(String, String, &mut App) + 'static, cx: &mut Context<Self>) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        let id = uuid::Uuid::new_v4().to_string();
+        let name = if name.trim().is_empty() { "La mia playlist".to_string() } else { name.trim().to_string() };
+        let p = serde_json::json!({ "id": id, "name": name, "tracks": tracks, "schemaVersion": 2, "createdAt": now, "updatedAt": now });
+        self.edit_playlists(move |list| list.insert(0, p), move |_, cx| done(id, name, cx), cx);
+    }
+
+    /// `addToPlaylist`: the songs not in it yet, at its end; [done] gets how many went in.
+    pub fn add_to_playlist(&mut self, id: String, tracks: Vec<Value>, done: impl FnOnce(usize, &mut App) + 'static, cx: &mut Context<Self>) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        self.edit_playlists(
+            move |list| {
+                let Some(p) = list.iter_mut().find(|p| p.get("id").and_then(Value::as_str) == Some(id.as_str())) else { return 0 };
+                let mut have: Vec<Value> = p.get("tracks").and_then(Value::as_array).cloned().unwrap_or_default();
+                let ids: std::collections::HashSet<String> = have.iter().filter_map(|t| str_field(t, "id")).collect();
+                let fresh: Vec<Value> = tracks.into_iter().filter(|t| str_field(t, "id").is_some_and(|i| !ids.contains(&i))).collect();
+                let n = fresh.len();
+                have.extend(fresh);
+                p["tracks"] = Value::Array(have);
+                p["updatedAt"] = Value::from(now);
+                n
+            },
+            done,
+            cx,
+        );
+    }
+
+    /// `removeFromPlaylist`: the song at [index], if it is still [track_id] there.
+    pub fn remove_from_playlist(&mut self, id: String, index: usize, track_id: String, cx: &mut Context<Self>) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        self.edit_playlists(
+            move |list| {
+                if let Some(p) = list.iter_mut().find(|p| p.get("id").and_then(Value::as_str) == Some(id.as_str())) {
+                    if let Some(tracks) = p.get_mut("tracks").and_then(Value::as_array_mut) {
+                        if tracks.get(index).and_then(|t| str_field(t, "id")).as_deref() == Some(track_id.as_str()) {
+                            tracks.remove(index);
+                        }
+                    }
+                    p["updatedAt"] = Value::from(now);
+                }
+            },
+            |_, _| {},
+            cx,
+        );
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut this = Self::default();
         this.reload(cx);

@@ -83,9 +83,15 @@ pub fn queue_list(model: &Entity<PlayerModel>, covers: &Entity<Covers>, core: &A
     for (i, t) in upcoming {
         let group: SharedString = format!("q-{i}").into();
         let (model, core) = (model.clone(), core.clone());
+        let (menu_t, menu_core) = (t.clone(), core.clone());
         out = out.child(
             div()
                 .id(("q", i))
+                .on_mouse_down(MouseButton::Right, move |e, _, cx| {
+                    let core = menu_core.clone();
+                    let remove: crate::menu::Remove = std::rc::Rc::new(move |_| core.remove_from_queue(i));
+                    crate::menu::Menu::open_track(e.position, menu_t.clone(), Some(remove), cx);
+                })
                 .group(group.clone())
                 .flex()
                 .items_center()

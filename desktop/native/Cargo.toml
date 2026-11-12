@@ -13,6 +13,7 @@ name = "lfly"
 path = "src/main.rs"
 
 [dependencies]
+uuid = { version = "1", features = ["v4"] }
 gpui-kit = "=0.9.1"
 lfly-yt = { path = "../crates/lfly-yt" }
 lfly-core = { path = "../crates/lfly-core" }

@@ -16,6 +16,7 @@ mod icons;
 mod library_model;
 mod library_page;
 mod look;
+mod menu;
 mod lyrics;
 mod lyrics_page;
 mod motion;
@@ -30,6 +31,7 @@ mod search;
 mod sidebar;
 mod slider;
 mod theme;
+mod toast;
 mod track_row;
 mod ui;
 
@@ -94,6 +96,21 @@ fn content_size(window: &Window) -> Size<Pixels> {
     s
 }
 
+/// Where the view starts in the window (past that frame): pointer positions are the window's.
+fn content_origin(window: &Window) -> Point<Pixels> {
+    let pad = gpui_kit::component::window_paddings(window);
+    let mut o = point(pad.left, pad.top);
+    if let Decorations::Client { tiling } = window.window_decorations() {
+        if !tiling.left {
+            o.x += px(1.);
+        }
+        if !tiling.top {
+            o.y += px(1.);
+        }
+    }
+    o
+}
+
 struct Lfly {
     font: SharedString,
     core: Arc<Core>,
@@ -111,6 +128,9 @@ struct Lfly {
     lyrics_page: Entity<LyricsPage>,
     ui: Entity<Ui>,
     right_panel: Entity<RightPanel>,
+    toasts: Entity<crate::toast::Toasts>,
+    menu: Entity<crate::menu::Menu>,
+    menu_shown: bool,
     /// The sidebar's width (232..280, or 88 folded) and the panel's column, easing between
     /// (App.svelte: grid-template-columns 460 ms).
     side_w: Option<Tween>,
@@ -132,8 +152,10 @@ impl Lfly {
         let look = cx.new(|_| Look::new());
         let nav = cx.new(|_| Nav::new());
         let ui = cx.new(|_| Ui::new());
-        let bar = cx.new(|cx| PlayerBar::new(model.clone(), nav.clone(), ui.clone(), covers.clone(), look.clone(), cx));
         let library = cx.new(LibraryModel::new);
+        let bar = cx.new(|cx| PlayerBar::new(model.clone(), nav.clone(), ui.clone(), library.clone(), covers.clone(), look.clone(), cx));
+        let toasts = crate::toast::Toasts::new(look.clone(), cx);
+        let menu = crate::menu::Menu::new(core.clone(), look.clone(), covers.clone(), library.clone(), nav.clone(), cx);
         let sidebar = cx.new(|cx| Sidebar::new(nav.clone(), ui.clone(), library.clone(), look.clone(), covers.clone(), cx));
         let home = cx.new(|cx| Home::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
         let collection = cx.new(|cx| Collection::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
@@ -152,6 +174,9 @@ impl Lfly {
             cx.observe_window_activation(window, |this, window, cx| {
                 let active = window.is_window_active();
                 log::debug!("window active: {active}");
+                if !active {
+                    crate::menu::Menu::close(cx);
+                }
                 this.model.update(cx, |m, cx| {
                     m.active = active;
                     cx.notify();
@@ -161,9 +186,17 @@ impl Lfly {
             cx.subscribe(&model, |this, _, ev: &PlayerEvent, cx| match ev {
                 PlayerEvent::StateChanged => {
                     this.refresh_colors(cx);
+                    // LFLY_MENU: the song's menu and a toast, once, for screenshots.
+                    if std::env::var_os("LFLY_MENU").is_some() && !this.menu_shown {
+                        if let Some(t) = this.model.read(cx).current().cloned() {
+                            this.menu_shown = true;
+                            crate::menu::Menu::open_track(point(px(520.), px(260.)), t, None, cx);
+                            crate::toast::Toasts::say("Aggiunto alla coda", cx);
+                        }
+                    }
                     cx.notify();
                 }
-                PlayerEvent::Notice(text) => log::info!("{text}"),
+                PlayerEvent::Notice(text) => crate::toast::Toasts::say(text.clone(), cx),
             }),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
@@ -172,8 +205,15 @@ impl Lfly {
         ];
         // Esc closes the full player.
         let esc_nav = nav.clone();
+        let esc_menu = menu.clone();
         cx.observe_keystrokes(move |_, e, _, cx| {
-            if e.keystroke.key == "escape" && esc_nav.read(cx).route == Route::NowPlaying {
+            if e.keystroke.key != "escape" {
+                return;
+            }
+            // The menu first, then the full player.
+            if esc_menu.read(cx).is_open() {
+                crate::menu::Menu::close(cx);
+            } else if esc_nav.read(cx).route == Route::NowPlaying {
                 NowPlaying::close(&esc_nav, cx);
             }
         })
@@ -195,6 +235,9 @@ impl Lfly {
             lyrics_page,
             ui,
             right_panel,
+            toasts,
+            menu,
+            menu_shown: false,
             side_w: None,
             panel_w: None,
             panel_motion: None,
@@ -656,7 +699,14 @@ impl Render for Lfly {
                     .child(self.now_playing.clone()),
             );
         }
-        root
+        // Over everything: the toast (lower over the full player) and the menu.
+        self.toasts.update(cx, |t, _| t.raised = !on_np);
+        let origin = content_origin(window);
+        self.menu.update(cx, |m, _| {
+            m.size = size;
+            m.origin = origin;
+        });
+        root.child(self.toasts.clone()).child(self.menu.clone())
     }
 }
 

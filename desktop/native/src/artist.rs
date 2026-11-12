@@ -144,6 +144,8 @@ impl Render for Artist {
                                     playing: current.as_deref() == Some(t.id.as_str()),
                                     liked: liked[i],
                                     is_video: t.is_video,
+                                    menu: crate::core::track_ref(t).map(|r| (r, None)),
+                                    like: crate::core::track_ref(t).map(|r| crate::menu::like_action(self.library.clone(), self.core.clone(), r)),
                                 },
                                 false,
                                 &s,

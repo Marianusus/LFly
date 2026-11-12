@@ -18,6 +18,7 @@ pub struct PlayerBar {
     model: Entity<PlayerModel>,
     nav: Entity<crate::nav::Nav>,
     ui: Entity<crate::ui::Ui>,
+    library: Entity<crate::library_model::LibraryModel>,
     covers: Entity<Covers>,
     look: Entity<Look>,
     /// While the seek slider is held: where it is (ms).
@@ -37,11 +38,13 @@ impl PlayerBar {
         model: Entity<PlayerModel>,
         nav: Entity<crate::nav::Nav>,
         ui: Entity<crate::ui::Ui>,
+        library: Entity<crate::library_model::LibraryModel>,
         covers: Entity<Covers>,
         look: Entity<Look>,
         cx: &mut Context<Self>,
     ) -> Self {
         let subs = vec![
+            cx.observe(&library, |_, _, cx| cx.notify()),
             cx.observe(&ui, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&model, |_, _, cx| cx.notify()),
@@ -52,6 +55,7 @@ impl PlayerBar {
             model,
             nav,
             ui,
+            library,
             covers,
             look,
             scrubbing: None,
@@ -235,8 +239,18 @@ impl Render for PlayerBar {
                         .items_center()
                         .gap(px(2.))
                         .flex_none()
-                        .child(ctl("like", "heart", 16., 30., false, false, None, &c))
-                        .when(!medium, |s| s.child(ctl("more", "more", 18., 30., false, false, None, &c)))
+                        .child({
+                            let liked = track.as_ref().is_some_and(|t| self.library.read(cx).is_favorite(&t.id));
+                            let like = track.clone().map(|t| crate::menu::like_action(self.library.clone(), self.model.read(cx).core.clone(), t));
+                            ctl("like", if liked { "heart-fill" } else { "heart" }, 16., 30., false, false, liked.then_some(c.accent), &c)
+                                .when_some(like, |d, like| d.on_click(move |_, _, cx| like(cx)))
+                        })
+                        .when(!medium, |s| {
+                            let t = track.clone();
+                            s.child(ctl("more", "more", 18., 30., false, false, None, &c).when_some(t, |d, t| {
+                                d.on_click(move |e, _, cx| crate::menu::Menu::open_track(e.position(), t.clone(), None, cx))
+                            }))
+                        })
                         .child(
                             div()
                                 .id("open")

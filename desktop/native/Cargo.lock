@@ -3748,6 +3748,7 @@ dependencies = [
  "serde_json",
  "tiny-skia",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

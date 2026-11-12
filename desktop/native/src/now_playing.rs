@@ -445,7 +445,10 @@ impl Render for NowPlaying {
                     }
                 }),
             )
-            .child(round("np-more", "more", white().opacity(0.85)));
+            .child(round("np-more", "more", white().opacity(0.85)).on_click({
+                let t = t.clone();
+                move |e, _, cx| crate::menu::Menu::open_track(e.position(), t.clone(), None, cx)
+            }));
 
         let me = cx.entity().downgrade();
         let (me1, me2, me3, me4) = (me.clone(), me.clone(), me.clone(), me.clone());

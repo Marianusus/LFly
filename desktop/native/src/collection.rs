@@ -411,6 +411,21 @@ impl Render for Collection {
                     playing: current.as_deref() == Some(t.id.as_str()),
                     liked,
                     is_video: t.is_video,
+                    // A local playlist's songs can leave it from the menu.
+                    menu: crate::core::track_ref(&t).map(|r| {
+                        let remove: Option<crate::menu::Remove> = match &this.source {
+                            Source::Local(id) => {
+                                let (library, id, track_id) = (this.library.clone(), id.clone(), t.id.clone());
+                                Some(std::rc::Rc::new(move |cx: &mut App| {
+                                    let (id, track_id) = (id.clone(), track_id.clone());
+                                    library.update(cx, |l, cx| l.remove_from_playlist(id, i, track_id, cx));
+                                }))
+                            }
+                            _ => None,
+                        };
+                        (r, remove)
+                    }),
+                    like: crate::core::track_ref(&t).map(|r| crate::menu::like_action(this.library.clone(), this.core.clone(), r)),
                 };
                 let last = i + 1 == this.tracks.len();
                 div()

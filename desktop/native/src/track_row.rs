@@ -22,6 +22,10 @@ pub struct RowData {
     pub playing: bool,
     pub liked: bool,
     pub is_video: bool,
+    /// The song for the right-click menu and "more", with its "remove from here" if any.
+    pub menu: Option<(lfly_connect::protocol::TrackRef, Option<crate::menu::Remove>)>,
+    /// The heart's action.
+    pub like: Option<crate::menu::Remove>,
 }
 
 pub fn separator(s: &Scheme) -> Hsla {
@@ -83,6 +87,12 @@ pub fn track_row(
         .when(d.playing, |r| r.bg(accent.opacity(0.12)))
         .when(!d.playing, |r| r.hover(|r| r.bg(s.text.opacity(0.07))))
         .on_click(on_play)
+        .when_some(d.menu.clone(), |r, (t, remove)| {
+            r.on_mouse_down(MouseButton::Right, move |e, _, cx| {
+                cx.stop_propagation();
+                crate::menu::Menu::open_track(e.position, t.clone(), remove.clone(), cx);
+            })
+        })
         // `.num`: the number (13px text-3), a 30 px play disc under the pointer.
         .child(
             div()
@@ -171,22 +181,38 @@ pub fn track_row(
                 .gap(px(4.))
                 .child(
                     div()
+                        .id("like")
                         .size(px(30.))
                         .flex()
                         .items_center()
                         .justify_center()
+                        .rounded_full()
                         .when(!d.liked, |l| l.invisible().group_hover(group.clone(), |l| l.visible()))
+                        .when_some(d.like.clone(), |l, like| {
+                            l.cursor_pointer().on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                like(cx);
+                            })
+                        })
                         .child(icon(if d.liked { "heart-fill" } else { "heart" }, 15., if d.liked { accent } else { s.text2 })),
                 )
                 .child(div().min_w(px(36.)).text_right().text_size(px(12.5)).text_color(s.text3).child(if d.duration_ms > 0 { clock(d.duration_ms as u64) } else { SharedString::default() }))
                 .child(
                     div()
+                        .id("more")
                         .size(px(30.))
                         .flex()
                         .items_center()
                         .justify_center()
+                        .rounded_full()
                         .invisible()
                         .group_hover(group, |m| m.visible())
+                        .when_some(d.menu, |m, (t, remove)| {
+                            m.cursor_pointer().on_click(move |e, _, cx| {
+                                cx.stop_propagation();
+                                crate::menu::Menu::open_track(e.position(), t.clone(), remove.clone(), cx);
+                            })
+                        })
                         .child(icon("more", 18., s.text2)),
                 ),
         )

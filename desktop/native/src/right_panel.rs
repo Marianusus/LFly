@@ -149,9 +149,15 @@ impl RightPanel {
         for (i, t) in upcoming {
             let group: SharedString = format!("rq-{i}").into();
             let (m1, m2, core) = (self.model.clone(), self.model.clone(), self.core.clone());
+            let (menu_t, menu_core) = (t.clone(), self.core.clone());
             out = out.child(
                 div()
                     .id(("rq", i))
+                    .on_mouse_down(MouseButton::Right, move |e, _, cx| {
+                        let core = menu_core.clone();
+                        let remove: crate::menu::Remove = std::rc::Rc::new(move |_| core.remove_from_queue(i));
+                        crate::menu::Menu::open_track(e.position, menu_t.clone(), Some(remove), cx);
+                    })
                     .group(group.clone())
                     .flex()
                     .items_center()
