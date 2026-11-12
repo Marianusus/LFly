@@ -1,0 +1,44 @@
+# LFly for computer, drawn natively with GPUI (no webview). Its own workspace for now, so the
+# Tauri app's CI never builds GPUI; it shares the crates under ../crates.
+[package]
+name = "lfly-native"
+version = "0.2.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[dev-dependencies]
+
+[[bin]]
+name = "lfly"
+path = "src/main.rs"
+
+[dependencies]
+gpui-kit = "=0.9.1"
+lfly-yt = { path = "../crates/lfly-yt" }
+lfly-audio = { path = "../crates/lfly-audio" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+dirs = "6"
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+
+[workspace]
+
+[patch.crates-io]
+opus-decoder = { path = "../crates/lfly-audio/vendor/opus-decoder" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev.package.opus-decoder]
+opt-level = 3
+[profile.dev.package.symphonia-core]
+opt-level = 3
+[profile.dev.package.rubato]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
