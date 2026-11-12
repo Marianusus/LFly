@@ -164,9 +164,12 @@ impl LocalPlayer {
                 }
             }
             protocol::CMD_PREVIOUS => {
+                // The position first: it takes `now` itself (a std Mutex is not reentrant, and
+                // reading it under the lock deadlocked the player on every "previous").
+                let position = self.position();
                 let (target, current) = {
                     let now = self.now.lock().unwrap();
-                    (now.queue.before(self.position()), now.queue.index)
+                    (now.queue.before(position), now.queue.index)
                 };
                 match target {
                     Some(i) if i == current => self.seek(0),
