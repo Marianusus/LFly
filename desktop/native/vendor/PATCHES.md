@@ -24,7 +24,13 @@ drawn under an element, bent near the rim, blurred and saturated. GPUI has no ba
   - `src/wgpu_renderer.rs`: the surface is configured with `COPY_SRC` where the adapter allows
     it (otherwise the glass is drawn without a backdrop); `render_frame`/`record_frame` take the
     frame texture; the `Glass` batch arm ends the main pass, captures, and resumes it.
-- `gpui-pre-windows` (DirectX 11): the `Glass` batch is accepted and not drawn yet.
+- `gpui-pre-windows` (DirectX 11): `src/glass_dx.rs` + `src/glass.hlsl`, a line-by-line port of
+  the wgpu glass (keep the two in step). The HLSL is compiled once at start with `D3DCompile`;
+  the frame is copied with `CopyResource` from the back buffer; constant buffers `b2`/`b3` and
+  textures `t0`/`t2` leave GPUI's `b0`/`b1` alone, and the main target and viewport are bound
+  again afterwards. If the shaders fail to build, glass is skipped and the error is logged once.
+- `gpui-pre/build.rs`: `LFLY_CHECK_NO_RC=1` skips the Windows manifest resource, only so that
+  `cargo check --target x86_64-pc-windows-gnu` runs from Linux (there is no `windres` there).
 
 `Glass::edge_bleed` reproduces Chromium/WebView2: the lens filter's output stops at the element
 box, so `blur()` after it fades toward the edges and the sharp backdrop shows through (1 = as the

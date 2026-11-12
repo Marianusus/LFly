@@ -28,7 +28,10 @@ fn main() {
         println!("cargo::rustc-cfg=gpui_hot_reload");
     }
 
-    if target_os == "windows" {
+    // LFly patch: `LFLY_CHECK_NO_RC=1 cargo check --target x86_64-pc-windows-gnu` from Linux,
+    // where there is no resource compiler. Never set for real builds.
+    println!("cargo::rerun-if-env-changed=LFLY_CHECK_NO_RC");
+    if target_os == "windows" && std::env::var_os("LFLY_CHECK_NO_RC").is_none() {
         #[cfg(feature = "windows-manifest")]
         embed_resource();
     }

@@ -49,6 +49,11 @@ pub(crate) struct DirectXRenderer {
     width: u32,
     height: u32,
 
+    /// LFly patch: Liquid Glass, made on the first glass batch (None until then, or after a
+    /// device loss); `glass_failed` stops retrying when the shaders cannot be built.
+    glass: Option<crate::glass_dx::GlassDx>,
+    glass_failed: bool,
+
     /// Whether we want to skip drwaing due to device lost events.
     ///
     /// In that case we want to discard the first frame that we draw as we got reset in the middle of a frame
@@ -193,6 +198,8 @@ impl DirectXRenderer {
             font_info: Self::get_font_info(),
             width: 1,
             height: 1,
+            glass: None,
+            glass_failed: false,
             skip_draws: false,
         })
     }
@@ -322,6 +329,7 @@ impl DirectXRenderer {
         self.resources = Some(resources);
         self.globals = globals;
         self.pipelines = pipelines;
+        self.glass = None;
         self.direct_composition = direct_composition;
         self.skip_draws = true;
         Ok(())
@@ -385,8 +393,7 @@ impl DirectXRenderer {
                     self.draw_polychrome_sprites(texture_id, range.start, range.len())
                 }
                 PrimitiveBatch::Surfaces(range) => self.draw_surfaces(&scene.surfaces[range]),
-                // LFly patch: Liquid Glass is not drawn by the DirectX renderer yet.
-                PrimitiveBatch::Glass(_) => Ok(()),
+                PrimitiveBatch::Glass(range) => self.draw_glass(&scene.glass[range]),
             }
             .with_context(|| {
                 format!(
@@ -595,6 +602,36 @@ impl DirectXRenderer {
                 .context("batch params buffer missing")?,
             start as u32,
             len as u32,
+        )
+    }
+
+    /// LFly patch: Liquid Glass (see glass_dx.rs).
+    fn draw_glass(&mut self, glass: &[Glass]) -> Result<()> {
+        if glass.is_empty() || self.glass_failed {
+            return Ok(());
+        }
+        let devices = self.devices.as_ref().context("devices missing")?;
+        let resources = self.resources.as_ref().context("resources missing")?;
+        let Some(render_target) = resources.render_target.as_ref() else {
+            return Ok(());
+        };
+        if self.glass.is_none() {
+            match crate::glass_dx::GlassDx::new(&devices.device) {
+                Ok(g) => self.glass = Some(g),
+                Err(e) => {
+                    log::error!("Liquid Glass unavailable: {e:#}");
+                    self.glass_failed = true;
+                    return Ok(());
+                }
+            }
+        }
+        self.glass.as_mut().unwrap().draw(
+            &devices.device,
+            &devices.device_context,
+            render_target,
+            &resources.render_target_view,
+            &resources.viewport,
+            glass,
         )
     }
 

@@ -8,6 +8,7 @@ mod direct_write;
 mod directx_atlas;
 mod directx_devices;
 mod directx_renderer;
+mod glass_dx;
 mod dispatcher;
 mod display;
 mod events;
