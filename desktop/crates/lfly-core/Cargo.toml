@@ -1,0 +1,16 @@
+[package]
+name = "lfly-core"
+description = "LFly for computer without a window: what both the Tauri app and the GPUI app run on."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lfly-connect = { path = "../lfly-connect" }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+dirs = "6"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

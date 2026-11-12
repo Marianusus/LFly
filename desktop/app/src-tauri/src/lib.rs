@@ -1,21 +1,19 @@
 //! LFly for the desktop. The core is Rust (player, YouTube Music, LFly Connect); the window shows it.
 
+// Moved to lfly-core: the paths `crate::queue::…` and friends keep working.
+use lfly_core::{discord, identity, library, queue, store};
+
 mod account;
 mod covers;
-mod discord;
 mod drive;
 mod libsync;
 mod market;
 mod settings;
 mod spotify;
 mod downloads;
-mod identity;
-mod library;
 mod media;
 mod player;
-mod queue;
 mod yt;
-mod store;
 
 use lfly_connect::protocol::{Device, Message, TrackRef};
 use std::sync::Arc;

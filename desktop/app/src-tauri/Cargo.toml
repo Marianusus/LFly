@@ -28,6 +28,7 @@ uuid = { version = "1", features = ["v4"] }
 lfly-connect = { path = "../../crates/lfly-connect" }
 lfly-yt = { path = "../../crates/lfly-yt" }
 lfly-audio = { path = "../../crates/lfly-audio" }
+lfly-core = { path = "../../crates/lfly-core" }
 tauri-plugin-dialog = "2"
 rand = "0.8"
 souvlaki = { version = "0.9", default-features = false, features = ["use_zbus"] }
