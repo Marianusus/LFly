@@ -356,7 +356,8 @@ impl Render for Home {
         // `.quick`: grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)), gap 10.
         let avail = (self.page_width - 48.).max(230.);
         let cols = ((avail + 10.) / 240.).floor().max(1.);
-        let quick_w = (avail - 10. * (cols - 1.)) / cols;
+        // Floored: three 252.67 px tiles and their gaps must not add up past the row.
+        let quick_w = ((avail - 10. * (cols - 1.)) / cols).floor();
         let tile_w = (w * 0.26).clamp(250., 320.);
         let core = self.core.clone();
         let nav = self.nav.clone();

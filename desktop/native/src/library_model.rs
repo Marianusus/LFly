@@ -37,27 +37,44 @@ impl LibraryModel {
     }
 
     /// The heart (library.svelte.ts `toggleFavorite`): first in the list when added, saved to
-    /// favorites.json as the Tauri app saves it. Only ever from a click.
+    /// favorites.json as the Tauri app saves it. Only ever from a click. The file is read again
+    /// first: the Tauri app may have changed it since this window read it.
     pub fn toggle_favorite(&mut self, track: Value, cx: &mut Context<Self>) -> Option<bool> {
         let id = str_field(&track, "id")?;
-        let liked = if self.favorite_ids.remove(&id) {
-            self.favorites.retain(|t| str_field(t, "id").as_deref() != Some(id.as_str()));
-            false
-        } else {
-            self.favorite_ids.insert(id);
-            self.favorites.insert(0, track);
-            true
+        let liked = !self.favorite_ids.contains(&id);
+        let apply = move |list: &mut Vec<Value>| {
+            list.retain(|t| str_field(t, "id").as_deref() != Some(id.as_str()));
+            if liked {
+                list.insert(0, track.clone());
+            }
         };
-        let value = Value::Array(self.favorites.clone());
-        cx.background_executor()
-            .spawn(async move {
-                let saved = lfly_core::library::dir().and_then(|d| lfly_core::library::save(&d, "favorites.json", &value));
-                if let Err(e) = saved {
-                    log::warn!("favorites.json: {e}");
-                }
-            })
-            .detach();
+        // At once on screen, then on disk.
+        apply(&mut self.favorites);
+        self.favorite_ids = self.favorites.iter().filter_map(|t| str_field(t, "id")).collect();
         cx.notify();
+        cx.spawn(async move |this, cx| {
+            let saved = cx
+                .background_executor()
+                .spawn(async move {
+                    let dir = lfly_core::library::dir()?;
+                    let mut list = lfly_core::library::load(&dir).favorites.as_array().cloned().unwrap_or_default();
+                    apply(&mut list);
+                    lfly_core::library::save(&dir, "favorites.json", &Value::Array(list.clone()))?;
+                    Ok::<_, String>(list)
+                })
+                .await;
+            match saved {
+                Ok(list) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.favorite_ids = list.iter().filter_map(|t| str_field(t, "id")).collect();
+                        this.favorites = list;
+                        cx.notify();
+                    });
+                }
+                Err(e) => log::warn!("favorites.json: {e}"),
+            }
+        })
+        .detach();
         Some(liked)
     }
 

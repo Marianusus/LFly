@@ -193,7 +193,7 @@ impl Render for Search {
                 // Browse: genre tiles (`.grid` auto-fill minmax(170px, 1fr), gap 8).
                 let avail = (self.page_width - 48.).max(170.);
                 let cols = ((avail + 8.) / 178.).floor().max(1.);
-                let tile_w = (avail - 8. * (cols - 1.)) / cols;
+                let tile_w = ((avail - 8. * (cols - 1.)) / cols).floor();
                 let me = cx.entity().downgrade();
                 let tiles: Vec<AnyElement> = BROWSE
                     .iter()

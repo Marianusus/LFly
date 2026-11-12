@@ -28,6 +28,7 @@ pub struct LineModel {
     pub end: f64,
     /// When the line lets go of its light: the next line or its own end, whichever is later.
     pub exit: f64,
+    #[allow(dead_code)]
     pub text: String,
     pub groups: Vec<Group>,
     pub bg: Option<String>,

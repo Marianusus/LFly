@@ -26,7 +26,8 @@ the window, Inter in its five weights (the face the Tauri window bundles; Segoe 
 Windows, as there), the icon set, the full player bar (with its 900/620 px layouts), Home, Album,
 YouTube and library playlists, Liked songs, Artist, search, the library (grid), the full player
 (Now Playing) with its queue and lyrics panels, the lyrics page, the heart (saved to
-favorites.json as the Tauri app saves it), the shared player (queue, gapless preload,
+favorites.json as the Tauri app saves it, read again first; Drive backup and library sync are
+not told yet, as Tauri's `library_save` does), the shared player (queue, gapless preload,
 expired-URL retry), Liquid Glass on wgpu (checked against Chromium) and Direct3D 11 (not run
 yet).
 

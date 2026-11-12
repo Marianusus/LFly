@@ -110,7 +110,7 @@ impl Render for LibraryPage {
         // `.items`: repeat(auto-fill, minmax(168px, 1fr)), gap 4, margin 0 -10px.
         let avail = self.page_width - 48. + 20.;
         let cols = ((avail + 4.) / 172.).floor().max(1.);
-        let item_w = (avail - 4. * (cols - 1.)) / cols;
+        let item_w = ((avail - 4. * (cols - 1.)) / cols).floor();
         let art = item_w - 20.;
         let item = |id: SharedString, title: SharedString, sub: SharedString, art_el: AnyElement, route: Route, nav: Entity<Nav>| {
             div()

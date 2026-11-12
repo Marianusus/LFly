@@ -79,7 +79,7 @@ struct Motion {
     follower: Follower,
     boxes: Vec<LineBox>,
     /// The sheet, width and size the boxes were measured for.
-    measured: Option<(u64, u32, u32)>,
+    measured: Option<(u64, u32, u32, u32)>,
     view_h: f64,
     placed: bool,
     paused_until: f64,
@@ -373,7 +373,7 @@ impl Render for Lyrics {
                 let bg_font = Font { weight: FontWeight::SEMIBOLD, ..font.clone() };
 
                 // Every line measured at this width: its box, as offsetTop/offsetHeight.
-                let key = (generation, width.round() as u32, f32::from(bounds.size.height).round() as u32);
+                let key = (generation, width.round() as u32, f32::from(bounds.size.height).round() as u32, (size * 10.).round() as u32);
                 if st.measured != Some(key) {
                     let mut top = PAD_TOP as f64;
                     st.boxes = lines
@@ -390,7 +390,8 @@ impl Render for Lyrics {
                                         .map(|ls| ls.iter().map(|l| l.wrap_boundaries().len() + 1).sum::<usize>())
                                         .unwrap_or(1)
                                 };
-                                let mut h = rows(&l.text, size, &font) as f32 * main_lh;
+                                let painted: String = l.groups.iter().flat_map(|g| g.tokens.iter().map(|t| t.text.as_str())).collect();
+                                let mut h = rows(&painted, size, &font) as f32 * main_lh;
                                 if let Some(bg) = &l.bg {
                                     h += 4. + rows(bg, bg_size, &bg_font) as f32 * bg_lh;
                                 }
@@ -602,6 +603,8 @@ impl Render for Lyrics {
                 .when(moved, |d| d.text_color(self.look.read(cx).scheme.accent.hsla(1.)))
                 .hover(|d| d.bg(ink(0.1)))
                 .on_click(move |_, _, cx| {
+                    // Not a click on the line under the capsule as well.
+                    cx.stop_propagation();
                     let _ = me.update(cx, |this, cx| this.nudge(ms, cx));
                 })
                 .child(label)

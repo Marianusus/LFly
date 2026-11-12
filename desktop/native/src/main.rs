@@ -132,6 +132,7 @@ impl Lfly {
         let subs = vec![
             cx.observe_window_activation(window, |this, window, cx| {
                 let active = window.is_window_active();
+                log::debug!("window active: {active}");
                 this.model.update(cx, |m, cx| {
                     m.active = active;
                     cx.notify();
