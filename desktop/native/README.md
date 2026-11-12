@@ -41,18 +41,17 @@ yet).
 Known differences, from what GPUI can draw: the lyrics' soft edge sweeps letter by letter (no
 gradient text), their fog fades whole lines (no masks), held notes do not glow (no text shadow);
 the ambient light behind the full player stands still (Tauri drifts two copies of the cover);
-the queue's playing bars stand still. The lyrics animate at most 60 frames a second, four when
+the queue's playing bars stand still; Copertina dinamica flows at a sixth of the window (Tauri: a
+third) without the grain over it. The lyrics animate at most 60 frames a second, four when
 the window is behind another one (Tauri: the monitor's rate, 30 in the background).
 Songs played here go into history.json as in Tauri (not in test runs: `LFLY_MUTE` or
 `LFLY_AUTOPLAY` set) unless Settings pauses it. Missing in the full
-player: the output menu's devices, the "more" menu. 
+player: the output menu's devices. 
 
 To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte file with its
 CSS numbers, a screenshot against `mock.html` in Chromium):
 
-1. Foundations still missing: the SelectionPill spring, the
-   sidebar's narrow mode, the Copertina dinamica flowing scene.
-2. Shell still missing: the right panel (queue, lyrics, devices), the context menu, toasts.
+1. Foundations still missing: the SelectionPill spring in the sidebar.
 3. Search: suggestions, category chips, recent searches.
 4. Library: list view, import and create, the downloads filter; Downloads; the equalizer and
    crossfade; custom themes, Spicetify and its marketplace; autostart.

@@ -10,6 +10,7 @@ mod artist;
 mod core;
 mod collection;
 mod covers;
+mod flow;
 mod glass;
 mod home;
 mod icons;
@@ -136,6 +137,7 @@ struct Lfly {
     settings_shown: bool,
     toasts: Entity<crate::toast::Toasts>,
     menu: Entity<crate::menu::Menu>,
+    flow: Entity<crate::flow::Flow>,
     menu_shown: bool,
     library: Entity<LibraryModel>,
     last_played: Option<String>,
@@ -160,6 +162,7 @@ impl Lfly {
         let look = cx.new(|_| Look::new());
         let nav = cx.new(|_| Nav::new());
         let start = crate::prefs::Prefs::new(cx).read(cx).v.start_page.clone();
+        let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
         let bar = cx.new(|cx| PlayerBar::new(model.clone(), nav.clone(), ui.clone(), library.clone(), covers.clone(), look.clone(), cx));
@@ -286,6 +289,7 @@ impl Lfly {
             settings_shown: false,
             toasts,
             menu,
+            flow: cx.new(|cx| crate::flow::Flow::new(look_for_flow, cx)),
             menu_shown: false,
             library: library.clone(),
             last_played: None,
@@ -374,10 +378,10 @@ impl Lfly {
         let id = track.id;
         cx.spawn(async move |this, cx| {
             let Some(bytes) = core.fetch(url).await else { return };
-            let colors = cx.background_executor().spawn(async move { scene::cover_colors(&bytes) }).await;
+            let art = cx.background_executor().spawn(async move { scene::cover_art(&bytes) }).await;
             let _ = this.update(cx, |this, cx| {
                 if this.colors_for.as_deref() == Some(id.as_str()) {
-                    this.look.update(cx, |l, cx| l.set_cover_colors(colors, cx));
+                    this.look.update(cx, |l, cx| l.set_cover_art(art, cx));
                 }
             });
         })
@@ -752,6 +756,7 @@ impl Render for Lfly {
         let show_shell = !on_np || np_t.is_some();
 
         let (nb, nf) = (self.nav.clone(), self.nav.clone());
+        let flowing = crate::flow::Flow::active(self.look.read(cx));
         let mut root = div()
             .size_full()
             .relative()
@@ -815,8 +820,9 @@ impl Render for Lfly {
                 );
             }
             root = root
-                // The scene (scene.rs), painted again only on change.
-                .children(scene_img.map(|b| div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill))))
+                // The scene (scene.rs), painted again only on change; Copertina dinamica flows.
+                .when(flowing, |d| d.child(div().absolute().inset_0().child(cached(&self.flow))))
+                .when(!flowing, |d| d.children(scene_img.map(|b| div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill)))))
                 .child(shell);
             if compact && show_panel {
                 // Narrow window: the panel floats over the page; around it, a veil that closes it.

@@ -22,6 +22,8 @@ pub struct Look {
     pub lens: bool,
     pub strength: f32,
     cover: Option<(Rgb, Rgb)>,
+    /// The playing cover, tiny and blurred, for Copertina dinamica.
+    pub cover_art: Option<Arc<tiny_skia::Pixmap>>,
     scene: Option<Arc<Image>>,
     /// What the scene in `scene` was painted for.
     painted: Option<(SceneSpec, (f32, f32))>,
@@ -52,15 +54,19 @@ impl Look {
             lens: flag("lens", true),
             strength: g.and_then(|g| g.get("strength")).and_then(|v| v.as_f64()).map_or(0.75, |v| v.clamp(0., 1.) as f32),
             cover: None,
+            cover_art: None,
             scene: None,
             painted: None,
             painting: false,
         }
     }
 
-    /// The colours of the playing cover drive the dynamic modes.
-    pub fn set_cover_colors(&mut self, colors: Option<(Rgb, Rgb)>, cx: &mut Context<Self>) {
+    /// The playing cover read: its colours drive the dynamic modes, its blurred copy the flow.
+    pub fn set_cover_art(&mut self, art: Option<((Rgb, Rgb), Arc<tiny_skia::Pixmap>)>, cx: &mut Context<Self>) {
+        let (colors, image) = art.map_or((None, None), |(c, i)| (Some(c), Some(i)));
+        self.cover_art = image;
         if self.cover == colors {
+            cx.notify();
             return;
         }
         self.cover = colors;
