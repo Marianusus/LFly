@@ -1,13 +1,17 @@
-//! What the window talks to: YouTube Music, the audio engine and a tokio runtime for both.
+//! What the window talks to: YouTube Music, the shared player (lfly-core, the same one the
+//! Tauri app runs: queue, gapless preload of the next song, expired-URL retry) and a tokio
+//! runtime for both.
 //!
 //! GPUI has its own executor; the network code (reqwest) needs tokio, so it runs here and the
 //! window awaits the join handles (they work from any executor).
 
 use std::sync::{Arc, OnceLock};
 
-use lfly_audio::{Player, Source};
+use lfly_connect::protocol::{State, TrackRef};
+use lfly_core::player::{LocalPlayer, PlayerHost};
 use lfly_yt::{AudioPreference, Track, YtMusic, YtMusicConfig};
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 pub fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
@@ -21,21 +25,55 @@ pub fn runtime() -> &'static Runtime {
     })
 }
 
+/// The player's reports, for the window.
+#[derive(Debug)]
+pub enum PlayerUpdate {
+    State(Box<State>),
+    Position { ms: i64 },
+    Notice(String),
+}
+
+struct NativeHost(mpsc::UnboundedSender<PlayerUpdate>);
+
+impl PlayerHost for NativeHost {
+    fn state(&self, state: &State, _received_at: i64) {
+        let _ = self.0.send(PlayerUpdate::State(Box::new(state.clone())));
+    }
+    fn position(&self, position_ms: i64, received_at: i64) {
+        let _ = (received_at, self.0.send(PlayerUpdate::Position { ms: position_ms }));
+    }
+    fn notice(&self, text: &str) {
+        let _ = self.0.send(PlayerUpdate::Notice(text.to_string()));
+    }
+}
+
 pub struct Core {
     pub yt: YtMusic,
-    pub audio: Player,
+    pub player: Arc<LocalPlayer>,
     http: reqwest::Client,
 }
 
+pub fn track_ref(t: &Track) -> Option<TrackRef> {
+    serde_json::from_value(serde_json::to_value(t).ok()?).ok()
+}
+
 impl Core {
-    pub fn new() -> anyhow::Result<Arc<Self>> {
+    pub fn new() -> anyhow::Result<(Arc<Self>, mpsc::UnboundedReceiver<PlayerUpdate>)> {
         let yt = YtMusic::with_config(YtMusicConfig { preference: AudioPreference::AacFirst, ..Default::default() })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         // Its own cache while the Tauri app lives next to it: two engines must not share one.
         let cache = dirs::cache_dir().ok_or_else(|| anyhow::anyhow!("no cache dir"))?.join("lfly").join("audio-native");
-        let audio = Player::new(cache, 2 * 1024 * 1024 * 1024).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (tx, rx) = mpsc::unbounded_channel();
+        let player = LocalPlayer::new(
+            Arc::new(NativeHost(tx)),
+            runtime().handle().clone(),
+            yt.clone(),
+            "lfly-native".into(),
+            cache,
+        )
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
         let http = reqwest::Client::builder().user_agent("Mozilla/5.0").build()?;
-        Ok(Arc::new(Self { yt, audio, http }))
+        Ok((Arc::new(Self { yt, player, http }), rx))
     }
 
     pub async fn search(self: Arc<Self>, query: String) -> Result<Vec<Track>, String> {
@@ -45,21 +83,14 @@ impl Core {
             .map_err(|e| e.to_string())?
     }
 
-    /// Resolves the full stream (never a preview) and starts it.
-    pub async fn play(self: Arc<Self>, track: Track) -> Result<(), String> {
-        let me = self.clone();
-        runtime()
-            .spawn(async move {
-                let stream = me.yt.resolve_stream(&track).await.map_err(|e| e.to_string())?;
-                let mut source = Source::http(stream.url, &track.id);
-                if let (Source::Http { headers, .. }, Some(ua)) = (&mut source, stream.user_agent) {
-                    headers.push(("User-Agent".into(), ua));
-                }
-                me.audio.load(source, 0, true);
-                Ok(())
-            })
-            .await
-            .map_err(|e| e.to_string())?
+    /// Plays [tracks] from [index]: the full stream is resolved by the shared player.
+    pub fn play(&self, tracks: &[Track], index: usize) {
+        let queue = tracks.iter().filter_map(track_ref).collect();
+        self.player.play_queue(queue, index as i32, 0, true);
+    }
+
+    pub fn command(&self, action: &str, value: i64) {
+        self.player.run(action, value);
     }
 
     pub async fn fetch(self: Arc<Self>, url: String) -> Option<Vec<u8>> {

@@ -12,29 +12,38 @@ use lfly_audio::{PlayerEvent, Source};
 use lfly_connect::protocol::{self, State, TrackRef, Transfer};
 use lfly_connect::{Host, HostPlayer};
 use lfly_yt::YtMusic;
-use serde::Serialize;
-use tauri::{AppHandle, Emitter};
 
 use crate::queue::{Queue, Repeat};
+
+/// What the player needs from the app it runs in: where to report, and a few settings.
+/// The Tauri app emits window events; the GPUI app updates its views.
+pub trait PlayerHost: Send + Sync + 'static {
+    /// Something real changed (song, queue, play/pause, volume...).
+    fn state(&self, state: &State, received_at: i64);
+    /// The 4 Hz position tick: only the position, never the whole state.
+    fn position(&self, position_ms: i64, received_at: i64);
+    /// A short message for the person (a song that cannot play...).
+    fn notice(&self, text: &str);
+    /// Playback was handed over from another device.
+    fn arrived(&self, _from_device_id: String) {}
+    /// The downloaded file of a song, if there is one.
+    fn downloaded(&self, _id: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+    /// Keep playing similar songs when the queue ends.
+    fn autoplay(&self) -> bool {
+        true
+    }
+    /// A library sync offer from a paired device (LFly Connect).
+    fn library(&self, _peer_id: &str, _offered: serde_json::Value) -> Option<serde_json::Value> {
+        None
+    }
+}
 
 /// How long a resolved stream URL is trusted when YouTube does not say (they last ~6 h).
 const URL_LIFETIME: Duration = Duration::from_secs(4 * 3600);
 /// How often a playing host repeats its state to the devices controlling it.
 const STATE_EVERY: Duration = Duration::from_secs(3);
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StateEvent {
-    state: State,
-    received_at: i64,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PositionEvent {
-    position_ms: i64,
-    received_at: i64,
-}
 
 struct Resolved {
     url: String,
@@ -77,7 +86,8 @@ impl Now {
 
 pub struct LocalPlayer {
     me: Weak<LocalPlayer>,
-    app: AppHandle,
+    sink: Arc<dyn PlayerHost>,
+    rt: tokio::runtime::Handle,
     audio: lfly_audio::Player,
     yt: YtMusic,
     now: Mutex<Now>,
@@ -87,12 +97,19 @@ pub struct LocalPlayer {
 }
 
 impl LocalPlayer {
-    pub fn new(app: AppHandle, yt: YtMusic, device_id: String) -> Result<Arc<Self>, String> {
-        let cache = dirs::cache_dir().ok_or("Nessuna cartella cache")?.join("lfly").join("audio");
-        let audio = lfly_audio::Player::new(cache, 2 * 1024 * 1024 * 1024)?;
+    pub fn new(
+        sink: Arc<dyn PlayerHost>,
+        rt: tokio::runtime::Handle,
+        yt: YtMusic,
+        device_id: String,
+        // The audio cache; one engine per folder (the Tauri and GPUI apps may run side by side).
+        cache_dir: std::path::PathBuf,
+    ) -> Result<Arc<Self>, String> {
+        let audio = lfly_audio::Player::new(cache_dir, 2 * 1024 * 1024 * 1024)?;
         let player = Arc::new_cyclic(|me| LocalPlayer {
             me: me.clone(),
-            app,
+            sink,
+            rt,
             audio,
             yt,
             now: Mutex::new(Now { volume: 80, ..Default::default() }),
@@ -103,8 +120,8 @@ impl LocalPlayer {
         player.audio.set_volume(perceptual(80));
         let events = player.audio.subscribe();
         let weak = Arc::downgrade(&player);
-        tauri::async_runtime::spawn(listen(weak.clone(), events));
-        tauri::async_runtime::spawn(heartbeat(weak));
+        player.rt.spawn(listen(weak.clone(), events));
+        player.rt.spawn(heartbeat(weak));
         Ok(player)
     }
 
@@ -354,7 +371,7 @@ impl LocalPlayer {
         };
         self.changed(true);
         let Some(me) = self.me.upgrade() else { return };
-        tauri::async_runtime::spawn(async move {
+        self.rt.spawn(async move {
             match me.source_for(&track, false).await {
                 Ok(source) => {
                     if me.now.lock().unwrap().load_seq != seq {
@@ -394,7 +411,7 @@ impl LocalPlayer {
 
     /// Where a song plays from: its download, the cache when it holds all of it, else a fresh stream URL.
     async fn source_for(&self, track: &TrackRef, fresh: bool) -> Result<Source, String> {
-        if let Some(path) = crate::downloads::file_for(&track.id) {
+        if let Some(path) = self.sink.downloaded(&track.id) {
             return Ok(Source::file(path));
         }
         if !fresh {
@@ -439,7 +456,7 @@ impl LocalPlayer {
         self.now.lock().unwrap().preloaded = None;
         let Some((index, track)) = next else { return };
         let Some(me) = self.me.upgrade() else { return };
-        tauri::async_runtime::spawn(async move {
+        self.rt.spawn(async move {
             if let Ok(source) = me.source_for(&track, false).await {
                 let mut now = me.now.lock().unwrap();
                 if now.load_seq != seq || now.queue.tracks.get(index as usize).map(|t| &t.id) != Some(&track.id) {
@@ -467,7 +484,7 @@ impl LocalPlayer {
         let Some(me) = self.me.upgrade() else { return };
         let last = self.now.lock().unwrap().queue.current().cloned();
         let Some(last) = last else { return self.stop_at_end() };
-        tauri::async_runtime::spawn(async move {
+        self.rt.spawn(async move {
             let found = me.yt.up_next(&last.id).await.unwrap_or_default();
             let tracks: Vec<TrackRef> = {
                 let now = me.now.lock().unwrap();
@@ -503,7 +520,7 @@ impl LocalPlayer {
                 };
                 // Four times a second: only the position, never the whole queue. A full state here
                 // made every listener in the window (and the system media controls) run again.
-                let _ = self.app.emit("player:position", PositionEvent { position_ms, received_at: lfly_connect::controller::now_ms() });
+                self.sink.position(position_ms, lfly_connect::controller::now_ms());
             }
             PlayerEvent::Duration { ms } => {
                 if ms > 0 {
@@ -554,7 +571,7 @@ impl LocalPlayer {
                         self.now.lock().unwrap().queue.index = i;
                         self.load_current(0, true);
                     }
-                    None if crate::settings::autoplay() && self.now.lock().unwrap().queue.current().is_some() => self.play_on_with_similar(),
+                    None if self.sink.autoplay() && self.now.lock().unwrap().queue.current().is_some() => self.play_on_with_similar(),
                     None => self.stop_at_end(),
                 }
             }
@@ -579,7 +596,7 @@ impl LocalPlayer {
                 self.urls.lock().unwrap().remove(&track.id);
                 let seq = self.now.lock().unwrap().load_seq;
                 let Some(me) = self.me.upgrade() else { return };
-                tauri::async_runtime::spawn(async move {
+                self.rt.spawn(async move {
                     match me.source_for(&track, true).await {
                         Ok(source) if me.now.lock().unwrap().load_seq == seq => {
                             me.audio.load(source, position.max(0) as u64, true);
@@ -597,7 +614,7 @@ impl LocalPlayer {
     /// Tells the window, and the controlling devices too when [important] (not every tick).
     fn changed(&self, important: bool) {
         let state = self.state();
-        let _ = self.app.emit("player:state", StateEvent { state, received_at: lfly_connect::controller::now_ms() });
+        self.sink.state(&state, lfly_connect::controller::now_ms());
         if important {
             if let Some(host) = self.host.get() {
                 host.broadcast();
@@ -606,7 +623,7 @@ impl LocalPlayer {
     }
 
     fn say(&self, text: &str) {
-        let _ = self.app.emit("player:notice", text.to_string());
+        self.sink.notice(text);
     }
 }
 
@@ -621,7 +638,7 @@ impl HostPlayer for LocalPlayer {
         self.edit_queue(op, tracks, index, to);
     }
     fn transfer(&self, t: Transfer) {
-        let _ = self.app.emit("player:arrived", t.from_device_id.clone());
+        self.sink.arrived(t.from_device_id.clone());
         self.play_queue(t.queue, t.index, t.position_ms, t.playing);
     }
     fn release(&self) -> Option<Transfer> {
@@ -630,7 +647,7 @@ impl HostPlayer for LocalPlayer {
         handover
     }
     fn library(&self, peer_id: &str, offered: serde_json::Value) -> Option<serde_json::Value> {
-        crate::libsync::answer(&self.app, peer_id, offered)
+        self.sink.library(peer_id, offered)
     }
 }
 

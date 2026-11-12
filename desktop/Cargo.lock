@@ -2368,11 +2368,14 @@ name = "lfly-core"
 version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
+ "lfly-audio",
  "lfly-connect",
+ "lfly-yt",
  "log",
  "rand 0.8.8",
  "serde",
  "serde_json",
+ "tokio",
  "uuid",
  "zip",
 ]

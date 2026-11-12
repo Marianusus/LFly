@@ -6,5 +6,6 @@
 pub mod discord;
 pub mod identity;
 pub mod library;
+pub mod player;
 pub mod queue;
 pub mod store;

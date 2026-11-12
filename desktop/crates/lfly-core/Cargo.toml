@@ -14,3 +14,6 @@ dirs = "6"
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+lfly-audio = { path = "../lfly-audio" }
+lfly-yt = { path = "../lfly-yt" }
+tokio.workspace = true

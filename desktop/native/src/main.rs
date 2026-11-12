@@ -1,7 +1,7 @@
 //! LFly for computer, drawn by GPUI: no webview, the GPU draws only when something changed.
 //!
 //! First step of the rewrite: search YouTube Music, a virtual list of songs with covers, play
-//! through the Rust engine (`lfly-audio`), the cover's light behind the window.
+//! through the shared player (lfly-core, as the Tauri app), the cover's light behind the window.
 
 mod art;
 mod core;
@@ -14,10 +14,10 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme, TitleBar};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use lfly_audio::PlayerEvent;
+use lfly_connect::protocol::{self, State, TrackRef};
 use lfly_yt::Track;
 
-use crate::core::Core;
+use crate::core::{Core, PlayerUpdate};
 
 const ROW_H: f32 = 56.0;
 
@@ -28,11 +28,12 @@ struct Lfly {
     status: SharedString,
     covers: HashMap<String, Arc<Image>>,
     loading_covers: HashSet<String>,
-    current: Option<usize>,
-    playing: bool,
+    /// What the shared player reported last (queue, index, play/pause...).
+    state: Option<State>,
     position_ms: u64,
-    duration_ms: u64,
     backdrop: Option<Arc<Image>>,
+    /// The song the backdrop belongs to.
+    backdrop_for: Option<String>,
     /// The window is in front: position ticks redraw only then.
     active: bool,
     /// The pointer over the player glass (window coordinates), for its light.
@@ -43,7 +44,12 @@ struct Lfly {
 }
 
 impl Lfly {
-    fn new(core: Arc<Core>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(
+        core: Arc<Core>,
+        mut updates: tokio::sync::mpsc::UnboundedReceiver<PlayerUpdate>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Cerca brani su YouTube Music"));
         let mut subs = vec![cx.subscribe_in(&search, window, |this, state, ev: &InputEvent, _w, cx| {
             if let InputEvent::PressEnter { .. } = ev {
@@ -56,17 +62,10 @@ impl Lfly {
             cx.notify();
         }));
 
-        // Engine events: a foreground task, the receiver works on any executor.
-        let mut events = core.audio.subscribe();
+        // The player's reports: a foreground task, the receiver works on any executor.
         cx.spawn(async move |this, cx| {
-            loop {
-                let ev = match events.recv().await {
-                    Ok(ev) => ev,
-                    // A burst while the window was busy: the next event is as good as the missed ones.
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(_) => break,
-                };
-                if this.update(cx, |this, cx| this.on_player(ev, cx)).is_err() {
+            while let Some(update) = updates.recv().await {
+                if this.update(cx, |this, cx| this.on_player(update, cx)).is_err() {
                     break;
                 }
             }
@@ -80,11 +79,10 @@ impl Lfly {
             status: "Cerca qualcosa da ascoltare.".into(),
             covers: HashMap::new(),
             loading_covers: HashSet::new(),
-            current: None,
-            playing: false,
+            state: None,
             position_ms: 0,
-            duration_ms: 0,
             backdrop: None,
+            backdrop_for: None,
             active: true,
             autoplay: false,
             pointer_at: None,
@@ -95,7 +93,7 @@ impl Lfly {
 
     fn start_autoplay(mut self, cx: &mut Context<Self>) -> Self {
         if std::env::var_os("LFLY_MUTE").is_some() {
-            self.core.audio.set_volume(0.0);
+            self.core.command(protocol::CMD_VOLUME, 0);
         }
         if let Ok(q) = std::env::var("LFLY_AUTOPLAY") {
             self.autoplay = true;
@@ -104,22 +102,61 @@ impl Lfly {
         self
     }
 
-    fn on_player(&mut self, ev: PlayerEvent, cx: &mut Context<Self>) {
-        match ev {
-            PlayerEvent::Playing => self.playing = true,
-            PlayerEvent::Paused | PlayerEvent::Ended => self.playing = false,
-            PlayerEvent::Position { ms } => {
-                self.position_ms = ms;
+    fn current(&self) -> Option<&TrackRef> {
+        let s = self.state.as_ref()?;
+        s.queue.get(usize::try_from(s.index).ok()?)
+    }
+
+    fn playing(&self) -> bool {
+        self.state.as_ref().is_some_and(|s| s.playing)
+    }
+
+    fn duration_ms(&self) -> u64 {
+        let d = self.state.as_ref().map_or(0, |s| s.duration_ms);
+        let d = if d > 0 { d } else { self.current().map_or(0, |t| t.duration_ms) };
+        d.max(0) as u64
+    }
+
+    fn on_player(&mut self, update: PlayerUpdate, cx: &mut Context<Self>) {
+        match update {
+            PlayerUpdate::State(state) => {
+                self.position_ms = state.position_ms.max(0) as u64;
+                self.state = Some(*state);
+                self.refresh_backdrop(cx);
+            }
+            PlayerUpdate::Position { ms } => {
+                self.position_ms = ms.max(0) as u64;
                 // Behind a game nobody reads the bar: no frame at all.
                 if !self.active {
                     return;
                 }
             }
-            PlayerEvent::Duration { ms } => self.duration_ms = ms,
-            PlayerEvent::Error { message } => self.status = format!("Errore: {message}").into(),
-            _ => return,
+            PlayerUpdate::Notice(text) => self.status = text.into(),
         }
         cx.notify();
+    }
+
+    /// The light behind the window follows the song, from a bigger copy of its cover.
+    fn refresh_backdrop(&mut self, cx: &mut Context<Self>) {
+        let Some(track) = self.current().cloned() else { return };
+        if self.backdrop_for.as_deref() == Some(track.id.as_str()) {
+            return;
+        }
+        self.backdrop_for = Some(track.id.clone());
+        let Some(url) = track.cover_url.clone() else { return };
+        let core = self.core.clone();
+        let id = track.id;
+        cx.spawn(async move |this, cx| {
+            let Some(bytes) = core.fetch(lfly_yt::upscale_thumbnail(&url)).await else { return };
+            let blurred = cx.background_executor().spawn(async move { art::backdrop(&bytes) }).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.backdrop_for.as_deref() == Some(id.as_str()) {
+                    this.backdrop = blurred;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn run_search(&mut self, query: String, cx: &mut Context<Self>) {
@@ -149,50 +186,24 @@ impl Lfly {
     }
 
     fn play(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let Some(track) = self.tracks.get(ix).cloned() else { return };
-        self.current = Some(ix);
+        if ix >= self.tracks.len() {
+            return;
+        }
         self.position_ms = 0;
-        self.duration_ms = track.duration_ms.max(0) as u64;
-        self.backdrop = None;
+        // The shared player resolves the full stream, preloads the next song and retries
+        // expired URLs; its state comes back through `on_player`.
+        self.core.play(&self.tracks, ix);
         cx.notify();
-        let core = self.core.clone();
-        let cover = track.cover_url.clone();
-        cx.spawn(async move |this, cx| {
-            if let Err(e) = core.clone().play(track).await {
-                let _ = this.update(cx, |this, cx| {
-                    this.status = format!("Impossibile riprodurre: {e}").into();
-                    cx.notify();
-                });
-            }
-            // The light behind the window, from a bigger copy of the cover.
-            if let Some(url) = cover {
-                if let Some(bytes) = core.fetch(lfly_yt::upscale_thumbnail(&url)).await {
-                    let blurred = cx.background_executor().spawn(async move { art::backdrop(&bytes) }).await;
-                    let _ = this.update(cx, |this, cx| {
-                        if this.current == Some(ix) {
-                            this.backdrop = blurred;
-                            cx.notify();
-                        }
-                    });
-                }
-            }
-        })
-        .detach();
     }
 
     fn toggle(&mut self, cx: &mut Context<Self>) {
-        if self.current.is_some() {
-            self.core.audio.toggle();
-        }
+        self.core.command(protocol::CMD_TOGGLE, 0);
         cx.notify();
     }
 
     fn next(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let Some(cur) = self.current else { return };
-        let to = cur as isize + delta;
-        if to >= 0 && (to as usize) < self.tracks.len() {
-            self.play(to as usize, cx);
-        }
+        self.core.command(if delta > 0 { protocol::CMD_NEXT } else { protocol::CMD_PREVIOUS }, 0);
+        cx.notify();
     }
 
     /// Loads the covers of the rows on screen, once each.
@@ -218,7 +229,7 @@ impl Lfly {
         let track = self.tracks[ix].clone();
         self.want_cover(&track, cx);
         let cover = track.cover_url.as_ref().and_then(|u| self.covers.get(u).cloned());
-        let on = self.current == Some(ix);
+        let on = self.current().is_some_and(|t| t.id == track.id);
         let accent = cx.theme().primary;
         div()
             .id(ix)
@@ -264,9 +275,10 @@ impl Lfly {
         if std::env::var_os("LFLY_GLASS_HIDE").is_some() {
             return div().into_any_element();
         }
-        let track = self.current.and_then(|i| self.tracks.get(i));
+        let track = self.current();
         let cover = track.and_then(|t| t.cover_url.as_ref()).and_then(|u| self.covers.get(u).cloned());
-        let frac = if self.duration_ms > 0 { (self.position_ms as f32 / self.duration_ms as f32).clamp(0., 1.) } else { 0. };
+        let duration_ms = self.duration_ms();
+        let frac = if duration_ms > 0 { (self.position_ms as f32 / duration_ms as f32).clamp(0., 1.) } else { 0. };
         let accent = cx.theme().primary;
         let button = |id: &'static str, label: &'static str| {
             div()
@@ -340,7 +352,7 @@ impl Lfly {
                             .gap_2()
                             .child(button("prev", "⏮").on_click(cx.listener(|this, _, _, cx| this.next(-1, cx))))
                             .child(
-                                button("toggle", if self.playing { "⏸" } else { "▶" })
+                                button("toggle", if self.playing() { "⏸" } else { "▶" })
                                     .bg(white().opacity(0.12))
                                     .on_click(cx.listener(|this, _, _, cx| this.toggle(cx))),
                             )
@@ -364,7 +376,7 @@ impl Lfly {
                                     .bg(white().opacity(0.15))
                                     .child(div().h_full().rounded_full().bg(accent).w(relative(frac))),
                             )
-                            .child(clock(self.duration_ms)),
+                            .child(clock(duration_ms)),
                     ),
             )
             .child(div().w(px(220.)).flex_none()))
@@ -417,7 +429,7 @@ fn clock(ms: u64) -> SharedString {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let core = match Core::new() {
+    let (core, updates) = match Core::new() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("LFly non parte: {e}");
@@ -436,7 +448,7 @@ fn main() {
             window_decorations: Some(WindowDecorations::Client),
             ..TitleBar::window_options()
         };
-        gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Lfly::new(core, window, cx)))
+        gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Lfly::new(core, updates, window, cx)))
             .expect("window");
         cx.activate(true);
     });
