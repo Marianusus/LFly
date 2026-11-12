@@ -5,6 +5,7 @@
 
 mod art;
 mod core;
+mod glass;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -34,6 +35,8 @@ struct Lfly {
     backdrop: Option<Arc<Image>>,
     /// The window is in front: position ticks redraw only then.
     active: bool,
+    /// The pointer over the player glass (window coordinates), for its light.
+    pointer_at: Option<Point<Pixels>>,
     /// Measuring: play the first result of `LFLY_AUTOPLAY` as soon as it arrives.
     autoplay: bool,
     _subs: Vec<Subscription>,
@@ -84,6 +87,7 @@ impl Lfly {
             backdrop: None,
             active: true,
             autoplay: false,
+            pointer_at: None,
             _subs: subs,
         }
         .start_autoplay(cx)
@@ -255,7 +259,11 @@ impl Lfly {
             })
     }
 
-    fn player_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn player_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+        // LFLY_GLASS_HIDE: no player at all (the backdrop for the comparison).
+        if std::env::var_os("LFLY_GLASS_HIDE").is_some() {
+            return div().into_any_element();
+        }
         let track = self.current.and_then(|i| self.tracks.get(i));
         let cover = track.and_then(|t| t.cover_url.as_ref()).and_then(|u| self.covers.get(u).cloned());
         let frac = if self.duration_ms > 0 { (self.position_ms as f32 / self.duration_ms as f32).clamp(0., 1.) } else { 0. };
@@ -272,16 +280,35 @@ impl Lfly {
                 .hover(|s| s.bg(white().opacity(0.1)))
                 .child(label)
         };
+        let look = glass::GlassLook::dark(0.75);
+        // A pill of glass floating over the list, as the Tauri PlayerBar.
         div()
+            .id("player")
+            .absolute()
+            .left(px(12.))
+            .right(px(12.))
+            // LFLY_GLASS_DEBUG: over the list, to look at the bending and the blur.
+            .bottom(px(if std::env::var_os("LFLY_GLASS_DEBUG").is_some() { 330. } else { 12. }))
             .h(px(76.))
-            .flex_none()
+            .rounded(px(38.))
             .px_4()
             .flex()
             .items_center()
             .gap_4()
-            .bg(black().opacity(0.35))
-            .border_t_1()
-            .border_color(white().opacity(0.08))
+            .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, window, cx| {
+                this.pointer_at = Some(e.position);
+                let _ = window;
+                cx.notify();
+            }))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if !*hovered {
+                    this.pointer_at = None;
+                    cx.notify();
+                }
+            }))
+            .child(glass::glass_layer(look, px(38.), glass::Pointer { window: self.pointer_at }))
+            // LFLY_GLASS_EMPTY: the glass alone, for comparing it with the Tauri one.
+            .when(std::env::var_os("LFLY_GLASS_EMPTY").is_none(), |bar| bar
             .child(
                 div().size(px(52.)).flex_none().rounded_md().overflow_hidden().bg(white().opacity(0.08)).children(
                     cover.map(|c| img(c).size_full().object_fit(ObjectFit::Cover)),
@@ -340,7 +367,8 @@ impl Lfly {
                             .child(clock(self.duration_ms)),
                     ),
             )
-            .child(div().w(px(220.)).flex_none())
+            .child(div().w(px(220.)).flex_none()))
+            .into_any_element()
     }
 }
 
@@ -352,7 +380,9 @@ impl Render for Lfly {
         }))
         .flex_1()
         .px_2()
-        .py_2();
+        .pt_2()
+        // Room for the floating player: the last rows scroll out from under the glass.
+        .pb(px(100.));
 
         div()
             .size_full()
@@ -374,9 +404,9 @@ impl Render for Lfly {
                     .when(!self.status.is_empty(), |s| {
                         s.child(div().px_5().py_2().text_sm().text_color(white().opacity(0.6)).child(self.status.clone()))
                     })
-                    .child(list)
-                    .child(self.player_bar(cx)),
+                    .child(list),
             )
+            .child(self.player_bar(cx))
     }
 }
 

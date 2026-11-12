@@ -28,6 +28,10 @@ anyhow = "1"
 
 [patch.crates-io]
 opus-decoder = { path = "../crates/lfly-audio/vendor/opus-decoder" }
+# GPUI with a Liquid Glass primitive (see vendor/PATCHES.md).
+gpui-pre = { path = "vendor/gpui-pre" }
+gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
 
 [profile.release]
 lto = "thin"
