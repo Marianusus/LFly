@@ -73,6 +73,11 @@ impl Look {
         cx.notify();
     }
 
+    /// The playing cover's two colours, when known.
+    pub fn cover_colors(&self) -> Option<(Rgb, Rgb)> {
+        self.cover
+    }
+
     pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         self.mode = mode;
         self.rebuild(cx);

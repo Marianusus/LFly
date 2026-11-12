@@ -41,9 +41,13 @@ impl Ui {
     pub fn new() -> Self {
         let saved = lfly_core::store::get(KEY).ok().flatten().unwrap_or(Value::Null);
         // LFLY_PANEL (queue, lyrics, devices) opens one at start, for screenshots.
-        let panel = std::env::var("LFLY_PANEL").ok().and_then(|p| SidePanel::parse(&p));
+        let forced = std::env::var("LFLY_PANEL").ok();
+        let panel = match forced {
+            Some(p) => SidePanel::parse(&p),
+            None => saved.get("panel").and_then(Value::as_str).and_then(SidePanel::parse),
+        };
         Self {
-            panel: panel.or_else(|| saved.get("panel").and_then(Value::as_str).and_then(SidePanel::parse)),
+            panel,
             sidebar_wide: saved.get("sidebarWide").and_then(Value::as_bool).unwrap_or(true),
         }
     }

@@ -3,49 +3,13 @@
 //! the space LFly takes on disk, and this computer's name on LFly Connect.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use lfly_yt::{AudioPreference, YtMusic};
-use serde::{Deserialize, Serialize};
+use lfly_yt::YtMusic;
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::store;
 
-/// Play on with songs like the last one when the queue ends.
-static AUTOPLAY: AtomicBool = AtomicBool::new(true);
-
-pub fn autoplay() -> bool {
-    AUTOPLAY.load(Ordering::Relaxed)
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase", default)]
-pub struct Playback {
-    autoplay: bool,
-    /// "aac" (plays everywhere) or "opus" (smaller for the same quality).
-    format: String,
-}
-
-impl Default for Playback {
-    fn default() -> Self {
-        Playback { autoplay: true, format: "aac".into() }
-    }
-}
-
-fn preference(format: &str) -> AudioPreference {
-    if format == "opus" {
-        AudioPreference::OpusFirst
-    } else {
-        AudioPreference::AacFirst
-    }
-}
-
-/// At start: the saved playback settings into the core.
-pub fn load(yt: &YtMusic) {
-    let p: Playback = store::get("playback").ok().flatten().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
-    AUTOPLAY.store(p.autoplay, Ordering::Relaxed);
-    yt.set_preference(preference(&p.format));
-}
+pub use lfly_core::settings::{autoplay, load, Playback};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,16 +21,14 @@ pub struct Everything {
 
 #[tauri::command]
 pub fn settings_get(app: AppHandle) -> Everything {
-    let playback = store::get("playback").ok().flatten().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    let playback = lfly_core::settings::playback();
     let name = app.state::<crate::Core>().me.read().unwrap().name.clone();
     Everything { playback, autostart: autostart_file().is_some_and(|f| f.exists()), device_name: name }
 }
 
 #[tauri::command]
 pub fn settings_set_playback(yt: State<'_, YtMusic>, playback: Playback) -> Result<(), String> {
-    AUTOPLAY.store(playback.autoplay, Ordering::Relaxed);
-    yt.set_preference(preference(&playback.format));
-    store::set("playback", &serde_json::to_value(&playback).map_err(|e| e.to_string())?)
+    lfly_core::settings::set_playback(&yt, &playback)
 }
 
 // --- starting with the session ------------------------------------------------------------

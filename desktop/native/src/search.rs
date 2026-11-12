@@ -153,6 +153,18 @@ fn section_title(t: &'static str) -> Div {
     div().mb(px(12.)).text_size(px(22.)).font_weight(FontWeight::BOLD).child(t)
 }
 
+impl Search {
+    /// The search field has the keyboard: shortcuts leave the keys to it.
+    pub fn typing(&self, window: &Window, cx: &App) -> bool {
+        self.input.read(cx).focus_handle(cx).is_focused(window)
+    }
+
+    /// Ctrl+K: the field takes the keyboard.
+    pub fn field_focus(&self, cx: &App) -> FocusHandle {
+        self.input.read(cx).focus_handle(cx)
+    }
+}
+
 impl Render for Search {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (s, look) = {

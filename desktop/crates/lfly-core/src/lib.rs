@@ -9,4 +9,5 @@ pub mod library;
 pub mod pages;
 pub mod player;
 pub mod queue;
+pub mod settings;
 pub mod store;

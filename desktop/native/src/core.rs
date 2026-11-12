@@ -45,6 +45,10 @@ impl PlayerHost for NativeHost {
     fn notice(&self, text: &str) {
         let _ = self.0.send(PlayerUpdate::Notice(text.to_string()));
     }
+    /// Settings → Riproduzione: play on with similar songs.
+    fn autoplay(&self) -> bool {
+        lfly_core::settings::autoplay()
+    }
 }
 
 pub struct Core {
@@ -68,6 +72,8 @@ impl Core {
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         // Its own cache while the Tauri app lives next to it: two engines must not share one.
         let cache = dirs::cache_dir().ok_or_else(|| anyhow::anyhow!("no cache dir"))?.join("lfly").join("audio-native");
+        // Settings → Riproduzione: the format and "play on", as saved (by either window).
+        lfly_core::settings::load(&yt);
         let (tx, rx) = mpsc::unbounded_channel();
         let player = LocalPlayer::new(
             Arc::new(NativeHost(tx)),

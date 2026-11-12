@@ -170,6 +170,15 @@ impl LyricsData {
         None
     }
 
+    /// Settings → Testi → Azzera: every saved correction forgotten.
+    pub fn reset_offsets(&mut self, cx: &mut Context<Self>) {
+        self.offsets.clear();
+        if let Err(e) = lfly_core::store::set(OFFSETS_KEY, &Value::Object(Default::default())) {
+            log::warn!("{OFFSETS_KEY}: {e}");
+        }
+        cx.notify();
+    }
+
     fn offset(&self, id: &str) -> f64 {
         self.offsets.get(id).and_then(Value::as_f64).unwrap_or(0.)
     }

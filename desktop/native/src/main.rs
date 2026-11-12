@@ -29,6 +29,7 @@ mod queue_list;
 mod right_panel;
 mod scene;
 mod search;
+mod settings_page;
 mod sidebar;
 mod slider;
 mod theme;
@@ -129,6 +130,8 @@ struct Lfly {
     lyrics_page: Entity<LyricsPage>,
     ui: Entity<Ui>,
     right_panel: Entity<RightPanel>,
+    settings: Entity<crate::settings_page::SettingsPage>,
+    settings_shown: bool,
     toasts: Entity<crate::toast::Toasts>,
     menu: Entity<crate::menu::Menu>,
     menu_shown: bool,
@@ -170,8 +173,9 @@ impl Lfly {
         let lyrics_data = cx.new(|_| LyricsData::new(core.clone()));
         let lyrics_np = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Panel, cx));
         let lyrics_pg = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Page, cx));
-        let lyrics_side = cx.new(|cx| Lyrics::new(lyrics_data, model.clone(), look.clone(), Some(nav.clone()), Variant::Side, cx));
+        let lyrics_side = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), Some(nav.clone()), Variant::Side, cx));
         let now_playing = cx.new(|cx| NowPlaying::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), lyrics_np, cx));
+        let settings = cx.new(|cx| crate::settings_page::SettingsPage::new(core.clone(), look.clone(), library.clone(), lyrics_data.clone(), model.clone(), covers.clone(), cx));
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
@@ -211,18 +215,52 @@ impl Lfly {
         ];
         // Esc closes the full player.
         let esc_nav = nav.clone();
-        let esc_menu = menu.clone();
-        // Intercepted, not observed: a focused field (search) or gpui-kit may take Esc first.
-        cx.intercept_keystrokes(move |e, _, cx| {
-            if e.keystroke.key != "escape" {
+        // The keyboard (App.svelte onKey). Intercepted, not observed: a focused field or gpui-kit
+        // may take a key first.
+        let (esc_menu, keys_model, keys_search) = (menu.clone(), model.clone(), search.clone());
+        cx.intercept_keystrokes(move |e, window, cx| {
+            let k = &e.keystroke;
+            let m = k.modifiers;
+            let ctrl = m.control || m.platform;
+            let key = k.key.as_str();
+            let stop = |cx: &mut App| cx.stop_propagation();
+            if key == "escape" {
+                // The menu first, then the full player.
+                if esc_menu.read(cx).is_open() {
+                    crate::menu::Menu::close(cx);
+                } else if esc_nav.read(cx).route == Route::NowPlaying {
+                    NowPlaying::close(&esc_nav, cx);
+                }
                 return;
             }
-            // The menu first, then the full player.
-            if esc_menu.read(cx).is_open() {
-                crate::menu::Menu::close(cx);
-            } else if esc_nav.read(cx).route == Route::NowPlaying {
-                NowPlaying::close(&esc_nav, cx);
+            if ctrl && matches!(key, "k" | "l" | "f") {
+                esc_nav.update(cx, |n, cx| n.go(Route::Search, cx));
+                let h = keys_search.read(cx).field_focus(cx);
+                h.focus(window, cx);
+                return stop(cx);
             }
+            if m.alt && key == "left" {
+                esc_nav.update(cx, |n, cx| n.go_back(cx));
+                return stop(cx);
+            }
+            if m.alt && key == "right" {
+                esc_nav.update(cx, |n, cx| n.go_forward(cx));
+                return stop(cx);
+            }
+            if keys_search.read(cx).typing(window, cx) {
+                return;
+            }
+            let pm = keys_model.read(cx);
+            let has = pm.current().is_some();
+            match key {
+                "space" if has && !ctrl && !m.shift && !m.alt => pm.command(protocol::CMD_TOGGLE, 0),
+                "right" if ctrl => pm.command(protocol::CMD_NEXT, 0),
+                "left" if ctrl => pm.command(protocol::CMD_PREVIOUS, 0),
+                "right" if m.shift => pm.command(protocol::CMD_SEEK, pm.live_position() as i64 + 10_000),
+                "left" if m.shift => pm.command(protocol::CMD_SEEK, (pm.live_position() as i64 - 10_000).max(0)),
+                _ => return,
+            }
+            stop(cx);
         })
         .detach();
         let this = Self {
@@ -242,6 +280,8 @@ impl Lfly {
             lyrics_page,
             ui,
             right_panel,
+            settings,
+            settings_shown: false,
             toasts,
             menu,
             menu_shown: false,
@@ -479,7 +519,13 @@ impl Lfly {
                     .flex_none()
                     .rounded_full()
                     .cursor_pointer()
-                    .on_click(move |_, _, cx| n4.update(cx, |n, cx| n.go(Route::Settings, cx)))
+                    .on_click({
+                        let settings = self.settings.clone();
+                        move |_, _, cx| {
+                            settings.update(cx, |s, _| s.section = crate::settings_page::Section::Appearance);
+                            n4.update(cx, |n, cx| n.go(Route::Settings, cx))
+                        }
+                    })
                     .child(glass::glass_layer(look, px(19.), glass::Pointer::default()))
                     .child(div().relative().size_full().flex().items_center().justify_center().child(icon("palette", 17., text))),
             )
@@ -503,6 +549,9 @@ impl Lfly {
 
     fn page(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let route = self.nav.read(cx).page_route();
+        if route != Route::Settings {
+            self.settings_shown = false;
+        }
         let text3 = self.look.read(cx).scheme.text3;
         match route {
             Route::Home => self.home.clone().into_any_element(),
@@ -518,6 +567,14 @@ impl Lfly {
             Route::Search => self.search.clone().into_any_element(),
             Route::Library => self.library_page.clone().into_any_element(),
             Route::Lyrics => self.lyrics_page.clone().into_any_element(),
+            Route::Settings => {
+                // Read again what it shows each time it opens.
+                if !self.settings_shown {
+                    self.settings_shown = true;
+                    self.settings.update(cx, |s, cx| s.refresh(cx));
+                }
+                self.settings.clone().into_any_element()
+            }
             other => div()
                 .size_full()
                 .pt(px(80.))
@@ -603,6 +660,7 @@ impl Render for Lfly {
         });
         self.collection.update(cx, |c, _| c.width = win_w);
         self.library_page.update(cx, |l, _| l.page_width = stage_w);
+        self.settings.update(cx, |s, _| s.page_width = stage_w);
         self.search.update(cx, |s, _| {
             s.width = win_w;
             s.page_width = stage_w;
@@ -648,7 +706,16 @@ impl Render for Lfly {
         // drawn, captured and blurred for nothing.
         let show_shell = !on_np || np_t.is_some();
 
-        let mut root = div().size_full().relative().font_family(self.font.clone()).bg(bg).text_color(text);
+        let (nb, nf) = (self.nav.clone(), self.nav.clone());
+        let mut root = div()
+            .size_full()
+            .relative()
+            .font_family(self.font.clone())
+            .bg(bg)
+            .text_color(text)
+            // The mouse's side buttons move back and forward, as in a browser.
+            .on_mouse_down(MouseButton::Navigate(NavigationDirection::Back), move |_, _, cx| nb.update(cx, |n, cx| n.go_back(cx)))
+            .on_mouse_down(MouseButton::Navigate(NavigationDirection::Forward), move |_, _, cx| nf.update(cx, |n, cx| n.go_forward(cx)));
         if show_shell {
             let top = self.top_bar(window, panel_open, cx);
             let page = self.page(cx);

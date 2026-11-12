@@ -186,6 +186,19 @@ impl LibraryModel {
         .detach();
     }
 
+    /// `clearHistory`: history.json emptied. Only ever from a confirmed click.
+    pub fn clear_history(&mut self, cx: &mut Context<Self>) {
+        self.history.clear();
+        cx.notify();
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(e) = lfly_core::library::dir().and_then(|d| lfly_core::library::save(&d, "history.json", &Value::Array(Vec::new()))) {
+                    log::warn!("history.json: {e}");
+                }
+            })
+            .detach();
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut this = Self::default();
         this.reload(cx);
