@@ -44,7 +44,7 @@ the ambient light behind the full player stands still (Tauri drifts two copies o
 the queue's playing bars stand still. The lyrics animate at most 60 frames a second, four when
 the window is behind another one (Tauri: the monitor's rate, 30 in the background).
 Songs played here go into history.json as in Tauri (not in test runs: `LFLY_MUTE` or
-`LFLY_AUTOPLAY` set), though Settings' "pause history" is not read yet. Missing in the full
+`LFLY_AUTOPLAY` set) unless Settings pauses it. Missing in the full
 player: the output menu's devices, the "more" menu. 
 
 To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte file with its
