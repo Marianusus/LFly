@@ -396,7 +396,7 @@ impl Render for Ambient {
             let _ = window.drop_image(t);
         }
         let reduce = crate::prefs::Prefs::reduce_motion(cx);
-        let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
+        let active = crate::presented(window);
         let fade = if reduce { 1. } else { self.since.map_or(1., |t| (t.elapsed().as_secs_f32() / 0.9).min(1.)) };
         if fade >= 1. {
             if let Some(p) = self.previous.take() {

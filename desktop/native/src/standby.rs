@@ -159,7 +159,7 @@ impl Render for StandBy {
         // Redraws: 30 a second while a line is swept, the controls fade or the burn-in eases;
         // otherwise once a second (the clock, the progress line).
         let busy = (lyric.is_some() && playing) || (since < 0.25 && !reduce) || e < 1.;
-        let wait = Duration::from_millis(if busy && window.is_window_active() { 33 } else { 1000 });
+        let wait = Duration::from_millis(if busy && crate::presented(window) { 33 } else { 1000 });
         let due = now + self.controls_until.map_or(wait, |u| u.saturating_duration_since(now).min(wait)).max(Duration::from_millis(16));
         if self.tick.is_none_or(|t| due + Duration::from_millis(5) < t) {
             self.tick = Some(due);

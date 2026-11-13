@@ -214,6 +214,21 @@ impl Lfly {
                 }
             })
             .detach();
+            // The lyrics sources Settings chose, their order, the priority and the PaxSenix key:
+            // given to the engine now and whenever they change (the songs are then asked again).
+            let prefs = crate::prefs::Prefs::entity(cx);
+            let mut sources = prefs.read(cx).v.lyrics_sources();
+            core.yt.set_lyrics_prefs(sources.clone());
+            let yt = core.yt.clone();
+            cx.observe(&prefs, move |d: &mut LyricsData, p, cx| {
+                let now = p.read(cx).v.lyrics_sources();
+                if now != sources {
+                    sources = now.clone();
+                    yt.set_lyrics_prefs(now);
+                    d.forget_all(cx);
+                }
+            })
+            .detach();
             LyricsData::new(core.clone())
         });
         let lyrics_np = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Panel, cx));
@@ -256,17 +271,25 @@ impl Lfly {
             }),
             // The "where" pill above the bar follows LFly Connect.
             cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
-            cx.observe_window_activation(window, |this, window, cx| {
+            cx.observe_window_activation(window, |_, window, cx| {
                 let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
                 log::debug!("window active: {active}");
                 // (LFLY_MENU keeps it for the screenshot, taken with the window in the back.)
                 if !active && std::env::var_os("LFLY_MENU").is_none() {
                     crate::menu::Menu::close(cx);
                 }
+            }),
+            // What moves (the position, the bars, the lyrics) stops only when the window is not
+            // on screen at all; behind the focus it is still watched.
+            cx.observe_window_visibility(window, |this, _, window, cx| {
+                let shown = crate::presented(window);
+                log::debug!("window presented: {shown}");
                 this.model.update(cx, |m, cx| {
-                    m.active = active;
-                    cx.emit(PlayerEvent::Activity);
-                    cx.notify();
+                    if m.active != shown {
+                        m.active = shown;
+                        cx.emit(PlayerEvent::Activity);
+                        cx.notify();
+                    }
                 });
             }),
             // Only real changes reach this view: the position ticks stay in the bar.
@@ -430,6 +453,18 @@ impl Lfly {
                 s.autoplay = true;
                 s.run(q, cx);
             });
+        }
+        // LFLY_SEEK="<seconds>@<ms>" (tests): moves the song to <ms> after <seconds>.
+        if let Some((after, to)) = std::env::var("LFLY_SEEK").ok().and_then(|v| v.split_once('@').and_then(|(a, b)| Some((a.parse::<f64>().ok()?, b.parse::<i64>().ok()?)))) {
+            let model = this.model.clone();
+            cx.spawn(async move |_, cx| {
+                cx.background_executor().timer(std::time::Duration::from_secs_f64(after)).await;
+                model.update(cx, |m, _| {
+                    log::info!("LFLY_SEEK: to {to} ms");
+                    m.command(lfly_connect::protocol::CMD_SEEK, to);
+                });
+            })
+            .detach();
         }
         // LFLY_ROUTE: open a page at start (liked, library, settings, album:<id>, playlist:<id>,
         // local:<id>), for screenshots.
@@ -1294,4 +1329,11 @@ fn main() {
             .expect("window");
         cx.activate(true);
     });
+}
+
+/// Whether what moves should keep moving: the window is on screen, in front or not (the
+/// platform says when it is not presented: minimized, suspended by the compositor). A window
+/// only behind the focus, beside the one in use, is still watched.
+pub(crate) fn presented(window: &Window) -> bool {
+    window.is_visible() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some()
 }

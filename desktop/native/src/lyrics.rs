@@ -3,11 +3,16 @@
 //! sung one a third of the way down, the edges fade. The list scrolls itself; the wheel takes
 //! over for a few seconds; a click on a line seeks there.
 //!
+//! With the phone's word by word on top (LyricsView.kt): the word being sung springs up, grows
+//! and glows, what is sung glows softly, and the other lines blur the farther they are from the
+//! one sung (all sharp while the pointer is on the list or the wheel moved it).
+//!
 //! Drawn by one canvas: every line is shaped at the box's width (that gives the boxes motion.rs
-//! follows) and painted where the glide has it, each letter in its own colour along the sweep.
-//! Frames are asked for only while the song plays or the list moves; behind another window, four
-//! a second. Differences from Tauri: the sweep's soft edge goes letter by letter (no gradient
-//! text in GPUI), the fog fades whole lines (no masks), held notes do not glow (no text shadow).
+//! follows) and painted where the glide has it, glyph by glyph (`paint_glyph_fx`, a GPUI patch:
+//! blurred and scaled glyphs), each letter in its own colour along the sweep. Frames are asked for
+//! only while the song plays or the list moves; behind the focus thirty, off screen four. Differences
+//! from Tauri: the sweep's soft edge goes letter by letter (no gradient text in GPUI), the fog
+//! fades whole lines (no masks).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -24,7 +29,7 @@ use crate::core::{track_of, Core};
 use crate::glass;
 use crate::icons::icon;
 use crate::look::Look;
-use crate::motion::{build_lines, is_live, light_of, max_scroll, CubicBezier, Follower, LineBox, LineModel, Scroll, DARK, EDGE_WIDTH};
+use crate::motion::{build_lines, is_live, light_of, line_blur, max_scroll, pop, word_spans, CubicBezier, Follower, LineBox, LineModel, Scroll, CUBIC_OUT, DARK, EDGE_WIDTH};
 use crate::player_model::PlayerModel;
 
 const OFFSETS_KEY: &str = "lyrics-offsets";
@@ -74,6 +79,109 @@ impl Fog {
     }
 }
 
+/// A line's blur easing to a new depth (the phone's 220 ms), as a Gaussian's sigma in px.
+#[derive(Clone, Copy)]
+struct Blur {
+    from: f32,
+    to: f32,
+    at: f64,
+}
+
+impl Blur {
+    const MS: f64 = 220.;
+    const STILL: Blur = Blur { from: 0., to: 0., at: -1e9 };
+
+    fn value(&self, now: f64) -> f32 {
+        let p = ((now - self.at) / Self::MS).clamp(0., 1.);
+        self.from + (self.to - self.from) * CUBIC_OUT.at(p) as f32
+    }
+
+    fn set(&mut self, to: f32, now: f64, instant: bool) {
+        if instant {
+            *self = Blur { from: to, to, at: -1e9 };
+        } else if (to - self.to).abs() > 1e-3 {
+            *self = Blur { from: self.value(now), to, at: now };
+        }
+    }
+
+    fn moving(&self, now: f64) -> bool {
+        now - self.at < Self::MS
+    }
+}
+
+/// Past the text on either side (Page and Panel), so a glow, a blur or a word grown by its pop
+/// at the edge is not cut in a straight line: the box reaches out by this, the text stays put.
+const BLEED: f32 = 20.;
+
+/// How long the lines stay sharp after the pointer moved over them.
+const BROWSE_MS: f64 = 2500.;
+
+/// A glyph where `WrappedLine::paint` would put it.
+struct Placed {
+    /// On the baseline.
+    at: Point<Pixels>,
+    font: FontId,
+    glyph: GlyphId,
+    /// Its byte in the text.
+    index: usize,
+    emoji: bool,
+    advance: Pixels,
+    row_top: Pixels,
+}
+
+/// `aligned_origin_x` of GPUI's line.rs: where the row starting at [row_from] begins.
+fn aligned_x(x0: Pixels, width: Pixels, row_from: Pixels, align: TextAlign, layout: &LineLayout, next: Option<&WrapBoundary>) -> Pixels {
+    let end = next.map_or(layout.width, |w| layout.runs[w.run_ix].glyphs[w.glyph_ix].position.x);
+    let w = end - row_from;
+    match align {
+        TextAlign::Left => x0,
+        TextAlign::Center => x0 + (width - w) / 2.,
+        TextAlign::Right => x0 + width - w,
+    }
+}
+
+/// Every glyph of [shaped] placed as GPUI's `paint_line` places it (rows, wraps, alignment),
+/// so lyrics.rs can paint each one on its own: blurred, glowing, grown. Returns the bottom.
+fn place(shaped: &[WrappedLine], origin: Point<Pixels>, line_h: Pixels, align: TextAlign, width: Pixels, out: &mut Vec<Placed>) -> Pixels {
+    let mut y = origin.y;
+    for wl in shaped {
+        let layout = &wl.unwrapped_layout;
+        let baseline = (line_h - layout.ascent - layout.descent) / 2. + layout.ascent;
+        let mut wraps = wl.wrap_boundaries.iter().peekable();
+        let mut x = aligned_x(origin.x, width, px(0.), align, layout, wraps.peek().copied());
+        let mut prev = px(0.);
+        let first = out.len();
+        for (run_ix, run) in layout.runs.iter().enumerate() {
+            for (glyph_ix, g) in run.glyphs.iter().enumerate() {
+                x += g.position.x - prev;
+                if wraps.peek().is_some_and(|w| w.run_ix == run_ix && w.glyph_ix == glyph_ix) {
+                    wraps.next();
+                    x = aligned_x(origin.x, width, g.position.x, align, layout, wraps.peek().copied());
+                    y += line_h;
+                }
+                prev = g.position.x;
+                out.push(Placed { at: point(x, y + baseline + g.position.y), font: run.font_id, glyph: g.id, index: g.index, emoji: g.is_emoji, advance: px(0.), row_top: y });
+            }
+        }
+        // Each glyph's width: up to the next one in the unwrapped line.
+        let xs: Vec<Pixels> = layout.runs.iter().flat_map(|r| r.glyphs.iter().map(|g| g.position.x)).collect();
+        for (k, p) in out[first..].iter_mut().enumerate() {
+            p.advance = xs.get(k + 1).copied().unwrap_or(layout.width) - xs[k];
+        }
+        y += line_h;
+    }
+    y
+}
+
+/// What one letter of a line is painted with.
+#[derive(Clone, Copy)]
+struct Ink {
+    alpha: f32,
+    glow: f32,
+    /// The word it belongs to (its group), for the pop.
+    word: usize,
+}
+
 /// Everything the canvas changes from frame to frame.
 struct Motion {
     scroll: Scroll,
@@ -96,6 +204,10 @@ struct Motion {
     rects: Vec<Bounds<Pixels>>,
     hovered: Option<usize>,
     timer: bool,
+    /// When the pointer last moved over the list: the lines stay sharp a little while after.
+    browsed: f64,
+    /// Each line's blur, deeper the farther it is from the one sung.
+    blur: Vec<Blur>,
 }
 
 impl Default for Motion {
@@ -118,6 +230,8 @@ impl Default for Motion {
             rects: Vec::new(),
             hovered: None,
             timer: false,
+            browsed: -1e9,
+            blur: Vec::new(),
         }
     }
 }
@@ -139,6 +253,14 @@ impl LyricsData {
         let before = self.cache.len();
         self.cache.retain(|_, v| v.is_some());
         if self.cache.len() != before {
+            cx.notify();
+        }
+    }
+
+    /// Settings changed the sources: every song is asked again (kept lyrics stay first).
+    pub fn forget_all(&mut self, cx: &mut Context<Self>) {
+        if !self.cache.is_empty() {
+            self.cache.clear();
             cx.notify();
         }
     }
@@ -238,6 +360,8 @@ pub struct Lyrics {
     status: Status,
     lyrics: Option<Rc<pages::Lyrics>>,
     lines: Rc<Vec<LineModel>>,
+    /// When each word of each line is the one sung (motion::word_spans).
+    spans: Rc<Vec<Vec<(usize, f64, f64)>>>,
     /// Which sheet `lines` is, and the duration it was built with.
     sheet: (u64, u64, bool),
     generation: u64,
@@ -286,6 +410,7 @@ impl Lyrics {
             status: Status::Loading,
             lyrics: None,
             lines: Rc::new(Vec::new()),
+            spans: Rc::new(Vec::new()),
             sheet: (0, 0, true),
             generation: 0,
             offset: 0.,
@@ -382,7 +507,9 @@ impl Render for Lyrics {
         };
         let prefs = crate::prefs::Prefs::get(cx);
         // Settings → Testi: the size, centred lines, the source line.
-        let size = font_size(self.variant, self.window_width) * prefs.lyrics_scale();
+        // Whole pixels: every size keeps its glyphs (sharp, blurred, glowing) in the atlas, so a
+        // resize must not make a new size at every step.
+        let size = (font_size(self.variant, self.window_width) * prefs.lyrics_scale()).round();
         let align = if prefs.lyrics_center { TextAlign::Center } else { TextAlign::Left };
         let center = prefs.lyrics_center;
         let show_source = prefs.lyrics_source;
@@ -451,13 +578,16 @@ impl Render for Lyrics {
         let words = prefs.lyrics_words;
         if self.sheet != (self.generation, duration, words) {
             self.lines = Rc::new(build_lines(synced, duration as f64, !words));
+            self.spans = Rc::new(self.lines.iter().map(word_spans).collect());
             self.sheet = (self.generation, duration, words);
             let mut st = self.motion.borrow_mut();
             st.measured = None;
             st.on = vec![(false, -1e9); self.lines.len()];
+            st.blur = vec![Blur::STILL; self.lines.len()];
         }
 
         let lines = self.lines.clone();
+        let spans = self.spans.clone();
         let motion = self.motion.clone();
         let model = self.model.clone();
         let epoch = self.epoch;
@@ -465,14 +595,25 @@ impl Render for Lyrics {
         let generation = self.generation;
         let source: SharedString = format!("Testo da {}", lyrics.source).into();
         let weak = cx.entity().downgrade();
+        // In front: 60 frames a second. Behind the focus but on screen (beside the window in
+        // use), 30: still smooth. Not presented at all (minimized, suspended), four.
         // LFLY_FORCE_ACTIVE: frames as for the window in front (to measure them from the back).
-        let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
+        let wait = if window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some() {
+            16
+        } else if crate::presented(window) {
+            33
+        } else {
+            250
+        };
         let font = {
             let mut f = window.text_style().font();
             f.weight = FontWeight::BOLD;
             f
         };
 
+        // The sheet's box reaches BLEED past the view on both sides (Page, Panel): the text too.
+        #[allow(non_snake_case)]
+        let PAD_X: f32 = PAD_X + if side { 0. } else { BLEED };
         let sheet = canvas(
             |_, _, _| {},
             move |bounds, _, window, cx| {
@@ -566,6 +707,23 @@ impl Render for Lyrics {
                     top.min(bottom)
                 };
 
+                // The phone's depth: the lines being sung sharp, the others blurred by how far
+                // they are, easing over 220 ms; all sharp while the list is pointed at or scrolled.
+                let s = size / 30.;
+                // Moving the pointer over the list or scrolling it: every line sharp, to read and
+                // pick one; a pointer left resting there lets them blur again.
+                let still = now - st.browsed < BROWSE_MS || now < st.paused_until;
+                let on_now: Vec<usize> = (0..lines.len()).filter(|&i| at >= lines[i].start && at < lines[i].exit).collect();
+                let focus = if on_now.is_empty() { vec![(0..lines.len()).rev().find(|&i| lines[i].start <= at).unwrap_or(0)] } else { on_now };
+                st.blur.resize(lines.len(), Blur::STILL);
+                for (i, b) in st.blur.iter_mut().enumerate() {
+                    let d = focus.iter().map(|&j| i.abs_diff(j)).min().unwrap_or(0);
+                    b.set(if still || lines[i].instrumental { 0. } else { line_blur(d) as f32 * s }, now, reduce);
+                }
+                // The sung word's glow (the phone's text shadow), its lift and growth.
+                let glow_sigma = px(5.2 * s);
+                let mut placed: Vec<Placed> = Vec::new();
+
                 let mouse = window.mouse_position();
                 let origin = bounds.origin;
                 st.rects.clear();
@@ -613,54 +771,127 @@ impl Render for Lyrics {
                             }
                             continue;
                         }
-                        // One run per letter, coloured along its token's sweep.
+                        // Each letter's ink along its token's sweep, its glow, its word.
                         let live = is_live(line, at);
+                        let blur = px(st.blur[i].value(now));
                         let mut text = String::new();
-                        let mut runs: Vec<TextRun> = Vec::new();
-                        let push = |s: &str, a: f32, runs: &mut Vec<TextRun>| {
-                            let color = ink(a * alpha);
-                            if let Some(last) = runs.last_mut().filter(|r| r.color == color) {
-                                last.len += s.len();
-                            } else {
-                                runs.push(TextRun { len: s.len(), font: font.clone(), color, background_color: None, underline: None, strikethrough: None });
-                            }
-                        };
-                        for g in &line.groups {
+                        let mut inks: Vec<Ink> = Vec::new();
+                        // Byte → letter.
+                        let mut letter: Vec<u32> = Vec::new();
+                        for (gi, g) in line.groups.iter().enumerate() {
                             for t in &g.tokens {
                                 text.push_str(&t.text);
                                 let light = if g.space || !live { DARK } else { light_of(t, line, at) };
-                                if light.alpha <= 0. {
-                                    push(&t.text, dim, &mut runs);
-                                    continue;
-                                }
                                 let lit = 0.3 + 0.7 * light.alpha as f32;
                                 let n = t.text.chars().count().max(1) as f64;
                                 for (j, ch) in t.text.chars().enumerate() {
-                                    let f = (j as f64 + 0.5) / n;
-                                    let k = ((f - light.solid) / EDGE_WIDTH).clamp(0., 1.) as f32;
-                                    let mut buf = [0u8; 4];
-                                    push(ch.encode_utf8(&mut buf), lit + (dim - lit) * k, &mut runs);
+                                    let (a, glow) = if light.alpha <= 0. {
+                                        (dim, 0.)
+                                    } else {
+                                        let f = (j as f64 + 0.5) / n;
+                                        let k = ((f - light.solid) / EDGE_WIDTH).clamp(0., 1.) as f32;
+                                        // What is sung glows softly (the phone's active line), a held
+                                        // note more (Tauri's `.glow`).
+                                        (lit + (dim - lit) * k, (1. - k) * light.alpha as f32 * (0.4 + 0.35 * light.glow as f32))
+                                    };
+                                    letter.extend(std::iter::repeat_n(inks.len() as u32, ch.len_utf8()));
+                                    inks.push(Ink { alpha: a, glow, word: gi });
                                 }
                             }
                         }
-                        if let Ok(shaped) = window.text_system().shape_text(text.into(), px(size), &runs, Some(px(text_w)), None) {
-                            let mut oy = text_origin.y;
-                            for l in &shaped {
-                                let _ = l.paint(point(text_origin.x, oy), px(main_lh), align, Some(Bounds::new(point(text_origin.x, oy), gpui_kit::size(px(text_w), px(main_lh)))), window, cx);
-                                oy += l.size(px(main_lh)).height;
+                        // The sung word springs up (timed lines only, never with reduced motion).
+                        let mut pops = vec![0f32; line.groups.len()];
+                        if live && !reduce {
+                            for &(gi, from, until) in &spans[i] {
+                                if at >= from && at < until + 1500. {
+                                    pops[gi] = pop(from, until, at) as f32;
+                                }
                             }
-                            if let Some(bg) = &line.bg {
-                                // `.bgv`: 23% of the ink, 78% while the line is sung, 330 ms between.
-                                let p = (((now - st.on[i].1) / 330.).clamp(0., 1.)) as f32;
-                                let (from, to) = if on { (0.23, 0.78) } else { (0.78, 0.23) };
-                                let a = from + (to - from) * p;
-                                let run = TextRun { len: bg.len(), font: bg_font.clone(), color: ink(a * alpha), background_color: None, underline: None, strikethrough: None };
-                                if let Ok(shaped) = window.text_system().shape_text(SharedString::from(bg.clone()), px(bg_size), &[run], Some(px(text_w)), None) {
-                                    let mut oy = oy + px(4.);
-                                    for l in &shaped {
-                                        let _ = l.paint(point(text_origin.x, oy), px(bg_lh), align, Some(Bounds::new(point(text_origin.x, oy), gpui_kit::size(px(text_w), px(bg_lh)))), window, cx);
-                                        oy += l.size(px(bg_lh)).height;
+                        }
+                        let run = TextRun { len: text.len(), font: font.clone(), color: white(), background_color: None, underline: None, strikethrough: None };
+                        let Ok(shaped) = window.text_system().shape_text(text.into(), px(size), &[run], Some(px(text_w)), None) else { continue };
+                        placed.clear();
+                        let mut oy = place(&shaped, text_origin, px(main_lh), align, px(text_w), &mut placed);
+                        let ink_of = |p: &Placed| inks[letter.get(p.index).copied().unwrap_or(0) as usize];
+                        // Each popping word's middle, on its first row: what it grows around.
+                        let mut pivots: Vec<Option<(Pixels, Pixels, Pixels)>> = vec![None; line.groups.len()];
+                        if pops.iter().any(|p| p.abs() > 1e-3) {
+                            for p in &placed {
+                                let w = ink_of(p).word;
+                                if pops[w].abs() <= 1e-3 {
+                                    continue;
+                                }
+                                let e = pivots[w].get_or_insert((p.at.x, p.at.x + p.advance, p.row_top));
+                                if p.row_top == e.2 {
+                                    e.0 = e.0.min(p.at.x);
+                                    e.1 = e.1.max(p.at.x + p.advance);
+                                }
+                            }
+                        }
+                        // A grown word pushes the others on its row aside (the phone's words have
+                        // room around them; these share the spaces), keeping the aligned edge put:
+                        // left-aligned rows grow to the right, centred ones both ways.
+                        let k_align = match align {
+                            TextAlign::Left => 0.,
+                            TextAlign::Center => 0.5,
+                            TextAlign::Right => 1.,
+                        };
+                        let push = |x: Pixels, row: Pixels| -> Pixels {
+                            let mut d = px(0.);
+                            for (w, e) in pivots.iter().enumerate() {
+                                if let Some((x0, x1, top)) = *e {
+                                    if top == row {
+                                        let grow = (x1 - x0) * (0.13 * pops[w]);
+                                        d += grow * if x < x0 { -k_align } else if x >= x1 { 1. - k_align } else { 0.5 - k_align };
                                     }
+                                }
+                            }
+                            d
+                        };
+                        // The glows first, under every letter; then the letters.
+                        for glow_pass in [true, false] {
+                            for p in &placed {
+                                let k = ink_of(p);
+                                let pw = pops[k.word];
+                                let dx = push(p.at.x, p.row_top);
+                                let (scale, lift, pivot) = match pivots[k.word] {
+                                    Some((x0, x1, top)) => {
+                                        let lift = px(2. * s * pw);
+                                        (1. + 0.13 * pw, lift, point((x0 + x1) / 2. + dx, top + px(main_lh / 2.) - lift))
+                                    }
+                                    None => (1., px(0.), p.at),
+                                };
+                                let at = point(p.at.x + dx, p.at.y - lift);
+                                if p.emoji {
+                                    if !glow_pass {
+                                        let _ = window.paint_emoji(at, p.font, p.glyph, px(size));
+                                    }
+                                } else if glow_pass {
+                                    let g = k.glow.max(0.7 * pw.clamp(0., 1.)) * alpha;
+                                    if g > 0.004 {
+                                        let _ = window.paint_glyph_fx(at, p.font, p.glyph, px(size), ink(g), glow_sigma, scale, pivot);
+                                    }
+                                } else {
+                                    let _ = window.paint_glyph_fx(at, p.font, p.glyph, px(size), ink(k.alpha * alpha), blur, scale, pivot);
+                                }
+                            }
+                        }
+                        if let Some(bg) = &line.bg {
+                            // `.bgv`: 23% of the ink, 78% while the line is sung, 330 ms between.
+                            let p = (((now - st.on[i].1) / 330.).clamp(0., 1.)) as f32;
+                            let (from, to) = if on { (0.23, 0.78) } else { (0.78, 0.23) };
+                            let a = from + (to - from) * p;
+                            let run = TextRun { len: bg.len(), font: bg_font.clone(), color: white(), background_color: None, underline: None, strikethrough: None };
+                            if let Ok(shaped) = window.text_system().shape_text(SharedString::from(bg.clone()), px(bg_size), &[run], Some(px(text_w)), None) {
+                                oy += px(4.);
+                                placed.clear();
+                                place(&shaped, point(text_origin.x, oy), px(bg_lh), align, px(text_w), &mut placed);
+                                for p in &placed {
+                                    let _ = if p.emoji {
+                                        window.paint_emoji(p.at, p.font, p.glyph, px(bg_size))
+                                    } else {
+                                        window.paint_glyph_fx(p.at, p.font, p.glyph, px(bg_size), ink(a * alpha), blur, 1., p.at)
+                                    };
                                 }
                             }
                         }
@@ -679,13 +910,18 @@ impl Render for Lyrics {
                 });
 
                 // The next frame: while the song plays, the list moves or just woke.
-                let busy = playing_now || st.scroll.moving() || now - st.woke < 900. || st.fog_top.moving(now) || st.fog_bottom.moving(now);
+                let busy = playing_now
+                    || st.scroll.moving()
+                    || now - st.woke < 900.
+                    || st.fog_top.moving(now)
+                    || st.fog_bottom.moving(now)
+                    || now - st.browsed < BROWSE_MS + 50.
+                    || st.blur.iter().any(|b| b.moving(now));
                 // At most 60 a second, whatever the monitor's rate (a 180 Hz screen would draw
                 // three times the frames for a sweep nobody can tell apart); behind another
                 // window (a game), four.
                 if busy && !st.timer {
                     st.timer = true;
-                    let wait = if active { 16 } else { 250 };
                     let weak = weak.clone();
                     let motion = motion.clone();
                     cx.spawn(async move |cx| {
@@ -779,10 +1015,11 @@ impl Render for Lyrics {
                     ),
             );
 
-        div()
+        let root = div()
             .id("lyrics")
             .relative()
-            .size_full()
+            .when(side, |d| d.size_full())
+            .when(!side, |d| d.absolute().top_0().bottom_0().left(px(-BLEED)).right(px(-BLEED)))
             .overflow_hidden()
             .on_hover(move |hovered, _, cx| {
                 let _ = me1.update(cx, |this, cx| {
@@ -791,12 +1028,17 @@ impl Render for Lyrics {
                 });
             })
             .on_mouse_move(move |e, _, cx| {
-                let st = m1.borrow();
-                let over = st.rects.iter().position(|r| r.contains(&e.position));
-                if over != st.hovered {
-                    drop(st);
-                    let _ = me2.update(cx, |_, cx| cx.notify());
-                }
+                let _ = me2.update(cx, |this, cx| {
+                    let now = this.now();
+                    let mut st = m1.borrow_mut();
+                    let over = st.rects.iter().position(|r| r.contains(&e.position));
+                    let woke = now - st.browsed >= BROWSE_MS;
+                    st.browsed = now;
+                    if woke || over != st.hovered {
+                        drop(st);
+                        cx.notify();
+                    }
+                });
             })
             .on_click(move |e, _, cx| {
                 let line = m2.borrow().rects.iter().position(|r| r.contains(&e.position()));
@@ -823,7 +1065,11 @@ impl Render for Lyrics {
                 }
             })
             .child(sheet)
-            .child(sync)
-            .into_any_element()
+            .child(sync);
+        if side {
+            root.into_any_element()
+        } else {
+            div().relative().size_full().child(root).into_any_element()
+        }
     }
 }

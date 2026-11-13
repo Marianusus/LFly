@@ -355,7 +355,7 @@ impl Render for RightPanel {
             look.tint = s.surface.hsla(0.9);
         }
         let panel = self.ui.read(cx).panel;
-        if self.pill_progress() < 1. && window.is_window_active() {
+        if self.pill_progress() < 1. && crate::presented(window) {
             window.request_animation_frame();
         }
         let pill_at = self.pill_value();

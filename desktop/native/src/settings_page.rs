@@ -109,6 +109,8 @@ pub struct SettingsPage {
     autostart: bool,
     /// Devices > Nome: this computer's name being edited.
     name_input: Option<Entity<gpui_kit::component::input::InputState>>,
+    /// Testi > Chiave PaxSenix, being typed.
+    pax_input: Option<Entity<gpui_kit::component::input::InputState>>,
     health: Vec<lfly_yt::SourceHealth>,
     _subs: Vec<Subscription>,
 }
@@ -194,6 +196,7 @@ impl SettingsPage {
             cache_size: None,
             autostart: lfly_core::settings::autostart(),
             name_input: None,
+            pax_input: None,
             health: Vec::new(),
             _subs: subs,
         }
@@ -789,7 +792,7 @@ impl SettingsPage {
 
     fn sound(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let pb = self.playback.clone();
-        let (me1, me2) = (cx.entity().downgrade(), cx.entity().downgrade());
+        let (me1, me2, me3) = (cx.entity().downgrade(), cx.entity().downgrade(), cx.entity().downgrade());
         vec![
             group("Riproduzione", None, i)
                 .child(list(
@@ -809,6 +812,25 @@ impl SettingsPage {
                             .child(seg("format", &pb.format, &[("aac".to_string(), "AAC"), ("opus".to_string(), "Opus")], i, move |v, cx| {
                                 let _ = me2.update(cx, |this, cx| this.set_playback(|p| p.format = v, cx));
                             }))
+                            .into_any_element(),
+                        row()
+                            .child(label(
+                                "Da dove suona",
+                                Some(
+                                    "Automatico, come sul telefono: YouTube Music e Monochrome cercano insieme e vince il primo; Monochrome (qualità più alta) vince anche se arriva entro un secondo e mezzo da YouTube. Le altre scelte provano prima quella e poi l'altra. Vale per i brani non ancora caricati; i download usano sempre YouTube Music."
+                                        .into(),
+                                ),
+                                i,
+                            ))
+                            .child(seg(
+                                "source",
+                                &pb.source,
+                                &[("AUTO".to_string(), "Automatico"), ("YOUTUBE_MUSIC".to_string(), "YouTube Music"), ("MONOCHROME".to_string(), "Monochrome")],
+                                i,
+                                move |v, cx| {
+                                    let _ = me3.update(cx, |this, cx| this.set_playback(|p| p.source = v, cx));
+                                },
+                            ))
                             .into_any_element(),
                     ],
                     i,
@@ -991,7 +1013,8 @@ impl SettingsPage {
         vec![eq_card.into_any_element(), automix.into_any_element(), output.into_any_element()]
     }
 
-    fn lyrics(&mut self, i: &Ink, p: &PrefsData, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn lyrics(&mut self, i: &Ink, p: &PrefsData, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let sources = self.lyrics_sources(i, p, window, cx);
         let prefs = Prefs::entity(cx);
         let (p1, p2, p3, p4) = (prefs.clone(), prefs.clone(), prefs.clone(), prefs);
         let (words, source) = (p.lyrics_words, p.lyrics_source);
@@ -1029,11 +1052,143 @@ impl SettingsPage {
                 ],
                 i,
             ))
-            .child(foot(
-                "I testi arrivano dalle stesse fonti del telefono: YouTube Music, BetterLyrics, lrc.red, BiniLyrics, LyricsPlus, Unison, KuGou e LRCLIB. Vince quella che corrisponde meglio a titolo, artista e durata, e i tempi parola per parola hanno la precedenza.",
-                i,
-            ))
             .into_any_element()]
+        .into_iter()
+        .chain(sources)
+        .collect()
+    }
+
+    /// Testi > Fonti (the phone's LyricsSourcesDialog): the sources in the order they are read,
+    /// each one on or off, word by word first, the PaxSenix key.
+    fn lyrics_sources(&mut self, i: &Ink, p: &PrefsData, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use gpui_kit::component::input::{Input, InputState};
+        let prefs = Prefs::entity(cx);
+        let wanted = p.lyrics_sources();
+        let ordered: Vec<&'static lfly_yt::lyrics::SourceInfo> = wanted.ordered();
+        let ids: Vec<String> = ordered.iter().map(|s| s.id.to_string()).collect();
+        let n = ordered.len();
+        let has_key = wanted.key().is_some();
+        let small = |id: SharedString, name: &'static str, enabled: bool, i: &Ink| {
+            div()
+                .id(id)
+                .size(px(28.))
+                .flex_none()
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(!enabled, |d| d.opacity(0.3))
+                .when(enabled, |d| d.cursor_pointer().hover(|d| d.bg(i.s_text.opacity(0.08))).active(|d| d.bg(i.s_text.opacity(0.14))))
+                .child(icon(name, 14., i.text2))
+        };
+        let rows: Vec<AnyElement> = ordered
+            .iter()
+            .enumerate()
+            .map(|(k, s)| {
+                let on = !p.lyrics_off.iter().any(|o| o == s.id);
+                let mut caption = s.detail.to_string();
+                if s.needs_key && !has_key {
+                    caption.push_str(" · manca la chiave");
+                }
+                let mv = |to: usize| {
+                    let (prefs, ids) = (prefs.clone(), ids.clone());
+                    move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                        let mut order = ids.clone();
+                        let id = order.remove(k);
+                        order.insert(to, id);
+                        prefs.update(cx, |p, cx| p.update(|d| d.lyrics_order = order, cx));
+                    }
+                };
+                let (pt, id) = (prefs.clone(), s.id);
+                row()
+                    .child(div().w(px(18.)).flex_none().text_color(i.text2).text_size(px(12.)).child(format!("{}", k + 1)))
+                    .child(label(s.label, Some(caption), i))
+                    .child(small(format!("lsrc-up-{id}").into(), "chevron-up", k > 0, i).when(k > 0, |d| d.on_click(mv(k - 1))))
+                    .child(small(format!("lsrc-down-{id}").into(), "chevron-down", k + 1 < n, i).when(k + 1 < n, |d| d.on_click(mv(k + 1))))
+                    .child(switch(SharedString::from(format!("lsrc-{id}")), on, false, i, move |cx| {
+                        pt.update(cx, |p, cx| {
+                            p.update(
+                                |d| {
+                                    if on {
+                                        d.lyrics_off.push(id.to_string());
+                                    } else {
+                                        d.lyrics_off.retain(|o| o != id);
+                                    }
+                                },
+                                cx,
+                            )
+                        })
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        let input = match self.pax_input.clone() {
+            Some(input) => input,
+            None => {
+                let input = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("Incolla la chiave").default_value(p.paxsenix_key.clone()));
+                crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
+                let pr = prefs.clone();
+                self._subs.push(cx.subscribe(&input, move |_, state, ev: &gpui_kit::component::input::InputEvent, cx| {
+                    if matches!(ev, gpui_kit::component::input::InputEvent::PressEnter { .. }) {
+                        let key = state.read(cx).value().trim().trim_start_matches("Bearer ").trim().to_string();
+                        pr.update(cx, |p, cx| p.update(|d| d.paxsenix_key = key, cx));
+                        Toasts::say("Chiave PaxSenix salvata", cx);
+                    }
+                    cx.notify();
+                }));
+                self.pax_input = Some(input.clone());
+                input
+            }
+        };
+        let typed = input.read(cx).value().trim().trim_start_matches("Bearer ").trim().to_string();
+        let can_save = typed != p.paxsenix_key;
+        let (pw, pk, input2) = (prefs.clone(), prefs.clone(), input.clone());
+        let words_first = p.lyrics_words_first;
+        let reset = prefs.clone();
+        vec![
+            group(
+                "Fonti dei testi",
+                Some("Come sul telefono: le fonti accese partono tutte insieme e le risposte si leggono in quest'ordine. Vince la prima con i tempi parola per parola, oppure la prima con le righe a tempo; Genius solo se nessuna ha i tempi."),
+                i,
+            )
+            .child(list(rows, i))
+            .child(div().mt(px(10.)).flex().justify_end().child(button("lsrc-reset", "Ordine predefinito", false, p.lyrics_order.is_empty() && p.lyrics_off.is_empty(), i).on_click(move |_, _, cx| {
+                reset.update(cx, |p, cx| {
+                    p.update(
+                        |d| {
+                            d.lyrics_order.clear();
+                            d.lyrics_off.clear();
+                        },
+                        cx,
+                    )
+                })
+            })))
+            .into_any_element(),
+            group("Priorità", None, i)
+                .child(list(
+                    vec![
+                        row()
+                            .child(label("Prima il parola per parola", Some("Aspetta una fonte con i tempi delle parole anche se un'altra, prima nell'ordine, ha solo le righe.".into()), i))
+                            .child(switch("sw-words-first", words_first, false, i, move |cx| pw.update(cx, |p, cx| p.update(|d| d.lyrics_words_first = !words_first, cx))))
+                            .into_any_element(),
+                        row()
+                            .child(label("Chiave PaxSenix", Some("Per le fonti PaxSenix: Spotify e Musixmatch. Resta su questo computer.".into()), i))
+                            .child(div().w(px(220.)).h(px(34.)).px(px(12.)).flex().items_center().rounded_full().bg(i.fill).border_1().border_color(i.border.opacity(0.5)).child(Input::new(&input).appearance(false)))
+                            .child(button("pax-save", if typed.is_empty() && !p.paxsenix_key.is_empty() { "Togli" } else { "Salva" }, false, !can_save, i).when(can_save, |b| {
+                                b.on_click(move |_, _, cx| {
+                                    let key = input2.read(cx).value().trim().trim_start_matches("Bearer ").trim().to_string();
+                                    let gone = key.is_empty();
+                                    pk.update(cx, |p, cx| p.update(|d| d.paxsenix_key = key, cx));
+                                    Toasts::say(if gone { "Chiave PaxSenix tolta" } else { "Chiave PaxSenix salvata" }, cx);
+                                })
+                            }))
+                            .into_any_element(),
+                    ],
+                    i,
+                ))
+                .into_any_element(),
+        ]
     }
 
     fn storage(&mut self, i: &Ink, p: &PrefsData, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -1493,7 +1648,7 @@ impl Render for SettingsPage {
             Section::Appearance => self.appearance(&i, cx),
             Section::General => self.general(&i, &p, cx),
             Section::Sound => self.sound(&i, cx),
-            Section::Lyrics => self.lyrics(&i, &p, cx),
+            Section::Lyrics => self.lyrics(&i, &p, window, cx),
             Section::Storage => self.storage(&i, &p, cx),
             Section::Devices => self.devices(&i, window, cx),
             Section::Account => self.account(&i, cx),

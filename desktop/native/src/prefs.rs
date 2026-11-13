@@ -21,6 +21,12 @@ pub struct PrefsData {
     pub pause_history: bool,
     /// Each downloaded song brings its lyrics (the phone's "Scarica anche i testi", off at first).
     pub download_lyrics: bool,
+    /// The lyrics sources in the listener's order (ids of lfly_yt::lyrics::SOURCES; empty: the
+    /// default order), those turned off, word by word put first, the PaxSenix key.
+    pub lyrics_order: Vec<String>,
+    pub lyrics_off: Vec<String>,
+    pub lyrics_words_first: bool,
+    pub paxsenix_key: String,
 }
 
 impl PrefsData {
@@ -30,6 +36,16 @@ impl PrefsData {
             "s" => 0.82,
             "l" => 1.22,
             _ => 1.,
+        }
+    }
+
+    /// What the lyrics engine asks, and in which order (lfly_yt::lyrics::order).
+    pub fn lyrics_sources(&self) -> lfly_yt::lyrics::LyricsPrefs {
+        lfly_yt::lyrics::LyricsPrefs {
+            order: self.lyrics_order.clone(),
+            off: self.lyrics_off.clone(),
+            words_first: self.lyrics_words_first,
+            paxsenix_key: Some(self.paxsenix_key.trim().to_string()).filter(|k| !k.is_empty()),
         }
     }
 }
@@ -45,6 +61,7 @@ fn read() -> PrefsData {
     let s = lfly_core::store::get(KEY).ok().flatten().unwrap_or(Value::Null);
     let text = |k: &str, d: &str, ok: &[&str]| s.get(k).and_then(Value::as_str).filter(|v| ok.contains(v)).unwrap_or(d).to_string();
     let flag = |k: &str, d: bool| s.get(k).and_then(Value::as_bool).unwrap_or(d);
+    let list = |k: &str| s.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
     PrefsData {
         lyrics_size: text("lyricsSize", "m", &["s", "m", "l"]),
         lyrics_center: s.get("lyricsAlign").and_then(Value::as_str) == Some("center"),
@@ -54,6 +71,10 @@ fn read() -> PrefsData {
         motion: text("motion", "system", &["system", "reduce", "full"]),
         pause_history: flag("pauseHistory", false),
         download_lyrics: flag("downloadLyrics", false),
+        lyrics_order: list("lyricsSourceOrder"),
+        lyrics_off: list("lyricsSourcesOff"),
+        lyrics_words_first: flag("lyricsWordsFirst", false),
+        paxsenix_key: s.get("paxsenixKey").and_then(Value::as_str).unwrap_or_default().to_string(),
     }
 }
 
@@ -99,6 +120,10 @@ impl Prefs {
             ("motion", json!(v.motion)),
             ("pauseHistory", json!(v.pause_history)),
             ("downloadLyrics", json!(v.download_lyrics)),
+            ("lyricsSourceOrder", json!(v.lyrics_order)),
+            ("lyricsSourcesOff", json!(v.lyrics_off)),
+            ("lyricsWordsFirst", json!(v.lyrics_words_first)),
+            ("paxsenixKey", json!(v.paxsenix_key.trim())),
         ] {
             s[k] = x;
         }

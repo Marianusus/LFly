@@ -27,7 +27,7 @@ pub struct PlayerModel {
     pub position_ms: u64,
     /// When [position_ms] arrived: the lyrics carry it forward between the 4 Hz samples.
     pub position_at: std::time::Instant,
-    /// The window is in front: position ticks redraw only then.
+    /// The window is on screen (in front or not): position ticks redraw only then.
     pub active: bool,
     /// The device this computer controls on LFly Connect (its name): the state shown is its own.
     pub remote: Option<String>,
@@ -84,7 +84,7 @@ impl PlayerModel {
             PlayerUpdate::Position { ms } => {
                 self.position_ms = ms.max(0) as u64;
                 self.position_at = std::time::Instant::now();
-                // Behind a game nobody reads the bar: no frame at all.
+                // Off screen (minimized, suspended) nobody reads the bar: no frame at all.
                 if self.active {
                     cx.notify();
                 }

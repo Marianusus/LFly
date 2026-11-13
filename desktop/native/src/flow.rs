@@ -63,7 +63,7 @@ impl Render for Flow {
         };
         let Some(art) = art else { return div().size_full().into_any_element() };
         let reduce = crate::prefs::Prefs::reduce_motion(cx);
-        let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
+        let active = crate::presented(window);
         let flowing = !reduce && active;
 
         // A new cover: what is on screen fades out over it.

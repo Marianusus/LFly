@@ -210,7 +210,7 @@ impl Render for NowPlaying {
             a.bg = bg;
         });
         let animating = self.art.running() || self.pp.running();
-        if animating && window.is_window_active() {
+        if animating && crate::presented(window) {
             window.request_animation_frame();
         }
 

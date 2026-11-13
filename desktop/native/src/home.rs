@@ -453,6 +453,10 @@ pub fn shelf(id: SharedString, title: SharedString, children: Vec<AnyElement>, t
                 .ml(px(24.))
                 .w(px(step - gap))
                 .overflow_x_scroll()
+                // Only a sideways gesture (a touchpad, Shift + wheel) moves it: GPUI otherwise
+                // turns the wheel's vertical turn into a sideways one, so scrolling the page with
+                // the pointer over a shelf swiped the shelf.
+                .restrict_scroll_to_axis()
                 .track_scroll(&handle)
                 .pt(px(6.))
                 .pb(px(14.))
