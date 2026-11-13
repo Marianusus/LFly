@@ -177,6 +177,15 @@ impl ConnectModel {
                 e.update(cx, |m, cx| m.follow(device, cx));
             }
         }
+        // LFLY_CONNECT_PLAY_HERE_AFTER=<seconds> (tests): "Ascolta qui" by itself, later.
+        if let Some(secs) = std::env::var("LFLY_CONNECT_PLAY_HERE_AFTER").ok().and_then(|v| v.parse::<f64>().ok()) {
+            let weak = e.downgrade();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(std::time::Duration::from_secs_f64(secs)).await;
+                let _ = weak.update(cx, |m, cx| m.play_here(cx));
+            })
+            .detach();
+        }
         e
     }
 
