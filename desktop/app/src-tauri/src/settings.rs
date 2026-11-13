@@ -23,7 +23,7 @@ pub struct Everything {
 pub fn settings_get(app: AppHandle) -> Everything {
     let playback = lfly_core::settings::playback();
     let name = app.state::<crate::Core>().me.read().unwrap().name.clone();
-    Everything { playback, autostart: autostart_file().is_some_and(|f| f.exists()), device_name: name }
+    Everything { playback, autostart: lfly_core::settings::autostart(), device_name: name }
 }
 
 #[tauri::command]
@@ -33,44 +33,9 @@ pub fn settings_set_playback(yt: State<'_, YtMusic>, playback: Playback) -> Resu
 
 // --- starting with the session ------------------------------------------------------------
 
-#[cfg(target_os = "linux")]
-fn autostart_file() -> Option<PathBuf> {
-    Some(dirs::config_dir()?.join("autostart").join("lfly.desktop"))
-}
-
-#[cfg(target_os = "macos")]
-fn autostart_file() -> Option<PathBuf> {
-    Some(dirs::home_dir()?.join("Library/LaunchAgents/org.sonora.lfly.plist"))
-}
-
-#[cfg(target_os = "windows")]
-fn autostart_file() -> Option<PathBuf> {
-    // A shortcut-free way: a tiny .cmd in the user's Startup folder.
-    Some(dirs::data_dir()?.join("Microsoft/Windows/Start Menu/Programs/Startup/LFly.cmd"))
-}
-
 #[tauri::command]
 pub fn settings_set_autostart(on: bool) -> Result<bool, String> {
-    let file = autostart_file().ok_or("Cartella di avvio non trovata")?;
-    if !on {
-        if file.exists() {
-            std::fs::remove_file(&file).map_err(|e| e.to_string())?;
-        }
-        return Ok(false);
-    }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe = exe.to_string_lossy();
-    #[cfg(target_os = "linux")]
-    let body = format!("[Desktop Entry]\nType=Application\nName=LFly\nExec=\"{exe}\"\nIcon=lfly-desktop\nX-GNOME-Autostart-enabled=true\nComment=LFly music player\n");
-    #[cfg(target_os = "macos")]
-    let body = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>org.sonora.lfly</string><key>ProgramArguments</key><array><string>{exe}</string></array><key>RunAtLoad</key><true/></dict></plist>\n"
-    );
-    #[cfg(target_os = "windows")]
-    let body = format!("@start \"\" \"{exe}\"\r\n");
-    std::fs::create_dir_all(file.parent().unwrap()).map_err(|e| e.to_string())?;
-    std::fs::write(&file, body).map_err(|e| e.to_string())?;
-    Ok(true)
+    lfly_core::settings::set_autostart(on)
 }
 
 // --- disk ----------------------------------------------------------------------------------

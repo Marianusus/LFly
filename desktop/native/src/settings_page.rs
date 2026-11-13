@@ -105,6 +105,8 @@ pub struct SettingsPage {
     strength_draft: Option<f32>,
     confirm: Option<Confirm>,
     cache_size: Option<u64>,
+    /// Whether LFly starts with the session (its autostart file exists).
+    autostart: bool,
     health: Vec<lfly_yt::SourceHealth>,
     _subs: Vec<Subscription>,
 }
@@ -184,6 +186,7 @@ impl SettingsPage {
             strength_draft: None,
             confirm: None,
             cache_size: None,
+            autostart: lfly_core::settings::autostart(),
             health: Vec::new(),
             _subs: subs,
         }
@@ -699,6 +702,8 @@ impl SettingsPage {
     }
 
     fn general(&mut self, i: &Ink, p: &PrefsData, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let autostart = self.autostart;
+        let me_auto = cx.entity().downgrade();
         let prefs = Prefs::entity(cx);
         let (p1, p2) = (prefs.clone(), prefs);
         const KEYS: [(&str, &str); 6] = [
@@ -714,8 +719,18 @@ impl SettingsPage {
                 .child(list(
                     vec![
                         row()
-                            .child(label("Apri LFly all'accesso", Some("Per ora si imposta dall'app LFly classica, che è quella installata.".into()), i))
-                            .child(switch("sw-autostart", false, true, i, |_| {}))
+                            .child(label("Apri LFly all'accesso", Some("Si avvia quando entri nel computer, pronto con la tua musica.".into()), i))
+                            .child(switch("sw-autostart", autostart, false, i, move |cx| {
+                                match lfly_core::settings::set_autostart(!autostart) {
+                                    Ok(on) => {
+                                        let _ = me_auto.update(cx, |this, cx| {
+                                            this.autostart = on;
+                                            cx.notify();
+                                        });
+                                    }
+                                    Err(e) => Toasts::say(format!("Avvio automatico non cambiato: {e}"), cx),
+                                }
+                            }))
                             .into_any_element(),
                         row()
                             .child(label("Pagina iniziale", Some("Dove si apre LFly.".into()), i))

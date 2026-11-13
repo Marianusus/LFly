@@ -1,6 +1,8 @@
 //! Settings that change what the core does, kept in the store as "playback": playing on with
-//! similar songs when the queue ends, and the audio format. Shared by both windows.
+//! similar songs when the queue ends, and the audio format; the sound ("audio"); starting with the
+//! session. Shared by both windows.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use lfly_yt::{AudioPreference, YtMusic};
@@ -88,6 +90,55 @@ pub fn apply_audio(player: &crate::player::LocalPlayer, a: &Audio) {
     if a.device.is_some() {
         player.set_device(a.device.clone());
     }
+}
+
+
+// --- starting with the session ------------------------------------------------------------
+
+/// Whether LFly starts with the session.
+pub fn autostart() -> bool {
+    autostart_file().is_some_and(|f| f.exists())
+}
+
+#[cfg(target_os = "linux")]
+fn autostart_file() -> Option<PathBuf> {
+    Some(dirs::config_dir()?.join("autostart").join("lfly.desktop"))
+}
+
+#[cfg(target_os = "macos")]
+fn autostart_file() -> Option<PathBuf> {
+    Some(dirs::home_dir()?.join("Library/LaunchAgents/org.sonora.lfly.plist"))
+}
+
+#[cfg(target_os = "windows")]
+fn autostart_file() -> Option<PathBuf> {
+    // A shortcut-free way: a tiny .cmd in the user's Startup folder.
+    Some(dirs::data_dir()?.join("Microsoft/Windows/Start Menu/Programs/Startup/LFly.cmd"))
+}
+
+/// Starts LFly with the session (or stops it); returns whether it now does.
+pub fn set_autostart(on: bool) -> Result<bool, String> {
+    let file = autostart_file().ok_or("Cartella di avvio non trovata")?;
+    if !on {
+        if file.exists() {
+            std::fs::remove_file(&file).map_err(|e| e.to_string())?;
+        }
+        return Ok(false);
+    }
+    // An AppImage runs from a mount that is gone at the next login: its own path instead.
+    let exe = std::env::var_os("APPIMAGE").map(PathBuf::from).map_or_else(std::env::current_exe, Ok).map_err(|e| e.to_string())?;
+    let exe = exe.to_string_lossy();
+    #[cfg(target_os = "linux")]
+    let body = format!("[Desktop Entry]\nType=Application\nName=LFly\nExec=\"{exe}\"\nIcon=lfly-desktop\nX-GNOME-Autostart-enabled=true\nComment=LFly music player\n");
+    #[cfg(target_os = "macos")]
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>org.sonora.lfly</string><key>ProgramArguments</key><array><string>{exe}</string></array><key>RunAtLoad</key><true/></dict></plist>\n"
+    );
+    #[cfg(target_os = "windows")]
+    let body = format!("@start \"\" \"{exe}\"\r\n");
+    std::fs::create_dir_all(file.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(&file, body).map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 #[cfg(test)]

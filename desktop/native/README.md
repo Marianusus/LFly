@@ -59,8 +59,7 @@ CSS numbers, a screenshot against `mock.html` in Chromium):
 1. Foundations still missing: the SelectionPill spring in the sidebar.
 2. Search: remembering the artists, albums and playlists opened from its shelves; Settings' "clear
    recent searches".
-3. Library: the downloads filter; Downloads; custom themes, Spicetify and its marketplace;
-   autostart.
+3. Library: the downloads filter; Downloads; custom themes, Spicetify and its marketplace.
 4. LFly Connect and library sync, Google Drive, YouTube Music sign-in (a short-lived webview
    helper process: GPUI has no webview).
 5. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.
