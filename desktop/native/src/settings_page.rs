@@ -107,6 +107,8 @@ pub struct SettingsPage {
     cache_size: Option<u64>,
     /// Whether LFly starts with the session (its autostart file exists).
     autostart: bool,
+    /// Devices > Nome: this computer's name being edited.
+    name_input: Option<Entity<gpui_kit::component::input::InputState>>,
     health: Vec<lfly_yt::SourceHealth>,
     _subs: Vec<Subscription>,
 }
@@ -160,6 +162,7 @@ impl SettingsPage {
             cx.observe(&crate::media::SystemMedia::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::account::AccountModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         Self {
@@ -189,6 +192,7 @@ impl SettingsPage {
             confirm: None,
             cache_size: None,
             autostart: lfly_core::settings::autostart(),
+            name_input: None,
             health: Vec::new(),
             _subs: subs,
         }
@@ -1142,11 +1146,76 @@ impl SettingsPage {
         ]
     }
 
-    fn devices(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn devices(&mut self, i: &Ink, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use gpui_kit::component::input::{Input, InputState};
+        let connect = crate::connect::ConnectModel::entity(cx);
+        let (me, n, following) = {
+            let c = connect.read(cx);
+            (c.me.name.clone(), c.devices.len(), c.following.as_ref().map(|f| f.name.clone()))
+        };
+        let input = match self.name_input.clone() {
+            Some(i) => i,
+            None => {
+                let input = cx.new(|cx| InputState::new(window, cx).default_value(me.clone()));
+                // "Salva" follows the typing; Enter saves.
+                let c = crate::connect::ConnectModel::entity(cx);
+                self._subs.push(cx.subscribe(&input, move |_, state, ev: &gpui_kit::component::input::InputEvent, cx| {
+                    if matches!(ev, gpui_kit::component::input::InputEvent::PressEnter { .. }) {
+                        let name = state.read(cx).value().to_string();
+                        if !name.trim().is_empty() {
+                            c.update(cx, |c, cx| c.rename(&name, cx));
+                            Toasts::say("Nome salvato", cx);
+                        }
+                    }
+                    cx.notify();
+                }));
+                self.name_input = Some(input.clone());
+                input
+            }
+        };
+        let typed = input.read(cx).value().trim().to_string();
+        let can_save = !typed.is_empty() && typed != me;
         let l = self.library.read(cx);
         let counts = format!("{} playlist, {} preferiti, {} brani ascoltati.", l.playlists.len(), l.favorites.len(), l.history.len());
+        let fact = |k: &str, v: String| row().child(div().flex_1().child(k.to_string())).child(div().font_weight(FontWeight::BOLD).child(v)).into_any_element();
+        let (c1, c2) = (connect.clone(), connect);
+        let input2 = input.clone();
         vec![
-            group("LFly Connect", Some("Connect, la sincronizzazione con il telefono e Google Drive non sono ancora nella versione nativa: per ora restano nell'app LFly classica."), i).into_any_element(),
+            group(
+                "LFly Connect",
+                Some("I telefoni, gli orologi e gli altri computer con LFly sulla stessa rete Wi-Fi si vedono a vicenda. La prima volta un dispositivo con un altro account chiede di confermare un codice di quattro cifre."),
+                i,
+            )
+            .child(list(vec![fact("Questo computer", me.clone()), fact("Dispositivi in rete", n.to_string()), fact("Controlli ora", following.unwrap_or_else(|| "Nessuno".into()))], i))
+            .into_any_element(),
+            group("Questo computer", None, i)
+                .child(list(
+                    vec![
+                        row()
+                            .child(label("Nome", Some("Come lo vedono il telefono e l'orologio.".into()), i))
+                            .child(div().w(px(220.)).h(px(34.)).px(px(12.)).flex().items_center().rounded_full().bg(i.fill).border_1().border_color(i.border.opacity(0.5)).child(Input::new(&input).appearance(false)))
+                            .child(button("rename", "Salva", false, !can_save, i).when(can_save, |b| {
+                                b.on_click(move |_, _, cx| {
+                                    let name = input2.read(cx).value().to_string();
+                                    c1.update(cx, |c, cx| c.rename(&name, cx));
+                                    Toasts::say("Nome salvato", cx);
+                                })
+                            }))
+                            .into_any_element(),
+                        row()
+                            .child(label(
+                                "Dispositivi abbinati con il codice",
+                                Some("Quelli di altri account che hai accettato una volta. I tuoi si collegano sempre senza codice.".into()),
+                                i,
+                            ))
+                            .child(button("forget", "Dimentica", false, false, i).on_click(move |_, _, cx| c2.update(cx, |c, cx| c.forget_paired(cx))))
+                            .into_any_element(),
+                    ],
+                    i,
+                ))
+                .child(foot("Se il telefono non trova questo computer o non riesce a comandarlo, il firewall potrebbe bloccarlo: LFly Connect usa la porta TCP 45780 e mDNS (UDP 5353) sulla rete locale.", i))
+                .into_any_element(),
+            group("Sincronizza con il telefono", Some("La sincronizzazione della libreria con il telefono e Google Drive non sono ancora nella versione nativa: per ora restano nell'app LFly classica."), i).into_any_element(),
             group("Libreria", None, i).child(list(vec![row().child(div().flex_1().child(counts)).into_any_element()], i)).into_any_element(),
         ]
     }
@@ -1281,7 +1350,7 @@ impl SettingsPage {
 }
 
 impl Render for SettingsPage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = self.look.read(cx).scheme.clone();
         let i = Ink::of(&s);
         let p = Prefs::get(cx);
@@ -1291,7 +1360,7 @@ impl Render for SettingsPage {
             Section::Sound => self.sound(&i, cx),
             Section::Lyrics => self.lyrics(&i, &p, cx),
             Section::Storage => self.storage(&i, &p, cx),
-            Section::Devices => self.devices(&i, cx),
+            Section::Devices => self.devices(&i, window, cx),
             Section::Account => self.account(&i, cx),
             Section::About => self.about(&i, cx),
         };

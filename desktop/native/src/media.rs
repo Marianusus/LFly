@@ -98,7 +98,7 @@ impl SystemMedia {
             duration_ms: (duration > 0).then_some(duration),
             position_ms: None,
             playing: p.playing(),
-            remote: false,
+            remote: p.remote.is_some(),
         };
         // Volume and queue changes come through here too: the widgets hear only what they show.
         let pos = p.live_position().max(0.);

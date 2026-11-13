@@ -176,11 +176,11 @@ impl Render for Menu {
         let nav = self.nav.clone();
         let (core1, core2, core3) = (core.clone(), core.clone(), core);
         let add_queue: Rc<dyn Fn(&mut App)> = Rc::new(move |cx| {
-            core1.player.edit_queue("add", vec![t1.clone()], -1, -1);
+            core1.edit("add", vec![t1.clone()], -1, -1);
             Toasts::say("Aggiunto alla coda", cx);
         });
         let play_next: Rc<dyn Fn(&mut App)> = Rc::new(move |cx| {
-            core2.player.edit_queue("next", vec![t2.clone()], -1, -1);
+            core2.edit("next", vec![t2.clone()], -1, -1);
             Toasts::say("Suonerà dopo questo brano", cx);
         });
         let like = like_action(library.clone(), core3, t3);

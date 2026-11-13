@@ -59,6 +59,16 @@ pub struct Core {
     pub yt: YtMusic,
     pub player: Arc<LocalPlayer>,
     http: reqwest::Client,
+    /// The device this computer controls on LFly Connect: play, commands and queue changes go
+    /// to it instead of the local player.
+    remote: std::sync::RwLock<Option<Remote>>,
+}
+
+#[derive(Clone)]
+pub struct Remote {
+    pub controller: Arc<lfly_connect::Controller>,
+    /// This computer's id, as the other side sees where the music came from.
+    pub me_id: String,
 }
 
 pub fn track_ref(t: &Track) -> Option<TrackRef> {
@@ -97,7 +107,7 @@ impl Core {
         // The saved sound (equalizer, crossfade, output), as the Tauri window applies it.
         lfly_core::settings::apply_audio(&player, &lfly_core::settings::audio());
         let http = reqwest::Client::builder().user_agent("Mozilla/5.0").build()?;
-        Ok((Arc::new(Self { yt, player, http }), rx))
+        Ok((Arc::new(Self { yt, player, http, remote: Default::default() }), rx))
     }
 
     #[allow(dead_code)] // examples/smoke.rs
@@ -111,7 +121,32 @@ impl Core {
     /// Plays [tracks] from [index]: the full stream is resolved by the shared player.
     pub fn play(&self, tracks: &[Track], index: usize) {
         let queue = tracks.iter().filter_map(track_ref).collect();
-        self.player.play_queue(queue, index as i32, 0, true);
+        match self.remote() {
+            Some(r) => r.controller.send(lfly_connect::Message::Transfer(lfly_connect::Transfer {
+                queue,
+                index: index as i32,
+                position_ms: 0,
+                playing: true,
+                from_device_id: r.me_id,
+            })),
+            None => self.player.play_queue(queue, index as i32, 0, true),
+        }
+    }
+
+    pub fn set_remote(&self, remote: Option<Remote>) {
+        *self.remote.write().unwrap_or_else(|e| e.into_inner()) = remote;
+    }
+
+    pub fn remote(&self) -> Option<Remote> {
+        self.remote.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// A queue change (`protocol::EDIT_*`), here or on the device this computer controls.
+    pub fn edit(&self, op: &str, tracks: Vec<TrackRef>, index: i32, to: i32) {
+        match self.remote() {
+            Some(r) => r.controller.send(lfly_connect::Message::QueueEdit { op: op.to_string(), tracks, index, to }),
+            None => self.player.edit_queue(op, tracks, index, to),
+        }
     }
 
     /// The Home shelves (lfly_core::pages, as the Tauri window gets them).
@@ -137,7 +172,7 @@ impl Core {
             if let Ok(radio) = lfly_core::pages::radio(&me.yt, track.clone()).await {
                 let more: Vec<TrackRef> = radio.iter().filter(|t| t.id != track.id).take(40).filter_map(track_ref).collect();
                 if !more.is_empty() {
-                    me.player.edit_queue("add", more, -1, -1);
+                    me.edit("add", more, -1, -1);
                 }
             }
         });
@@ -159,11 +194,14 @@ impl Core {
     }
 
     pub fn remove_from_queue(&self, index: usize) {
-        self.player.edit_queue("remove", Vec::new(), index as i32, -1);
+        self.edit("remove", Vec::new(), index as i32, -1);
     }
 
     pub fn command(&self, action: &str, value: i64) {
-        self.player.run(action, value);
+        match self.remote() {
+            Some(r) => r.controller.command(action, value),
+            None => self.player.run(action, value),
+        }
     }
 
     pub async fn fetch(self: Arc<Self>, url: String) -> Option<Vec<u8>> {

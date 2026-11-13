@@ -13,7 +13,8 @@ nowplaying|album:<id>|playlist:<id>|local:<id>|artist:<id>` opens a page (`examp
 real ids), `LFLY_NP_PANEL=lyrics|queue|none` picks the full player's panel, `LFLY_PANEL=queue|lyrics|devices`
 opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast,
 `LFLY_NP_OUTPUT=1` opens the full player's output menu, `LFLY_SIZE=WxH` sizes the window, `LFLY_ROUTE_AFTER=<route>@<seconds>` opens a second page later, `LFLY_MEDIA_TEST=1` registers the system media controls in a
-test run,
+test run, `LFLY_CONNECT_PORT=<port>` serves LFly Connect on loopback only, `LFLY_CONNECT_FOLLOW=<host>:<port>`
+follows such a host at start, `LFLY_CONNECT_ID`/`NAME`/`SECRET` stand in for the identity,
 `LFLY_SETTINGS=general|sound|lyrics|devices|account|storage|about` opens a Settings section, `LFLY_MUTE=1`,
 `LFLY_NO_GLASS=1` (no glass at all, to measure it), `LFLY_GLASS_BLEED=0|1`;
 `LFLY_GLASS_DEBUG`, `LFLY_GLASS_EMPTY`, `LFLY_GLASS_HIDE` for the glass check
@@ -44,7 +45,12 @@ Linux, checked on a private bus; on Windows tied to the window's HWND, compile-c
 Discord's "listening to", the YouTube Music account the Tauri app signed in (personal Home,
 the account's playlists in the sidebar and the library's "YouTube Music" filter, likes sent to
 YouTube Music, Settings > Account with "Esci"; signing in still needs the Tauri app's web view;
-test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), downloads (the Scaricati page, the hero's download ring, the menu's
+test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), LFly Connect (this computer as a speaker for
+phones and watches, with the pairing dialog; the devices on the network in the right panel, the
+full player's output menu and Settings > Dispositivi; controlling another device, with the
+"In riproduzione su" pill, "Ascolta qui" and the music moving between them; checked between two
+native windows over loopback with `LFLY_CONNECT_PORT`/`LFLY_CONNECT_FOLLOW`, not yet with a phone),
+downloads (the Scaricati page, the hero's download ring, the menu's
 "Scarica", the sidebar entry, the library's filter, Settings > Spazio; `examples/downloads.rs`
 downloads a song end to end into `LFLY_DOWNLOADS_DIR`), the heart (saved to
 favorites.json as the Tauri app saves it, read again first; Drive backup and library sync are
@@ -67,7 +73,7 @@ To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte
 CSS numbers, a screenshot against `mock.html` in Chromium):
 
 1. Custom themes, Spicetify and its marketplace.
-2. LFly Connect and library sync, Google Drive, YouTube Music sign-in (a short-lived webview
+2. Library sync over LFly Connect, Google Drive, YouTube Music sign-in (a short-lived webview
    helper process: GPUI has no webview).
 3. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.
 

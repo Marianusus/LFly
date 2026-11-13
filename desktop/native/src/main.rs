@@ -12,6 +12,7 @@ mod artist;
 mod core;
 mod downloads;
 mod collection;
+mod connect;
 mod covers;
 mod flow;
 mod glass;
@@ -172,6 +173,7 @@ impl Lfly {
         crate::media::SystemMedia::start(model.clone(), window, cx);
         crate::downloads::DownloadsModel::start(&core, cx);
         crate::account::AccountModel::start(core.clone(), cx);
+        crate::connect::ConnectModel::start(core.clone(), model.clone(), cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
@@ -196,6 +198,8 @@ impl Lfly {
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
+            // The "where" pill above the bar follows LFly Connect.
+            cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
                 log::debug!("window active: {active}");
@@ -366,6 +370,10 @@ impl Lfly {
             return;
         }
         let m = self.model.read(cx);
+        // Playing on the device this computer controls: that device keeps its own history.
+        if m.remote.is_some() {
+            return;
+        }
         let Some(t) = m.current().cloned().filter(|_| m.playing()) else { return };
         if self.last_played.as_deref() == Some(t.id.as_str()) {
             return;
@@ -609,6 +617,165 @@ impl Lfly {
     }
 }
 
+impl Lfly {
+    /// App.svelte's two LFly Connect dialogs: a device asking to control this computer, and this
+    /// computer pairing with a device of another account. Both show the code to compare.
+    fn pair_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let connect = crate::connect::ConnectModel::try_entity(cx)?;
+        let (request, pairing) = {
+            let c = connect.read(cx);
+            (c.request.clone(), c.pairing.clone())
+        };
+        let s = self.look.read(cx).scheme.clone();
+        let (accent, on) = (s.accent.hsla(1.), s.on_accent.hsla(1.));
+        let (badge, title, text, code, asking) = match (request, pairing) {
+            (Some(r), _) => (
+                "phone",
+                format!("{} vuole controllare questo computer", r.device_name),
+                format!("Accetta solo se il codice è lo stesso che vedi su {}.", r.device_name),
+                r.code,
+                true,
+            ),
+            (None, Some((name, code))) => (
+                "devices",
+                format!("Abbinamento con {name}"),
+                format!("Accetta questo computer su {name}. Il codice deve essere lo stesso su entrambi gli schermi."),
+                code,
+                false,
+            ),
+            _ => return None,
+        };
+        let btn = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .flex_1()
+                .max_w(px(if asking { 400. } else { 200. }))
+                .min_h(px(40.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .when(primary, |d| d.bg(accent).text_color(on))
+                .when(!primary, |d| d.bg(s.text.opacity(0.08)).text_color(s.text).border_1().border_color(s.glass_border).hover(|d| d.bg(s.text.opacity(0.14))))
+                .child(label)
+        };
+        let (c1, c2, c3) = (connect.clone(), connect.clone(), connect);
+        let actions = if asking {
+            div()
+                .flex()
+                .justify_center()
+                .gap(px(10.))
+                .w_full()
+                .child(btn("pair-no", "Rifiuta", false).on_click(move |_, _, cx| c1.update(cx, |c, cx| c.answer(false, cx))))
+                .child(btn("pair-yes", "Accetta", true).on_click(move |_, _, cx| c2.update(cx, |c, cx| c.answer(true, cx))))
+        } else {
+            div().flex().justify_center().w_full().child(btn("pair-cancel", "Annulla", false).on_click(move |_, _, cx| c3.update(cx, |c, cx| c.disconnect(cx))))
+        };
+        Some(
+            div()
+                .id("pair-scrim")
+                .absolute()
+                .inset_0()
+                .occlude()
+                .bg(black().opacity(0.42))
+                .flex()
+                .items_center()
+                .justify_center()
+                .p(px(16.))
+                .child(
+                    div()
+                        .w(px(400.))
+                        .pt(px(28.))
+                        .px(px(26.))
+                        .pb(px(22.))
+                        .rounded(px(30.))
+                        .bg(s.surface.hsla(0.94))
+                        .border_1()
+                        .border_color(s.glass_border)
+                        .shadow(vec![BoxShadow { color: black().opacity(0.45), offset: point(px(0.), px(24.)), blur_radius: px(60.), spread_radius: px(0.), inset: false }])
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .text_center()
+                        .child(
+                            div()
+                                .size(px(52.))
+                                .mb(px(14.))
+                                .rounded_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(accent)
+                                .shadow(vec![BoxShadow { color: accent.opacity(0.4), offset: point(px(0.), px(8.)), blur_radius: px(24.), spread_radius: px(0.), inset: false }])
+                                .child(crate::icons::icon(badge, 22., on)),
+                        )
+                        .child(div().mb(px(8.)).text_size(px(19.)).line_height(px(23.75)).font_weight(FontWeight::BOLD).text_color(s.text).child(title))
+                        .child(div().mb(px(20.)).line_height(px(19.5)).text_color(s.text2).child(text))
+                        .child(div().mb(px(22.)).flex().justify_center().gap(px(8.)).children(code.chars().map(|d| {
+                            div()
+                                .w(px(50.))
+                                .h(px(62.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(16.))
+                                .bg(s.text.opacity(0.09))
+                                .border_1()
+                                .border_color(s.glass_border)
+                                .text_size(px(30.))
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(s.text)
+                                .child(d.to_string())
+                        })))
+                        .child(actions),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn where_pill(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let following = crate::connect::ConnectModel::try_entity(cx)?.read(cx).following.clone()?;
+        let s = self.look.read(cx).scheme.clone();
+        let (accent, on) = (s.accent.hsla(1.), s.on_accent.hsla(1.));
+        let ui = self.ui.clone();
+        Some(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(12. + 76. + 8.))
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .id("where")
+                        .occlude()
+                        .flex()
+                        .items_center()
+                        .gap(px(7.))
+                        .py(px(6.))
+                        .pl(px(10.))
+                        .pr(px(14.))
+                        .rounded_full()
+                        .bg(accent)
+                        .text_color(on)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .shadow(vec![BoxShadow { color: accent.opacity(0.4), offset: point(px(0.), px(6.)), blur_radius: px(20.), spread_radius: px(0.), inset: false }])
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| ui.update(cx, |u, cx| u.toggle_panel(crate::ui::SidePanel::Devices, cx)))
+                        .child(div().size(px(7.)).rounded_full().bg(on))
+                        .child(crate::icons::icon(crate::connect::kind_icon(&following.kind), 13., on))
+                        .child(format!("In riproduzione su {}", following.name)),
+                )
+                .into_any_element(),
+        )
+    }
+}
+
 /// LFLY_ROUTE's pages (`examples/ids.rs` prints real ids).
 fn test_route(r: &str) -> Option<Route> {
     let (k, id) = r.split_once(':').unwrap_or((r, ""));
@@ -832,7 +999,9 @@ impl Render for Lfly {
                                 .flex()
                                 .justify_center()
                                 .child(div().relative().h_full().w_full().max_w(px(1180.)).occlude().child(cached(&self.bar))),
-                        ),
+                        )
+                        // PlayerBar.svelte `.where`: the device this computer controls, above the bar.
+                        .children(self.where_pill(cx)),
                 );
             if !compact {
                 // `.right`: its own column, 12 px in from the top, right and bottom.
@@ -898,7 +1067,7 @@ impl Render for Lfly {
             m.size = size;
             m.origin = origin;
         });
-        root.child(self.toasts.clone()).child(self.menu.clone())
+        root.child(self.toasts.clone()).child(self.menu.clone()).children(self.pair_dialog(cx))
     }
 }
 

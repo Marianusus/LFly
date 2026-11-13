@@ -80,6 +80,7 @@ impl NowPlaying {
         let subs = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
             cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
@@ -601,14 +602,90 @@ impl Render for NowPlaying {
             .map_or("Questo computer".to_string(), |d| d.name.clone());
         let open = self.output_open;
         let me_out = cx.entity().downgrade();
+        // LFly Connect: the device this computer controls, the others on the network.
+        let connect = crate::connect::ConnectModel::entity(cx);
+        let (following, connecting, others) = {
+            let c = connect.read(cx);
+            (c.following.clone(), c.connecting.clone(), c.devices.clone())
+        };
+        let remote = following.is_some();
         let menu = open.then(|| {
             let empty = devices.is_empty();
-            let mut opts: Vec<(Option<String>, String, bool)> = devices
-                .iter()
-                .map(|d| (if d.is_default { None } else { Some(d.id.clone()) }, d.name.clone(), if device_id.is_some() { device_id.as_deref() == Some(d.id.as_str()) } else { d.is_default }))
-                .collect();
-            if opts.is_empty() {
-                opts.push((None, "Questo computer".into(), true));
+            let on_accent = scheme.on_accent.hsla(1.);
+            let close = {
+                let me = me_out.clone();
+                move |cx: &mut App| {
+                    let _ = me.update(cx, |this, cx| {
+                        this.output_open = false;
+                        cx.notify();
+                    });
+                }
+            };
+            // `.opt`: a 32 px disc with the icon (accent when chosen), the name, a tick.
+            let opt = |id: SharedString, ic: &'static str, name: String, on: bool, tail: Option<&'static str>, quiet: bool, act: Option<std::rc::Rc<dyn Fn(&mut App)>>| {
+                let close = close.clone();
+                div()
+                    .id(id)
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .py(px(9.))
+                    .px(px(10.))
+                    .rounded(px(12.))
+                    .text_size(px(if quiet { 13. } else { 14. }))
+                    .text_color(if quiet { white().opacity(0.65) } else { white() })
+                    .when_some(act, |d, act| {
+                        d.cursor_pointer().hover(|d| d.bg(white().opacity(0.1))).on_click(move |_, _, cx| {
+                            act(cx);
+                            close(cx);
+                        })
+                    })
+                    .child(
+                        div()
+                            .size(px(32.))
+                            .flex_none()
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(if on { accent } else { white().opacity(0.1) })
+                            .child(icon(ic, if quiet { 16. } else { 18. }, if on { on_accent } else { white() })),
+                    )
+                    .child(div().flex_1().min_w_0().truncate().when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                    .when_some(tail, |d, t| d.child(div().text_size(px(12.)).text_color(white().opacity(0.6)).child(t)))
+                    .when(on && tail.is_none(), |d| d.child(icon("check", 16., accent)))
+            };
+            let sec = |t: &'static str| div().mt(px(8.)).mx(px(10.)).mb(px(4.)).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(white().opacity(0.5)).child(t);
+            let mut items: Vec<AnyElement> = vec![sec("QUESTO COMPUTER").into_any_element()];
+            if remote {
+                let c = connect.clone();
+                items.push(opt("np-here".into(), "desktop", "Ascolta qui".into(), false, None, false, Some(std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.play_here(cx))))).into_any_element());
+            }
+            if empty {
+                if !remote {
+                    items.push(opt("np-out-0".into(), "desktop", "Questo computer".into(), true, None, false, None).into_any_element());
+                }
+            } else {
+                for (k, d) in devices.iter().enumerate() {
+                    let on = !remote && if device_id.is_some() { device_id.as_deref() == Some(d.id.as_str()) } else { d.is_default };
+                    let id = if d.is_default { None } else { Some(d.id.clone()) };
+                    let au = audio.clone();
+                    items.push(opt(format!("np-out-{k}").into(), "volume", d.name.clone(), on, None, false, Some(std::rc::Rc::new(move |cx: &mut App| au.update(cx, |a, cx| a.set_device(id.clone(), cx))))).into_any_element());
+                }
+            }
+            if !others.is_empty() {
+                items.push(sec("LFLY CONNECT").into_any_element());
+                for (k, d) in others.iter().enumerate() {
+                    let on = following.as_ref().is_some_and(|f| f.id == d.id);
+                    let busy = connecting.as_deref() == Some(d.id.as_str());
+                    let (c, dev) = (connect.clone(), d.clone());
+                    let act: Option<std::rc::Rc<dyn Fn(&mut App)>> = (!on).then(|| std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.follow(dev.clone(), cx))) as std::rc::Rc<dyn Fn(&mut App)>);
+                    items.push(opt(format!("np-cd-{k}").into(), crate::connect::kind_icon(&d.kind), d.name.clone(), on, busy.then_some("Collego…"), false, act).into_any_element());
+                }
+            }
+            if let Some(f) = &following {
+                let c = connect.clone();
+                items.push(opt("np-stop".into(), "close", format!("Smetti di controllare {}", f.name), false, None, true, Some(std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.disconnect(cx))))).into_any_element());
             }
             let mut mg = glass_look;
             mg.tint = Rgb::hex(0x1c1c20).hsla(0.72);
@@ -623,52 +700,7 @@ impl Render for NowPlaying {
                     .occlude()
                     .shadow(vec![BoxShadow { color: black().opacity(0.5), offset: point(px(0.), px(24.)), blur_radius: px(60.), spread_radius: px(0.), inset: false }])
                     .child(glass::glass_layer(mg, px(22.), glass::Pointer::default()))
-                    .child(
-                        div()
-                            .id("np-out-list")
-                            .relative()
-                            .max_h(px(self.height * 0.6))
-                            .overflow_y_scroll()
-                            .p(px(8.))
-                            .flex()
-                            .flex_col()
-                            .child(div().mt(px(8.)).mx(px(10.)).mb(px(4.)).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(white().opacity(0.5)).child("QUESTO COMPUTER"))
-                            .children(opts.into_iter().enumerate().map(|(k, (id, name, on))| {
-                                let (au, me) = (audio.clone(), me_out.clone());
-                                div()
-                                    .id(("np-out", k))
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(12.))
-                                    .py(px(9.))
-                                    .px(px(10.))
-                                    .rounded(px(12.))
-                                    .text_size(px(14.))
-                                    // With no device listed: "Questo computer", only shown.
-                                    .when(!empty, |d| {
-                                        d.cursor_pointer().hover(|d| d.bg(white().opacity(0.1))).on_click(move |_, _, cx| {
-                                            au.update(cx, |a, cx| a.set_device(id.clone(), cx));
-                                            let _ = me.update(cx, |this, cx| {
-                                                this.output_open = false;
-                                                cx.notify();
-                                            });
-                                        })
-                                    })
-                                    .child(
-                                        div()
-                                            .size(px(32.))
-                                            .flex_none()
-                                            .rounded_full()
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .bg(if on { accent } else { white().opacity(0.1) })
-                                            .child(icon(if empty { "desktop" } else { "volume" }, 18., if on { scheme.on_accent.hsla(1.) } else { white() })),
-                                    )
-                                    .child(div().flex_1().min_w_0().truncate().when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
-                                    .when(on, |d| d.child(icon("check", 16., accent)))
-                            })),
-                    ),
+                    .child(div().id("np-out-list").relative().max_h(px(self.height * 0.6)).overflow_y_scroll().p(px(8.)).flex().flex_col().children(items)),
             )
             .with_priority(2)
         });
@@ -689,7 +721,7 @@ impl Render for NowPlaying {
                         .rounded_full()
                         .text_size(px(13.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if open { white() } else { white().opacity(0.75) })
+                        .text_color(if remote { accent } else if open { white() } else { white().opacity(0.75) })
                         .when(open, |d| d.bg(white().opacity(0.12)))
                         .hover(|d| d.bg(white().opacity(0.12)).text_color(white()))
                         .cursor_pointer()
@@ -701,8 +733,8 @@ impl Render for NowPlaying {
                                 cx.notify();
                             });
                         })
-                        .child(icon("g-output", 17., white().opacity(0.75)).group_hover("np-output", |s| s.text_color(white())))
-                        .child(div().truncate().child(local_name)),
+                        .child(icon("g-output", 17., if remote { accent } else { white().opacity(0.75) }).group_hover("np-output", |s| s.text_color(white())))
+                        .child(div().truncate().child(following.as_ref().map_or(local_name, |f| f.name.clone()))),
                 )
                 .child(div().absolute().left(relative(0.5)).top_0().bottom_0().children(menu)),
         );

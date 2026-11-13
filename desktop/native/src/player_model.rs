@@ -25,6 +25,10 @@ pub struct PlayerModel {
     pub position_at: std::time::Instant,
     /// The window is in front: position ticks redraw only then.
     pub active: bool,
+    /// The device this computer controls on LFly Connect (its name): the state shown is its own.
+    pub remote: Option<String>,
+    /// The local player's last state while a remote one is shown.
+    local: Option<(State, u64)>,
 }
 
 impl EventEmitter<PlayerEvent> for PlayerModel {}
@@ -44,10 +48,26 @@ impl PlayerModel {
             }
         })
         .detach();
-        Self { core, state: None, position_ms: 0, position_at: std::time::Instant::now(), active: true }
+        Self { core, state: None, position_ms: 0, position_at: std::time::Instant::now(), active: true, remote: None, local: None }
     }
 
     fn apply(&mut self, update: PlayerUpdate, cx: &mut Context<Self>) {
+        // Controlling another device: the local player is kept aside, shown again after.
+        if self.remote.is_some() {
+            match update {
+                PlayerUpdate::State(state) => {
+                    let p = state.position_ms.max(0) as u64;
+                    self.local = Some((*state, p));
+                }
+                PlayerUpdate::Position { ms } => {
+                    if let Some(l) = self.local.as_mut() {
+                        l.1 = ms.max(0) as u64;
+                    }
+                }
+                PlayerUpdate::Notice(text) => cx.emit(PlayerEvent::Notice(text.into())),
+            }
+            return;
+        }
         match update {
             PlayerUpdate::State(state) => {
                 self.position_ms = state.position_ms.max(0) as u64;
@@ -66,6 +86,40 @@ impl PlayerModel {
             }
             PlayerUpdate::Notice(text) => cx.emit(PlayerEvent::Notice(text.into())),
         }
+    }
+
+    /// Starts or stops showing the device this computer controls ([name] None: back here).
+    pub fn set_remote(&mut self, name: Option<String>, cx: &mut Context<Self>) {
+        match (&self.remote, &name) {
+            (None, Some(_)) => self.local = self.state.take().map(|s| (s, self.position_ms)),
+            (Some(_), None) => {
+                // The local player's latest, or what it says now.
+                let (state, p) = self.local.take().unwrap_or_else(|| {
+                    let s = self.core.player.state();
+                    let p = s.position_ms.max(0) as u64;
+                    (s, p)
+                });
+                self.state = Some(state);
+                self.position_ms = p;
+                self.position_at = std::time::Instant::now();
+            }
+            _ => {}
+        }
+        self.remote = name;
+        cx.emit(PlayerEvent::StateChanged);
+        cx.notify();
+    }
+
+    /// What plays on the device this computer controls, with its playhead now.
+    pub fn apply_remote(&mut self, state: State, position_ms: i64, cx: &mut Context<Self>) {
+        if self.remote.is_none() {
+            return;
+        }
+        self.position_ms = position_ms.max(0) as u64;
+        self.position_at = std::time::Instant::now();
+        self.state = Some(state);
+        cx.emit(PlayerEvent::StateChanged);
+        cx.notify();
     }
 
     pub fn current(&self) -> Option<&TrackRef> {

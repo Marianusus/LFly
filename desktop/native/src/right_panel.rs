@@ -70,6 +70,7 @@ impl RightPanel {
             }),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
         ];
         let at = index(ui.read(cx).panel);
@@ -223,30 +224,123 @@ impl RightPanel {
         out
     }
 
+    /// RightPanel.svelte's devices: this computer, then the others LFly Connect found.
     fn devices(&self, s: &Scheme, cx: &mut Context<Self>) -> Div {
         let playing = self.model.read(cx).playing();
         let a = s.accent.hsla(1.);
-        div()
-            .flex()
-            .flex_col()
-            .child(
-                lit_card(s, 18.)
-                    .mt(px(6.))
-                    .child(div().size(px(40.)).flex_none().rounded_full().flex().items_center().justify_center().bg(a).child(icon("desktop", 20., s.on_accent.hsla(1.))))
-                    .child(
+        let connect = crate::connect::ConnectModel::entity(cx);
+        let (following, connecting, devices, controllers, online) = {
+            let c = connect.read(cx);
+            (c.following.clone(), c.connecting.clone(), c.devices.clone(), c.controllers, c.online)
+        };
+        let here_sub = if following.is_some() {
+            "La musica suona altrove".to_string()
+        } else if controllers > 0 {
+            format!("In ascolto qui · {} ti {}", if controllers == 1 { "1 dispositivo".to_string() } else { format!("{controllers} dispositivi") }, if controllers == 1 { "controlla" } else { "controllano" })
+        } else {
+            "In ascolto qui".to_string()
+        };
+        let text_col = |name: String, sub: String| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(s.text).truncate().child(name))
+                .child(div().text_size(px(12.)).text_color(s.text2).truncate().child(sub))
+        };
+        let d_icon = |name: &'static str, on: bool| {
+            div()
+                .size(px(40.))
+                .flex_none()
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(if on { a } else { s.text.opacity(0.09) })
+                .child(icon(name, 20., if on { s.on_accent.hsla(1.) } else { s.text }))
+        };
+        let here_on = following.is_none();
+        let here = if here_on {
+            lit_card(s, 18.)
+        } else {
+            div().flex().items_center().gap(px(12.)).p(px(10.)).rounded(px(18.)).bg(s.glass_tint).border_1().border_color(s.glass_border)
+        };
+        let c1 = connect.clone();
+        let mut col = div().flex().flex_col().child(
+            here.mt(px(6.))
+                .child(d_icon("desktop", here_on))
+                .child(text_col("Questo computer".into(), here_sub))
+                .when(following.is_some(), |d| {
+                    d.child(
                         div()
-                            .flex_1()
-                            .min_w_0()
+                            .id("play-here")
+                            .flex_none()
+                            .h(px(30.))
+                            .px(px(12.))
                             .flex()
-                            .flex_col()
-                            .gap(px(1.))
-                            .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(s.text).child("Questo computer"))
-                            .child(div().text_size(px(12.)).text_color(s.text2).child("In ascolto qui")),
+                            .items_center()
+                            .rounded_full()
+                            .bg(a)
+                            .text_color(s.on_accent.hsla(1.))
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .cursor_pointer()
+                            .on_click(move |_, _, cx| c1.update(cx, |c, cx| c.play_here(cx)))
+                            .child("Ascolta qui"),
                     )
-                    .when(playing, |d| d.child(eq(s))),
-            )
-            .child(heading("ALTRI DISPOSITIVI".into(), s))
-            .child(div().mx(px(10.)).my(px(8.)).line_height(px(20.)).text_color(s.text2).child("LFly Connect non è ancora nella versione nativa."))
+                })
+                .when(here_on && playing, |d| d.child(eq(s))),
+        );
+        if let Some(f) = &following {
+            let c2 = connect.clone();
+            col = col.child(
+                div()
+                    .id("link-out")
+                    .mt(px(8.))
+                    .mx(px(10.))
+                    .text_size(px(12.))
+                    .text_color(s.text2)
+                    .underline()
+                    .cursor_pointer()
+                    .hover(|d| d.text_color(s.text))
+                    .on_click(move |_, _, cx| c2.update(cx, |c, cx| c.disconnect(cx)))
+                    .child(format!("Smetti di controllare {}", f.name)),
+            );
+        }
+        col = col.child(heading("ALTRI DISPOSITIVI".into(), s));
+        if devices.is_empty() {
+            let hint = if online { "Cerco LFly nella rete…" } else { "LFly Connect è spento in questa prova." };
+            col = col
+                .child(div().mx(px(10.)).my(px(8.)).flex().items_center().gap(px(10.)).text_color(s.text2).child(div().size(px(8.)).flex_none().rounded_full().bg(a)).child(div().flex_1().min_w_0().line_height(px(19.)).child(hint)))
+                .child(div().mx(px(10.)).text_size(px(12.)).line_height(px(17.4)).text_color(s.text3).child("Apri LFly su un telefono o un computer collegato allo stesso Wi-Fi."));
+        } else {
+            for (k, d) in devices.into_iter().enumerate() {
+                let on = following.as_ref().is_some_and(|f| f.id == d.id);
+                let busy = connecting.as_deref() == Some(d.id.as_str());
+                let sub = format!("{}{}", crate::connect::kind_label(&d.kind), if d.same_account { " · il tuo account" } else { "" });
+                let c3 = connect.clone();
+                let dev = d.clone();
+                col = col.child(
+                    div()
+                        .id(("device", k))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .p(px(10.))
+                        .rounded(px(18.))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(s.text.opacity(0.07)))
+                        .on_click(move |_, _, cx| c3.update(cx, |c, cx| if on { c.disconnect(cx) } else { c.follow(dev.clone(), cx) }))
+                        .child(d_icon(crate::connect::kind_icon(&d.kind), on))
+                        .child(text_col(d.name.clone(), sub))
+                        .when(busy, |r| r.child(div().text_size(px(12.)).text_color(s.text2).child("Collego…")))
+                        .when(on && !busy, |r| r.child(icon("check", 14., a))),
+                );
+            }
+        }
+        col
     }
 }
 
