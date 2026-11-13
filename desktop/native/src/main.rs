@@ -236,6 +236,7 @@ impl Lfly {
                     cx.notify();
                 }
                 PlayerEvent::Notice(text) => crate::toast::Toasts::say(text.clone(), cx),
+                PlayerEvent::Arrived => {}
             }),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),

@@ -15,6 +15,8 @@ pub enum PlayerEvent {
     StateChanged,
     /// A short message for the person.
     Notice(SharedString),
+    /// Another device handed its music to this computer.
+    Arrived,
 }
 
 pub struct PlayerModel {
@@ -65,6 +67,7 @@ impl PlayerModel {
                     }
                 }
                 PlayerUpdate::Notice(text) => cx.emit(PlayerEvent::Notice(text.into())),
+                PlayerUpdate::Arrived => cx.emit(PlayerEvent::Arrived),
             }
             return;
         }
@@ -85,6 +88,7 @@ impl PlayerModel {
                 }
             }
             PlayerUpdate::Notice(text) => cx.emit(PlayerEvent::Notice(text.into())),
+            PlayerUpdate::Arrived => cx.emit(PlayerEvent::Arrived),
         }
     }
 

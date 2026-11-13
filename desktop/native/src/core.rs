@@ -31,6 +31,8 @@ pub enum PlayerUpdate {
     State(Box<State>),
     Position { ms: i64 },
     Notice(String),
+    /// Another device handed its music to this computer.
+    Arrived,
 }
 
 struct NativeHost(mpsc::UnboundedSender<PlayerUpdate>);
@@ -44,6 +46,9 @@ impl PlayerHost for NativeHost {
     }
     fn notice(&self, text: &str) {
         let _ = self.0.send(PlayerUpdate::Notice(text.to_string()));
+    }
+    fn arrived(&self, _from_device_id: String) {
+        let _ = self.0.send(PlayerUpdate::Arrived);
     }
     /// A downloaded song plays from its file.
     fn downloaded(&self, id: &str) -> Option<std::path::PathBuf> {
@@ -120,15 +125,18 @@ impl Core {
 
     /// Plays [tracks] from [index]: the full stream is resolved by the shared player.
     pub fn play(&self, tracks: &[Track], index: usize) {
-        let queue = tracks.iter().filter_map(track_ref).collect();
+        let queue: Vec<TrackRef> = tracks.iter().filter_map(track_ref).collect();
         match self.remote() {
-            Some(r) => r.controller.send(lfly_connect::Message::Transfer(lfly_connect::Transfer {
+            Some(r) => {
+                log::info!("play: {} tracks to the device this computer controls", queue.len());
+                r.controller.send(lfly_connect::Message::Transfer(lfly_connect::Transfer {
                 queue,
                 index: index as i32,
                 position_ms: 0,
                 playing: true,
                 from_device_id: r.me_id,
-            })),
+            }))
+            }
             None => self.player.play_queue(queue, index as i32, 0, true),
         }
     }

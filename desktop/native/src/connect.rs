@@ -157,6 +157,7 @@ impl ConnectModel {
         }
 
         let online = discovery.is_some();
+        let model_sub = model.clone();
         let e = cx.new(|_| Self {
             core,
             model,
@@ -182,11 +183,34 @@ impl ConnectModel {
         })
         .detach();
         cx.set_global(ConnectGlobal(e.clone()));
+        // The music came here from another device: what plays is here now, not over there.
+        e.update(cx, |_, cx| {
+            cx.subscribe(&model_sub, |this: &mut Self, _, ev: &crate::player_model::PlayerEvent, cx| {
+                if matches!(ev, crate::player_model::PlayerEvent::Arrived) && this.following.is_some() {
+                    let c = this.controller.clone();
+                    runtime().spawn(async move { c.disconnect() });
+                    this.set_following(None, cx);
+                    cx.notify();
+                }
+            })
+            .detach();
+        });
 
         if let Some((host, port)) = std::env::var("LFLY_CONNECT_FOLLOW").ok().and_then(|v| v.rsplit_once(':').map(|(h, p)| (h.to_string(), p.parse::<u16>().ok()))) {
             if let Some(port) = port {
                 let device = ConnectDevice { id: "test-host".into(), name: "Host di prova".into(), kind: "desktop".into(), same_account: true, host, port };
-                e.update(cx, |m, cx| m.follow(device, cx));
+                // LFLY_CONNECT_FOLLOW_AFTER=<seconds>: later, so that something plays here first.
+                match std::env::var("LFLY_CONNECT_FOLLOW_AFTER").ok().and_then(|v| v.parse::<f64>().ok()) {
+                    Some(secs) => {
+                        let weak = e.downgrade();
+                        cx.spawn(async move |cx| {
+                            cx.background_executor().timer(std::time::Duration::from_secs_f64(secs)).await;
+                            let _ = weak.update(cx, |m, cx| m.follow(device, cx));
+                        })
+                        .detach();
+                    }
+                    None => e.update(cx, |m, cx| m.follow(device, cx)),
+                }
             }
         }
         // LFLY_CONNECT_PLAY_HERE_AFTER=<seconds> (tests): "Ascolta qui" by itself, later.
