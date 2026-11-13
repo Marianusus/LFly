@@ -15,6 +15,7 @@ pub mod health;
 mod json;
 pub mod lyrics;
 pub mod model;
+mod monochrome;
 pub mod parse;
 pub mod stream;
 
@@ -23,4 +24,5 @@ pub use client::{YtMusic, YtMusicConfig, DEFAULT_INVIDIOUS, DEFAULT_PIPED, VISIO
 pub use error::{Error, Result};
 pub use json::upscale_thumbnail;
 pub use model::*;
-pub use stream::AudioPreference;
+pub use monochrome::MONOCHROME_INSTANCES;
+pub use stream::{AudioPreference, PlaybackSource};

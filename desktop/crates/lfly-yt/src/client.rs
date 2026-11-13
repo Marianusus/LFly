@@ -101,6 +101,9 @@ enum PlayerClient {
     Ios,
 }
 
+/// Once YouTube has a stream, how long Monochrome may still take and win (LOSSLESS_GRACE_MS).
+const LOSSLESS_GRACE: Duration = Duration::from_millis(1500);
+
 struct Inner {
     http: reqwest::Client,
     config: YtMusicConfig,
@@ -115,6 +118,10 @@ struct Inner {
     lyrics: lyrics::State,
     /// Codec tried first; starts as the config's, changeable while running (a setting).
     preference: Mutex<AudioPreference>,
+    /// Where songs are played from first (a setting).
+    source: Mutex<crate::stream::PlaybackSource>,
+    /// Until when (ms) Monochrome is left alone after nothing answered.
+    monochrome_paused_until: std::sync::atomic::AtomicU64,
 }
 
 /// YouTube Music client. Cheap to clone: clones share the HTTP pool, the
@@ -178,6 +185,7 @@ impl YtMusic {
             health.register(&format!("Piped ({})", host_of(url)), url, SourceKind::Piped);
         }
         lyrics::register(&health, &config.lrclib_url);
+        crate::monochrome::register(&health);
         let preference = Mutex::new(config.preference);
         Ok(Self {
             inner: Arc::new(Inner {
@@ -189,6 +197,8 @@ impl YtMusic {
                 vision_visitor: tokio::sync::Mutex::new(None),
                 account: Mutex::new(None),
                 lyrics: lyrics::State::default(),
+                source: Mutex::new(crate::stream::PlaybackSource::Auto),
+                monochrome_paused_until: std::sync::atomic::AtomicU64::new(0),
             }),
         })
     }
@@ -359,6 +369,16 @@ impl YtMusic {
         let vid = video_id_of(video_id).ok_or_else(|| Error::InvalidInput(format!("bad video id {video_id}")))?;
         self.post_web("next", json!({ "videoId": vid, "playlistId": format!("RDAMVM{vid}"), "isAudioOnly": true }))
             .await
+    }
+
+    /// The video's timed captions (`get_transcript`, as the phone asks: params carry the id).
+    pub(crate) async fn transcript_json(&self, video_id: &str) -> Result<Value> {
+        use base64::Engine as _;
+        let vid = video_id_of(video_id).ok_or_else(|| Error::InvalidInput(format!("bad video id {video_id}")))?;
+        let mut bytes = vec![0x0A, vid.len() as u8];
+        bytes.extend_from_slice(vid.as_bytes());
+        let params = base64::engine::general_purpose::STANDARD.encode(bytes);
+        self.post_web("get_transcript", json!({ "params": params })).await
     }
 
     // --- search --------------------------------------------------------------------------------
@@ -630,6 +650,15 @@ impl YtMusic {
         Ok(lyrics::resolve(self, track).await)
     }
 
+    /// The listener's lyrics sources, order, priority and PaxSenix key (Settings).
+    pub fn set_lyrics_prefs(&self, prefs: lyrics::LyricsPrefs) {
+        *self.inner.lyrics.prefs.lock().unwrap_or_else(|e| e.into_inner()) = prefs;
+    }
+
+    pub fn lyrics_prefs(&self) -> lyrics::LyricsPrefs {
+        self.inner.lyrics.prefs.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub(crate) fn http(&self) -> &reqwest::Client {
         &self.inner.http
     }
@@ -678,7 +707,70 @@ impl YtMusic {
     /// clients (each url range-probed), then Invidious and Piped raced against
     /// each other. Sources with an open circuit are skipped. Tracks without a
     /// `yt_` id are matched by a "title artist" search first.
+    /// Where songs are played from first: Auto (YouTube Music and Monochrome together), or one
+    /// of them first and the other after.
+    pub fn set_playback_source(&self, source: crate::stream::PlaybackSource) {
+        *self.inner.source.lock().unwrap_or_else(|e| e.into_inner()) = source;
+    }
+
+    pub fn playback_source(&self) -> crate::stream::PlaybackSource {
+        *self.inner.source.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The song on Monochrome, unless it is resting after it stopped answering (then, and when
+    /// a lookup finds no instance answering or runs out of time, it rests ten minutes).
+    async fn monochrome(&self, track: &Track) -> Option<StreamSource> {
+        use std::sync::atomic::Ordering;
+        let paused = &self.inner.monochrome_paused_until;
+        if now_ms() < paused.load(Ordering::Relaxed) {
+            return None;
+        }
+        let artist = crate::monochrome::sanitize_artist(&track.artist);
+        let title = crate::monochrome::sanitize_title(&track.title, &track.artist);
+        match tokio::time::timeout(crate::monochrome::TIER_TIMEOUT, crate::monochrome::resolve(self, &title, &artist, track.duration_ms)).await {
+            Ok(crate::monochrome::Outcome::Found(s)) => Some(s),
+            Ok(crate::monochrome::Outcome::Missing) => None,
+            outcome => {
+                paused.store(now_ms() + crate::monochrome::PAUSE_MS, Ordering::Relaxed);
+                log::warn!("Monochrome is not answering ({}): YouTube only for 10 min", if outcome.is_err() { "timeout" } else { "no instance" });
+                None
+            }
+        }
+    }
+
+    /// A full stream for the track: YouTube Music and Monochrome as the playback source orders
+    /// them (StreamResolver.resolvePrimary). Videos are only on YouTube.
     pub async fn resolve_stream(&self, track: &Track) -> Result<StreamSource> {
+        use crate::stream::PlaybackSource;
+        if track.is_video {
+            return self.resolve_youtube(track).await;
+        }
+        let start = now_ms();
+        let source = self.playback_source();
+        let paused = now_ms() < self.inner.monochrome_paused_until.load(std::sync::atomic::Ordering::Relaxed);
+        let (found, who) = match source {
+            PlaybackSource::YouTubeMusic => match self.resolve_youtube(track).await {
+                Ok(s) => (Some(s), "youtube"),
+                Err(_) => (self.monochrome(track).await, "monochrome"),
+            },
+            PlaybackSource::Monochrome => match self.monochrome(track).await {
+                Some(s) => (Some(s), "monochrome"),
+                None => return self.resolve_youtube(track).await,
+            },
+            // While Monochrome rests there is nothing to race: no grace to wait out.
+            PlaybackSource::Auto if paused => return self.resolve_youtube(track).await,
+            PlaybackSource::Auto => {
+                let youtube = async { self.resolve_youtube(track).await.ok() };
+                crate::monochrome::race(self.monochrome(track), youtube, LOSSLESS_GRACE).await
+            }
+        };
+        log::info!("stream for '{}': {who} in {} ms ({:?})", track.title, now_ms().saturating_sub(start), found.as_ref().map(|s| &s.provider));
+        found.ok_or_else(|| Error::NoStream(format!("'{}'", track.title)))
+    }
+
+    /// YouTube Music's `/player`, then Invidious and Piped: no Monochrome (downloads, as on the
+    /// phone below its lossless quality).
+    pub async fn resolve_youtube(&self, track: &Track) -> Result<StreamSource> {
         let video_id = match track.video_id() {
             Some(v) => v.to_string(),
             None => {

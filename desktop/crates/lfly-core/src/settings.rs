@@ -25,11 +25,14 @@ pub struct Playback {
     pub autoplay: bool,
     /// "aac" (plays everywhere) or "opus" (smaller for the same quality).
     pub format: String,
+    /// Where songs play from first, the phone's names: "AUTO" (YouTube Music and Monochrome
+    /// together), "YOUTUBE_MUSIC" or "MONOCHROME" (that one first, the other after).
+    pub source: String,
 }
 
 impl Default for Playback {
     fn default() -> Self {
-        Playback { autoplay: true, format: "aac".into() }
+        Playback { autoplay: true, format: "aac".into(), source: "AUTO".into() }
     }
 }
 
@@ -50,11 +53,13 @@ pub fn load(yt: &YtMusic) {
     let p = playback();
     AUTOPLAY.store(p.autoplay, Ordering::Relaxed);
     yt.set_preference(preference(&p.format));
+    yt.set_playback_source(lfly_yt::PlaybackSource::from_name(&p.source));
 }
 
 pub fn set_playback(yt: &YtMusic, p: &Playback) -> Result<(), String> {
     AUTOPLAY.store(p.autoplay, Ordering::Relaxed);
     yt.set_preference(preference(&p.format));
+    yt.set_playback_source(lfly_yt::PlaybackSource::from_name(&p.source));
     store::set(KEY, &serde_json::to_value(p).map_err(|e| e.to_string())?)
 }
 

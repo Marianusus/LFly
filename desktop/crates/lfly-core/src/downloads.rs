@@ -169,8 +169,22 @@ impl Downloads {
     async fn fetch(self: &Arc<Self>, track: TrackRef) -> Result<(), String> {
         let yt_track: lfly_yt::Track =
             serde_json::from_value(serde_json::to_value(&track).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        let stream = self.yt.resolve_stream(&yt_track).await.map_err(|e| e.to_string())?;
-        let ext = if stream.mime.contains("webm") { "webm" } else if stream.mime.contains("mp4") { "m4a" } else { "audio" };
+        // YouTube Music only, as the phone downloads below its lossless quality: Monochrome's
+        // FLAC is ten times the size.
+        let stream = self.yt.resolve_youtube(&yt_track).await.map_err(|e| e.to_string())?;
+        let ext = if stream.mime.contains("webm") {
+            "webm"
+        } else if stream.mime.contains("mp4") {
+            "m4a"
+        } else if stream.mime.contains("flac") {
+            "flac"
+        } else if stream.mime.contains("ogg") {
+            "ogg"
+        } else if stream.mime.contains("mpeg") {
+            "mp3"
+        } else {
+            "audio"
+        };
         let file = format!("{}.{ext}", safe_name(&track.id));
         let me = self.clone();
         let id = track.id.clone();
