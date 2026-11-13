@@ -1,5 +1,6 @@
 //! Downloads end to end, without a window: `LFLY_DOWNLOADS_DIR=<empty dir> cargo run --release
 //! --example downloads`. One song is downloaded (progress, index, file), then removed.
+//! LYRICS=1: the lyrics of the songs already downloaded there are fetched and kept.
 #[path = "../src/core.rs"]
 mod core;
 
@@ -14,6 +15,9 @@ fn main() {
     let (core, mut rx) = core::Core::new().expect("core");
     if std::env::var_os("OFFLINE").is_some() {
         return offline(core, &mut rx);
+    }
+    if std::env::var_os("LYRICS").is_some() {
+        return lyrics(core);
     }
     let tracks = core::runtime().block_on(core.clone().search("Daft Punk Get Lucky".into())).expect("search");
     let t = core::track_ref(&tracks[0]).expect("track");
@@ -31,7 +35,7 @@ fn main() {
             Ok(DownloadEvent::Progress { done, .. }) if done < 0. => panic!("download failed"),
             Ok(DownloadEvent::Progress { .. }) => steps += 1,
             Ok(DownloadEvent::Changed) => changed = true,
-            Err(_) => {}
+            Ok(DownloadEvent::Lyrics { .. }) | Err(_) => {}
         }
     }
     assert!(changed, "no download in 120 s");
@@ -66,4 +70,36 @@ fn offline(core: std::sync::Arc<core::Core>, rx: &mut tokio::sync::mpsc::Unbound
         }
     }
     panic!("the downloaded song did not play offline");
+}
+
+/// LYRICS=1: "Scarica mancanti" over the downloads already in the folder; each one ends with
+/// lyrics kept or a "not found" mark.
+fn lyrics(core: std::sync::Arc<core::Core>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let d = downloads::start(core.yt.clone(), core::runtime().handle().clone(), move |e| {
+        let _ = tx.send(e);
+    })
+    .expect("downloads");
+    let missing = d.missing_lyrics();
+    println!("lyrics: {} downloads without them", missing.len());
+    d.fetch_missing_lyrics();
+    let deadline = Instant::now() + Duration::from_secs(180);
+    loop {
+        assert!(Instant::now() < deadline, "lyrics not done in 180 s");
+        if let Ok(DownloadEvent::Lyrics { done, total }) = rx.recv_timeout(Duration::from_secs(1)) {
+            println!("  {done}/{total}");
+            if done >= total {
+                break;
+            }
+        }
+    }
+    for t in missing {
+        let saved = d.lyrics(&t.id);
+        let what = match saved {
+            Some(s) if s.lyrics.is_some() => format!("kept ({})", s.lyrics.unwrap().source),
+            Some(_) => "none found".into(),
+            None => "lookup failed".into(),
+        };
+        println!("  {}: {what}", t.title);
+    }
 }

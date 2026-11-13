@@ -33,6 +33,8 @@ pub enum DownloadEvent {
     Progress { id: String, done: f32 },
     /// The downloaded songs changed (one landed, some were removed).
     Changed,
+    /// Lyrics being fetched for the downloads: [done] of [total] (done == total: finished).
+    Lyrics { done: usize, total: usize },
 }
 
 type Sink = Box<dyn Fn(DownloadEvent) + Send + Sync>;
@@ -45,6 +47,11 @@ pub struct Downloads {
     index: Mutex<Vec<Entry>>,
     waiting: Mutex<VecDeque<TrackRef>>,
     working: Mutex<bool>,
+    /// Each new download fetches its lyrics too (Settings; the phone's "Scarica anche i testi").
+    lyrics_too: std::sync::atomic::AtomicBool,
+    lyrics_busy: std::sync::atomic::AtomicBool,
+    /// The downloads whose lyrics are kept (read once at open, then kept up to date).
+    with_lyrics: Mutex<std::collections::HashSet<String>>,
 }
 
 /// The downloaded songs, newest first, and the room they take.
@@ -80,7 +87,8 @@ impl Downloads {
         std::fs::create_dir_all(dir).ok()?;
         let index: Vec<Entry> = std::fs::read(dir.join("index.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         // A file deleted by hand is not a download any more.
-        let index = index.into_iter().filter(|e| dir.join(&e.file).exists()).collect();
+        let index: Vec<Entry> = index.into_iter().filter(|e| dir.join(&e.file).exists()).collect();
+        let with_lyrics = crate::lyrics_store::scan(dir, index.iter().map(|e| e.track.id.as_str()));
         Some(Arc::new(Downloads {
             dir: dir.to_path_buf(),
             rt,
@@ -89,6 +97,9 @@ impl Downloads {
             index: Mutex::new(index),
             waiting: Mutex::default(),
             working: Mutex::new(false),
+            lyrics_too: Default::default(),
+            lyrics_busy: Default::default(),
+            with_lyrics: Mutex::new(with_lyrics),
         }))
     }
 
@@ -193,9 +204,112 @@ impl Downloads {
         .await
         .map_err(|e| e.to_string())??;
         let added_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let lyrics_for = self.lyrics_too.load(std::sync::atomic::Ordering::Relaxed).then(|| yt_track.clone());
         self.index.lock().unwrap_or_else(|e| e.into_inner()).push(Entry { track, file, bytes, added_at });
         self.save_index();
+        if let Some(t) = lyrics_for {
+            // Beside the queue, not in it: the next download does not wait for the lyrics.
+            let me = self.clone();
+            self.rt.spawn(async move {
+                if me.fetch_lyrics(t).await {
+                    (me.sink)(DownloadEvent::Changed);
+                }
+            });
+        }
         Ok(())
+    }
+
+    /// Looks the song's lyrics up and keeps them (or that there are none); a failed lookup keeps
+    /// nothing, to be tried again.
+    async fn fetch_lyrics(&self, t: lfly_yt::Track) -> bool {
+        let id = t.id.clone();
+        match crate::pages::lyrics(&self.yt, t).await {
+            Ok(l) => {
+                self.keep_lyrics(&id, l.as_ref());
+                true
+            }
+            Err(e) => {
+                log::info!("lyrics for {id}: {e}");
+                false
+            }
+        }
+    }
+
+    /// Keeps a downloaded song's lyrics (or that it has none); nothing for a song that is not a
+    /// download any more (removed while its lyrics were looked up).
+    pub fn keep_lyrics(&self, id: &str, l: Option<&crate::pages::Lyrics>) {
+        if !self.has(id) {
+            return;
+        }
+        crate::lyrics_store::write(&self.dir, id, l);
+        let mut with = self.with_lyrics.lock().unwrap_or_else(|e| e.into_inner());
+        if l.is_some() {
+            with.insert(id.to_string());
+        } else {
+            with.remove(id);
+        }
+        drop(with);
+        // Removed meanwhile: no orphan file.
+        if !self.has(id) {
+            crate::lyrics_store::remove(&self.dir, id);
+        }
+    }
+
+    /// The kept lyrics of a downloaded song (or that it has none), without the network.
+    pub fn lyrics(&self, id: &str) -> Option<crate::lyrics_store::Saved> {
+        if !self.has(id) {
+            return None;
+        }
+        crate::lyrics_store::read(&self.dir, id)
+    }
+
+    pub fn set_lyrics_too(&self, on: bool) {
+        self.lyrics_too.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The downloaded songs whose lyrics are not kept (none found yet, or never looked for).
+    pub fn missing_lyrics(&self) -> Vec<TrackRef> {
+        let with = self.with_lyrics.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        self.list().tracks.into_iter().filter(|t| !with.contains(&t.id)).collect()
+    }
+
+    /// Fetches the missing lyrics, one song at a time ("Scarica mancanti"); progress as
+    /// [`DownloadEvent::Lyrics`].
+    pub fn fetch_missing_lyrics(self: &Arc<Self>) {
+        if self.lyrics_busy.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let me = self.clone();
+        let missing = self.missing_lyrics();
+        let total = missing.len();
+        self.rt.spawn(async move {
+            // However it ends (a panic too): not busy any more, and the window told it is over.
+            struct Done(Arc<Downloads>, usize);
+            impl Drop for Done {
+                fn drop(&mut self) {
+                    self.0.lyrics_busy.store(false, std::sync::atomic::Ordering::SeqCst);
+                    (self.0.sink)(DownloadEvent::Changed);
+                    (self.0.sink)(DownloadEvent::Lyrics { done: self.1, total: self.1 });
+                }
+            }
+            let _done = Done(me.clone(), total);
+            (me.sink)(DownloadEvent::Lyrics { done: 0, total });
+            for (k, t) in missing.into_iter().enumerate() {
+                if let Ok(t) = serde_json::from_value::<lfly_yt::Track>(serde_json::to_value(&t).unwrap_or_default()) {
+                    me.fetch_lyrics(t).await;
+                }
+                if k + 1 < total {
+                    (me.sink)(DownloadEvent::Lyrics { done: k + 1, total });
+                }
+            }
+        });
+    }
+
+    /// Forgets every kept lyric.
+    pub fn remove_lyrics(&self) {
+        crate::lyrics_store::clear(&self.dir);
+        self.with_lyrics.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        (self.sink)(DownloadEvent::Changed);
     }
 
     /// Deletes these songs' files.
@@ -208,6 +322,8 @@ impl Downloads {
         };
         for e in removed {
             let _ = std::fs::remove_file(self.dir.join(e.file));
+            crate::lyrics_store::remove(&self.dir, &e.track.id);
+            self.with_lyrics.lock().unwrap_or_else(|e| e.into_inner()).remove(&e.track.id);
         }
         self.save_index();
     }

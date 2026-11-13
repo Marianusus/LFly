@@ -3,7 +3,7 @@
 //! the client's internals.
 
 use lfly_yt::{AlbumSummary, ArtistSummary, MediaItem, PlaylistSummary, Track, YtMusic};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,7 +69,7 @@ pub struct PlaylistPage {
 }
 
 /// One timed word; its text keeps the trailing space, so the words join into the line.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricWord {
     pub ms: i64,
@@ -77,7 +77,7 @@ pub struct LyricWord {
     pub text: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricLine {
     /// Line start in milliseconds.
@@ -93,14 +93,14 @@ pub struct LyricLine {
     pub bg: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Lyrics {
     pub synced: Option<Vec<LyricLine>>,
     pub plain: Option<String>,
     /// The provider that won ("BetterLyrics", "lrc.red", "KuGou", "LRCLIB", "YouTube Music", ...).
     pub source: String,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub instrumental: bool,
 }
 

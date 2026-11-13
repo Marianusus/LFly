@@ -27,6 +27,8 @@ pub fn start(app: AppHandle, yt: YtMusic) -> Option<Arc<Downloads>> {
         let _ = match e {
             DownloadEvent::Progress { id, done } => app.emit("downloads:progress", Progress { id, done }),
             DownloadEvent::Changed => app.emit("downloads:changed", ()),
+            // Kept lyrics are the native window's (Tauri has no offline lyrics).
+            DownloadEvent::Lyrics { .. } => Ok(()),
         };
     })
 }

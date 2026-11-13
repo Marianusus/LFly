@@ -8,6 +8,7 @@ pub mod discord;
 pub mod downloads;
 pub mod identity;
 pub mod library;
+pub mod lyrics_store;
 pub mod media;
 pub mod pages;
 pub mod player;
