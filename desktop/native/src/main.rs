@@ -21,6 +21,7 @@ mod look;
 mod menu;
 mod lyrics;
 mod lyrics_page;
+mod media;
 mod motion;
 mod nav;
 mod now_playing;
@@ -165,6 +166,7 @@ impl Lfly {
         let nav = cx.new(|_| Nav::new());
         let start = crate::prefs::Prefs::new(cx).read(cx).v.start_page.clone();
         crate::audio::AudioModel::new(core.clone(), cx);
+        crate::media::SystemMedia::start(model.clone(), window, cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);

@@ -155,6 +155,7 @@ impl SettingsPage {
             cx.observe(&Prefs::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::media::SystemMedia::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         Self {
@@ -1096,10 +1097,24 @@ impl SettingsPage {
         ]
     }
 
-    fn account(&mut self, i: &Ink) -> Vec<AnyElement> {
+    fn account(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let media = crate::media::SystemMedia::entity(cx);
+        let on = media.read(cx).discord_on();
         vec![
             group("YouTube Music", Some("L'accesso con Google non è ancora nella versione nativa: la Home e le playlist sono quelle pubbliche."), i).into_any_element(),
-            group("Discord", Some("Lo stato \"Sta ascoltando\" su Discord non è ancora nella versione nativa."), i).into_any_element(),
+            group("Discord", None, i)
+                .child(list(
+                    vec![row()
+                        .child(label(
+                            "Mostra cosa ascolti",
+                            Some("Con l'app Discord aperta su questo computer, il tuo stato diventa \"Sta ascoltando\" con il brano. Si toglie quando metti in pausa.".into()),
+                            i,
+                        ))
+                        .child(switch("sw-discord", on, false, i, move |cx| media.update(cx, |m, cx| m.set_discord(!on, cx))))
+                        .into_any_element()],
+                    i,
+                ))
+                .into_any_element(),
         ]
     }
 
@@ -1178,7 +1193,7 @@ impl Render for SettingsPage {
             Section::Lyrics => self.lyrics(&i, &p, cx),
             Section::Storage => self.storage(&i, &p, cx),
             Section::Devices => self.devices(&i, cx),
-            Section::Account => self.account(&i),
+            Section::Account => self.account(&i, cx),
             Section::About => self.about(&i, cx),
         };
         let me = cx.entity().downgrade();

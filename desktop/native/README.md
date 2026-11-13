@@ -11,7 +11,8 @@ Test modes: `LFLY_AUTOPLAY="query"` plays the first result, `LFLY_ROUTE=liked|li
 nowplaying|album:<id>|playlist:<id>|local:<id>|artist:<id>` opens a page (`examples/ids.rs` prints
 real ids), `LFLY_NP_PANEL=lyrics|queue|none` picks the full player's panel, `LFLY_PANEL=queue|lyrics|devices`
 opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast,
-`LFLY_NP_OUTPUT=1` opens the full player's output menu, `LFLY_SIZE=WxH` sizes the window,
+`LFLY_NP_OUTPUT=1` opens the full player's output menu, `LFLY_SIZE=WxH` sizes the window, `LFLY_MEDIA_TEST=1` registers the system media controls in a
+test run,
 `LFLY_SETTINGS=general|sound|lyrics|devices|account|storage|about` opens a Settings section, `LFLY_MUTE=1`,
 `LFLY_NO_GLASS=1` (no glass at all, to measure it), `LFLY_GLASS_BLEED=0|1`;
 `LFLY_GLASS_DEBUG`, `LFLY_GLASS_EMPTY`, `LFLY_GLASS_HIDE` for the glass check
@@ -33,7 +34,9 @@ Windows, as there), the icon set, the full player bar (with its 900/620 px layou
 YouTube and library playlists, Liked songs, Artist, search, the library (grid), the full player
 (Now Playing) with its queue and lyrics panels, the lyrics page, Settings (look,
 general, playback with the equalizer, Automix crossfade and output, lyrics, space and privacy, about; the sections that need unported parts say
-so), the keyboard shortcuts and the mouse's back/forward buttons, the heart (saved to
+so), the keyboard shortcuts and the mouse's back/forward buttons, the system's media controls (MPRIS on
+Linux, checked on a private bus; Windows needs the window handle passed in, not done yet) and
+Discord's "listening to", the heart (saved to
 favorites.json as the Tauri app saves it, read again first; Drive backup and library sync are
 not told yet, as Tauri's `library_save` does), the shared player (queue, gapless preload,
 expired-URL retry), Liquid Glass on wgpu (checked against Chromium) and Direct3D 11 (not run
@@ -58,8 +61,8 @@ CSS numbers, a screenshot against `mock.html` in Chromium):
    recent searches".
 3. Library: the downloads filter; Downloads; custom themes, Spicetify and its marketplace;
    autostart.
-4. LFly Connect and library sync, Google Drive, system media controls, Discord, Spotify import,
-   YouTube Music sign-in (a short-lived webview helper process: GPUI has no webview).
+4. LFly Connect and library sync, Google Drive, YouTube Music sign-in (a short-lived webview
+   helper process: GPUI has no webview).
 5. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.
 
 Cannot be ported: a Spicetify `user.css` imported as a theme (arbitrary CSS needs a web

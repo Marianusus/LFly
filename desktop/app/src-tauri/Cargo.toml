@@ -31,5 +31,4 @@ lfly-audio = { path = "../../crates/lfly-audio" }
 lfly-core = { path = "../../crates/lfly-core" }
 tauri-plugin-dialog = "2"
 rand = "0.8"
-souvlaki = { version = "0.9", default-features = false, features = ["use_zbus"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
