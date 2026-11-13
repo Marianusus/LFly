@@ -3467,7 +3467,7 @@ impl Interactivity {
     fn compute_style_internal(
         &self,
         hitbox: Option<&Hitbox>,
-        element_state: Option<&mut InteractiveElementState>,
+        mut element_state: Option<&mut InteractiveElementState>,
         window: &mut Window,
         cx: &mut App,
     ) -> Style {
@@ -3530,10 +3530,53 @@ impl Interactivity {
                     false
                 };
 
-                if is_hovered {
-                    style.refine(hover_style);
+                // LFly patch: the background fades (`HoverFade`); the rest switches at once.
+                let fades = hover_style.background.is_some() && !cx.reduce_motion();
+                match (fades, element_state.as_deref_mut()) {
+                    (true, Some(state)) => {
+                        let fade = match state.hover_fade {
+                            None => {
+                                let now = std::time::Instant::now();
+                                HoverFade { hovered: is_hovered, at: now.checked_sub(Duration::from_secs(1)).unwrap_or(now), from: if is_hovered { 1. } else { 0. } }
+                            }
+                            Some(f) if f.hovered != is_hovered && hitbox.is_some() => HoverFade { hovered: is_hovered, at: std::time::Instant::now(), from: f.amount() },
+                            Some(f) => f,
+                        };
+                        if hitbox.is_some() {
+                            state.hover_fade = Some(fade);
+                        }
+                        let amount = fade.amount();
+                        if amount >= 1. {
+                            style.refine(hover_style);
+                        } else if amount > 0. {
+                            let base = style.background.clone();
+                            if is_hovered {
+                                style.refine(hover_style);
+                            }
+                            let mut target = Style::default();
+                            target.background = base.clone();
+                            target.refine(hover_style);
+                            style.background = mix_fill(base, target.background, amount);
+                        }
+                        if hitbox.is_some() && amount > 0. && amount < 1. {
+                            window.request_animation_frame();
+                        }
+                    }
+                    (_, state) => {
+                        // Not fading now: what was stored would replay a stale fade later.
+                        if let (Some(state), true) = (state, hitbox.is_some()) {
+                            state.hover_fade = None;
+                        }
+                        if is_hovered {
+                            style.refine(hover_style);
+                        }
+                    }
                 }
+            } else if let (Some(state), true) = (element_state.as_deref_mut(), hitbox.is_some()) {
+                state.hover_fade = None;
             }
+        } else if let (Some(state), true) = (element_state.as_deref_mut(), hitbox.is_some()) {
+            state.hover_fade = None;
         }
 
         if let Some(hitbox) = hitbox {
@@ -3685,6 +3728,47 @@ pub struct InteractiveElementState {
     ongoing_scroll: Option<Rc<RefCell<OngoingScroll>>>,
     pub(crate) active_tooltip: Option<Rc<RefCell<Option<ActiveTooltip>>>>,
     long_press_tooltip_active: Option<Rc<Cell<bool>>>,
+    /// LFly patch: the hover background's fade (see `hover_amount`).
+    hover_fade: Option<HoverFade>,
+}
+
+/// LFly patch: a hover background fades in (120 ms) and out (220 ms), easing out, instead of
+/// switching (as CSS `transition: background 180ms` did in the Tauri app).
+#[derive(Clone, Copy)]
+struct HoverFade {
+    hovered: bool,
+    at: std::time::Instant,
+    from: f32,
+}
+
+impl HoverFade {
+    fn amount(&self) -> f32 {
+        let (to, secs) = if self.hovered { (1., 0.12) } else { (0., 0.22) };
+        let t = (self.at.elapsed().as_secs_f32() / secs).min(1.);
+        let e = 1. - (1. - t).powi(3);
+        self.from + (to - self.from) * e
+    }
+}
+
+/// LFly patch: [a] → [b] by [t], in straight (not premultiplied) RGBA; a missing side is [the
+/// other one] fully transparent.
+fn mix_fill(a: Option<crate::Fill>, b: Option<crate::Fill>, t: f32) -> Option<crate::Fill> {
+    let solid = |f: &Option<crate::Fill>| f.as_ref().and_then(|f| f.color()).filter(|b| b.tag == crate::BackgroundTag::Solid).map(|b| b.solid);
+    let (ca, cb) = (solid(&a), solid(&b));
+    let (ca, cb) = match (ca, cb) {
+        (Some(x), Some(y)) => (x, y),
+        (Some(x), None) => (x, crate::Hsla { a: 0., ..x }),
+        (None, Some(y)) => (crate::Hsla { a: 0., ..y }, y),
+        // Gradients or nothing: no blend.
+        (None, None) => return if t < 0.5 { a } else { b },
+    };
+    let (ra, rb) = (crate::Rgba::from(ca), crate::Rgba::from(cb));
+    let l = |x: f32, y: f32| x + (y - x) * t;
+    // Colour weighted by alpha, so fading from transparent does not pass through black.
+    let alpha = l(ra.a, rb.a);
+    let ch = |x: f32, y: f32| if alpha > 0. { (x * ra.a * (1. - t) + y * rb.a * t) / alpha } else { y };
+    let rgba = crate::Rgba { r: ch(ra.r, rb.r), g: ch(ra.g, rb.g), b: ch(ra.b, rb.b), a: alpha };
+    Some(crate::Fill::from(crate::Hsla::from(rgba)))
 }
 
 /// Whether or not the element or a group that contains it is clicked by the mouse.

@@ -45,3 +45,11 @@ macOS (`gpui-pre-macos`, Metal) is not patched: a macOS build fails on the new b
 to it (width or height `Auto`). Upstream applied it even with both sides given (`size_full()`),
 so a portrait cover in a square box grew past the box, over the text below it; with both sides
 given the box wins, as in CSS, and `object_fit` fills it.
+
+## Hover fade
+
+`gpui-pre/src/elements/div.rs` (`HoverFade`, `mix_fill`, `compute_style_internal`): a hover
+background fades in over 120 ms and out over 220 ms, easing out, instead of switching (the Tauri
+app's CSS `transition: background`). Only the background blends (straight RGBA weighted by alpha);
+the rest of the hover style switches at once. Only stateful elements (with an id) fade, the state
+is written in the paint pass only, and nothing fades under `App::reduce_motion`.
