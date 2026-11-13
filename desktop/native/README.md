@@ -7,6 +7,7 @@ app until this one has every screen.
     cargo run --release            # the app
     cargo run --release --example smoke   # the shared player end to end, at volume 0
     LFLY_DOWNLOADS_DIR=<empty dir> cargo run --release --example downloads   # one download, kept with KEEP=1
+    OFFLINE=1 LFLY_DOWNLOADS_DIR=<that dir> unshare -rn target/release/examples/downloads   # it plays with no network
 
 Test modes: `LFLY_AUTOPLAY="query"` plays the first result, `LFLY_ROUTE=liked|library|settings|lyrics|
 nowplaying|album:<id>|playlist:<id>|local:<id>|artist:<id>` opens a page (`examples/ids.rs` prints
