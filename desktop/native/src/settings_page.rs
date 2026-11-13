@@ -712,10 +712,13 @@ impl SettingsPage {
         let me_auto = cx.entity().downgrade();
         let prefs = Prefs::entity(cx);
         let (p1, p2) = (prefs.clone(), prefs);
-        const KEYS: [(&str, &str); 6] = [
+        const KEYS: [(&str, &str); 9] = [
             ("Spazio", "Riproduci o metti in pausa"),
             ("Ctrl + →  /  Ctrl + ←", "Brano successivo / precedente"),
             ("Maiusc + →  /  Maiusc + ←", "Avanti / indietro di 10 secondi"),
+            ("Ctrl + ↑  /  Ctrl + ↓", "Alza / abbassa il volume"),
+            ("Ctrl + S", "Riproduzione casuale"),
+            ("Ctrl + R", "Ripeti: tutto, un brano, niente"),
             ("Ctrl + K", "Cerca"),
             ("Alt + ←  /  Alt + →", "Pagina precedente / successiva"),
             ("Esc", "Chiudi il player a schermo intero"),

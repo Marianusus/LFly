@@ -314,6 +314,24 @@ impl Lfly {
                 "left" if ctrl => pm.command(protocol::CMD_PREVIOUS, 0),
                 "right" if m.shift => pm.command(protocol::CMD_SEEK, pm.live_position() as i64 + 10_000),
                 "left" if m.shift => pm.command(protocol::CMD_SEEK, (pm.live_position() as i64 - 10_000).max(0)),
+                // As in Spotify: the volume, shuffle and repeat from the keyboard.
+                "up" if ctrl => pm.command(protocol::CMD_VOLUME_STEP, 1),
+                "down" if ctrl => pm.command(protocol::CMD_VOLUME_STEP, -1),
+                "s" if ctrl && !m.shift && has => {
+                    let on = !pm.state.as_ref().is_some_and(|s| s.shuffle);
+                    pm.command(protocol::CMD_SHUFFLE, i64::from(on));
+                    crate::toast::Toasts::say(if on { "Riproduzione casuale attiva" } else { "Riproduzione casuale disattivata" }, cx);
+                }
+                "r" if ctrl && !m.shift && has => {
+                    // PlayerBar's cycle: off → all → one → off.
+                    let (next, say) = match pm.state.as_ref().map_or("off", |s| s.repeat.as_str()) {
+                        "off" => (protocol::REPEAT_ALL, "Ripeti tutto"),
+                        "all" => (protocol::REPEAT_ONE, "Ripeti questo brano"),
+                        _ => (protocol::REPEAT_OFF, "Ripetizione disattivata"),
+                    };
+                    pm.command(protocol::CMD_REPEAT, next);
+                    crate::toast::Toasts::say(say, cx);
+                }
                 _ => return,
             }
             stop(cx);
