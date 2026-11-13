@@ -64,6 +64,7 @@ impl LibraryModel {
                     let mut list = lfly_core::library::load(&dir).favorites.as_array().cloned().unwrap_or_default();
                     apply(&mut list);
                     lfly_core::library::save(&dir, "favorites.json", &Value::Array(list.clone()))?;
+                    crate::sync::changed();
                     Ok::<_, String>(list)
                 })
                 .await;
@@ -114,6 +115,7 @@ impl LibraryModel {
                     let mut list = lfly_core::library::load(&dir).playlists.as_array().cloned().unwrap_or_default();
                     let r = apply(&mut list);
                     lfly_core::library::save(&dir, "playlists.json", &Value::Array(list.clone()))?;
+                    crate::sync::changed();
                     Ok::<_, String>((r, list))
                 })
                 .await;
@@ -185,7 +187,13 @@ impl LibraryModel {
         cx.spawn(async move |this, cx| {
             let r = cx
                 .background_executor()
-                .spawn(async move { lfly_core::library::dir().and_then(|d| lfly_core::library::import_backup(&path, &d)) })
+                .spawn(async move {
+                    let r = lfly_core::library::dir().and_then(|d| lfly_core::library::import_backup(&path, &d));
+                    if r.is_ok() {
+                        crate::sync::changed();
+                    }
+                    r
+                })
                 .await;
             let _ = this.update(cx, |this, cx| this.reload(cx));
             let _ = cx.update(|cx| done(r, cx));
@@ -246,6 +254,7 @@ impl LibraryModel {
                     list.insert(0, track);
                     list.truncate(500);
                     lfly_core::library::save(&dir, "history.json", &Value::Array(list.clone()))?;
+                    crate::sync::changed();
                     Ok::<_, String>(list)
                 })
                 .await;
@@ -268,7 +277,11 @@ impl LibraryModel {
         cx.notify();
         cx.background_executor()
             .spawn(async move {
-                if let Err(e) = lfly_core::library::dir().and_then(|d| lfly_core::library::save(&d, "history.json", &Value::Array(Vec::new()))) {
+                let saved = lfly_core::library::dir().and_then(|d| lfly_core::library::save(&d, "history.json", &Value::Array(Vec::new())));
+                if saved.is_ok() {
+                    crate::sync::changed();
+                }
+                if let Err(e) = saved {
                     log::warn!("history.json: {e}");
                 }
             })

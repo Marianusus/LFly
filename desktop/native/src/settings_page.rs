@@ -161,6 +161,7 @@ impl SettingsPage {
             cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::media::SystemMedia::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::sync::SyncModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::account::AccountModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
@@ -1264,9 +1265,94 @@ impl SettingsPage {
                 ))
                 .child(foot("Se il telefono non trova questo computer o non riesce a comandarlo, il firewall potrebbe bloccarlo: LFly Connect usa la porta TCP 45780 e mDNS (UDP 5353) sulla rete locale.", i))
                 .into_any_element(),
-            group("Sincronizza con il telefono", Some("La sincronizzazione della libreria con il telefono e Google Drive non sono ancora nella versione nativa: per ora restano nell'app LFly classica."), i).into_any_element(),
+            self.sync_local(i, cx),
+            self.sync_drive(i, cx),
             group("Libreria", None, i).child(list(vec![row().child(div().flex_1().child(counts)).into_any_element()], i)).into_any_element(),
         ]
+    }
+
+    /// Settings.svelte "Sincronizza con il telefono": the phones of the account on this network.
+    fn sync_local(&mut self, i: &Ink, cx: &mut Context<Self>) -> AnyElement {
+        let sync = crate::sync::SyncModel::entity(cx);
+        let signed_in = crate::account::AccountModel::entity(cx).read(cx).info.is_some();
+        let (active, st, busy) = {
+            let m = sync.read(cx);
+            (m.active(), m.local.clone(), m.local_busy)
+        };
+        let caption = if !active {
+            "Spenta in questa sessione di prova.".to_string()
+        } else if !signed_in {
+            "Accedi a YouTube Music con lo stesso account del telefono: la sincronizzazione parte da sola.".to_string()
+        } else if let Some(t) = st.last_sync {
+            format!("Ultima volta alle {}", crate::sync::clock(t))
+        } else {
+            "Preferiti, playlist e cronologia si allineano con i telefoni del tuo account aperti sulla stessa rete.".to_string()
+        };
+        let (s1, s2) = (sync.clone(), sync);
+        let on = st.enabled;
+        let mut rows = vec![row()
+            .child(label("Sulla stessa rete Wi-Fi", Some(caption), i))
+            .child(switch("sw-libsync", on, busy || !active, i, move |cx| s1.update(cx, |m, cx| m.set_local(!on, cx))))
+            .into_any_element()];
+        if on && signed_in && active {
+            rows.push(
+                row()
+                    .child(div().flex_1().min_w_0().text_color(i.text2).child("Ogni minuto e mezzo e subito dopo ogni modifica, senza configurare niente."))
+                    .child(button("libsync-now", if busy { "Sincronizzo…" } else { "Sincronizza ora" }, false, busy, i).when(!busy, |b| b.on_click(move |_, _, cx| s2.update(cx, |m, cx| m.sync_local_now(cx)))))
+                    .into_any_element(),
+            );
+        }
+        group("Sincronizza con il telefono", None, i).child(list(rows, i)).into_any_element()
+    }
+
+    /// Settings.svelte "Anche da lontano: Google Drive".
+    fn sync_drive(&mut self, i: &Ink, cx: &mut Context<Self>) -> AnyElement {
+        let sync = crate::sync::SyncModel::entity(cx);
+        let (active, st, busy, error) = {
+            let m = sync.read(cx);
+            (m.active(), m.drive.clone(), m.drive_busy, m.drive_error.clone())
+        };
+        let (s1, s2, s3, s4) = (sync.clone(), sync.clone(), sync.clone(), sync);
+        let mut g = group("Anche da lontano: Google Drive", None, i);
+        if st.signed_in {
+            let on = st.enabled;
+            let when = st.last_sync.map_or("mai sincronizzato".to_string(), |t| format!("ultima volta alle {}", crate::sync::clock(t)));
+            g = g.child(list(
+                vec![
+                    row()
+                        .child(label("Sincronizza tramite Google Drive", Some(format!("{} · {when}", st.email.clone().unwrap_or_else(|| "Account Google".into()))), i))
+                        .child(switch("sw-drive", on, busy || !active, i, move |cx| s1.update(cx, |m, cx| m.drive_set_enabled(!on, cx))))
+                        .into_any_element(),
+                    row()
+                        .child(div().flex_1().min_w_0().text_color(i.text2).child("Preferiti, playlist e cronologia si allineano da soli ogni pochi minuti e dopo ogni modifica."))
+                        .child(button("drive-now", if busy { "Sincronizzo…" } else { "Sincronizza ora" }, false, busy || !on || !active, i).when(!busy && on && active, |b| b.on_click(move |_, _, cx| s2.update(cx, |m, cx| m.drive_sync_now(cx)))))
+                        .child(button("drive-out", "Scollega", false, busy || !active, i).when(!busy && active, |b| b.on_click(move |_, _, cx| s3.update(cx, |m, cx| m.drive_sign_out(cx)))))
+                        .into_any_element(),
+                ],
+                i,
+            ));
+        } else {
+            let can = active && st.configured && !busy;
+            g = g.child(list(
+                vec![row()
+                    .child(div().flex_1().min_w_0().text_color(i.text2).child(
+                        "Per allinearli anche quando non sono sulla stessa rete: la libreria passa da una cartella nascosta del tuo Google Drive, visibile solo a LFly. Va configurato una volta; attivalo anche sul telefono.",
+                    ))
+                    .child(button("drive-in", if busy { "Aspetto Google…" } else { "Collega Google Drive" }, true, !can, i).when(can, |b| b.on_click(move |_, _, cx| s4.update(cx, |m, cx| m.drive_sign_in(cx)))))
+                    .into_any_element()],
+                i,
+            ));
+            if !st.configured && active {
+                g = g.child(foot("Manca il client OAuth di LFly: salva il file JSON del client \"App desktop\" del progetto Google Cloud di LFly come ~/.config/lfly/google-oauth.json.", i));
+            }
+        }
+        if !active {
+            g = g.child(foot("Spenta in questa sessione di prova.", i));
+        }
+        if !error.is_empty() {
+            g = g.child(div().mt(px(8.)).text_size(px(12.5)).text_color(rgb(0xff6b6b)).child(error));
+        }
+        g.into_any_element()
     }
 
     fn account(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -1338,7 +1424,7 @@ impl SettingsPage {
     fn about(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let me = cx.entity().downgrade();
         let rows: Vec<AnyElement> = if self.health.iter().all(|h| h.last_checked_ms.is_none()) {
-            vec![row().child(div().flex_1().text_color(i.text2).child("Nessun servizio usato finora.")).into_any_element()]
+            vec![row().child(div().flex_1().min_w_0().text_color(i.text2).child("Nessun servizio usato finora.")).into_any_element()]
         } else {
             self.health
                 .iter()

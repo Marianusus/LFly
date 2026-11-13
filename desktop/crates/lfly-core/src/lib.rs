@@ -6,8 +6,11 @@
 pub mod account;
 pub mod discord;
 pub mod downloads;
+pub mod drive;
 pub mod identity;
 pub mod library;
+pub mod library_merge;
+pub mod libsync;
 pub mod lyrics_store;
 pub mod media;
 pub mod pages;

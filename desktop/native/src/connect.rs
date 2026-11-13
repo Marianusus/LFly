@@ -124,6 +124,9 @@ impl ConnectModel {
             }
         };
 
+        // Library sync offers as this computer, to the devices it sees (sync.rs).
+        crate::sync::set_identity(&me, secret.as_deref());
+        crate::sync::set_discovery(discovery.clone());
         // This computer as a speaker the phones and the watch can pick.
         let mut announced = false;
         if !quiet || std::env::var_os("LFLY_CONNECT_PORT").is_some() {
@@ -365,6 +368,7 @@ impl ConnectModel {
         let name = lfly_core::identity::set_name(name);
         self.me.name = name;
         let secret = lfly_core::account::load().account.and_then(|a| a.connect_secret());
+        crate::sync::set_identity(&self.me, secret.as_deref());
         self.controller.set_identity(self.me.clone(), secret.as_deref());
         if let Some(host) = self.core.player.host() {
             host.set_identity(self.me.clone(), secret.as_deref());
@@ -381,6 +385,7 @@ impl ConnectModel {
     /// network hears the new owner (Tauri: apply_account).
     pub fn set_account(&mut self, secret: Option<String>, cx: &mut Context<Self>) {
         self.me.owner = secret.as_deref().map(protocol::owner_tag);
+        crate::sync::set_identity(&self.me, secret.as_deref());
         self.controller.set_identity(self.me.clone(), secret.as_deref());
         if let Some(host) = self.core.player.host() {
             host.set_identity(self.me.clone(), secret.as_deref());

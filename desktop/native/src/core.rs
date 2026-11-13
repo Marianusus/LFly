@@ -37,6 +37,10 @@ pub enum PlayerUpdate {
 
 struct NativeHost(mpsc::UnboundedSender<PlayerUpdate>);
 
+/// Who answers a phone's library offer: the window installs sync.rs's (the examples, which
+/// share this file, have none and decline).
+pub static LIBRARY_ANSWER: OnceLock<fn(&str, serde_json::Value) -> Option<serde_json::Value>> = OnceLock::new();
+
 impl PlayerHost for NativeHost {
     fn state(&self, state: &State, _received_at: i64) {
         let _ = self.0.send(PlayerUpdate::State(Box::new(state.clone())));
@@ -54,6 +58,12 @@ impl PlayerHost for NativeHost {
     fn downloaded(&self, id: &str) -> Option<std::path::PathBuf> {
         lfly_core::downloads::file_for(id)
     }
+    /// A phone of the account offers its library: sync.rs merges and answers (never in a test
+    /// run, where it is not installed).
+    fn library(&self, peer_id: &str, offered: serde_json::Value) -> Option<serde_json::Value> {
+        LIBRARY_ANSWER.get().and_then(|answer| answer(peer_id, offered))
+    }
+
     /// Settings → Riproduzione: play on with similar songs.
     fn autoplay(&self) -> bool {
         lfly_core::settings::autoplay()

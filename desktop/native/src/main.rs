@@ -39,6 +39,7 @@ mod search;
 mod settings_page;
 mod sleep;
 mod spotify_import;
+mod sync;
 mod sidebar;
 mod skeleton;
 mod standby;
@@ -190,6 +191,9 @@ impl Lfly {
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
+        // Library sync with the phones and Google Drive (not in test runs: sync.rs).
+        crate::sync::SyncModel::start(library.clone(), cx);
+        let _ = crate::core::LIBRARY_ANSWER.set(crate::sync::answer);
         let bar = cx.new(|cx| PlayerBar::new(model.clone(), nav.clone(), ui.clone(), library.clone(), covers.clone(), look.clone(), cx));
         let toasts = crate::toast::Toasts::new(look.clone(), cx);
         let menu = crate::menu::Menu::new(core.clone(), look.clone(), covers.clone(), library.clone(), nav.clone(), cx);
