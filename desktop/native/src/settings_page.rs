@@ -158,6 +158,7 @@ impl SettingsPage {
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::media::SystemMedia::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         Self {
@@ -1039,9 +1040,39 @@ impl SettingsPage {
             group("Spazio", None, i)
                 .child(list(
                     vec![
-                        row()
-                            .child(label("Brani scaricati", Some("I download non sono ancora nella versione nativa.".into()), i))
-                            .into_any_element(),
+                        {
+                            let dl = crate::downloads::DownloadsModel::entity(cx);
+                            let (n, bytes, folder) = {
+                                let d = dl.read(cx);
+                                (d.list.tracks.len(), d.list.bytes, d.folder())
+                            };
+                            let ask = self.asking("downloads");
+                            let me3 = cx.entity().downgrade();
+                            row()
+                                .child(label("Brani scaricati", Some(format!("{n} brani · {}", size(bytes))), i))
+                                .when_some(folder, |r, f| {
+                                    r.child(button("open-dl", "Apri cartella", false, false, i).on_click(move |_, _, cx| cx.open_with_system(&f)))
+                                })
+                                .child(button("clear-dl", if ask { "Sicuro? Elimina" } else { "Elimina tutti" }, ask, n == 0, i).when(n > 0, |b| {
+                                    b.on_click(move |_, _, cx| {
+                                        let dl = dl.clone();
+                                        let _ = me3.update(cx, |this, cx| {
+                                            if this.asking("downloads") {
+                                                this.confirm = None;
+                                                dl.update(cx, |m, cx| {
+                                                    let ids = m.list.tracks.iter().map(|t| t.id.clone()).collect();
+                                                    m.remove(ids, cx)
+                                                });
+                                                Toasts::say("Download eliminati", cx);
+                                            } else {
+                                                this.confirm = Some(Confirm { what: "downloads", at: Instant::now() });
+                                            }
+                                            cx.notify();
+                                        });
+                                    })
+                                }))
+                                .into_any_element()
+                        },
                         row()
                             .child(label(
                                 "Cache audio",

@@ -6,6 +6,7 @@ app until this one has every screen.
 
     cargo run --release            # the app
     cargo run --release --example smoke   # the shared player end to end, at volume 0
+    LFLY_DOWNLOADS_DIR=<empty dir> cargo run --release --example downloads   # one download, kept with KEEP=1
 
 Test modes: `LFLY_AUTOPLAY="query"` plays the first result, `LFLY_ROUTE=liked|library|settings|lyrics|
 nowplaying|album:<id>|playlist:<id>|local:<id>|artist:<id>` opens a page (`examples/ids.rs` prints
@@ -36,7 +37,9 @@ YouTube and library playlists, Liked songs, Artist, search, the library (grid), 
 general, playback with the equalizer, Automix crossfade and output, lyrics, space and privacy, about; the sections that need unported parts say
 so), the keyboard shortcuts and the mouse's back/forward buttons, the system's media controls (MPRIS on
 Linux, checked on a private bus; Windows needs the window handle passed in, not done yet) and
-Discord's "listening to", the heart (saved to
+Discord's "listening to", downloads (the Scaricati page, the hero's download ring, the menu's
+"Scarica", the sidebar entry, the library's filter, Settings > Spazio; `examples/downloads.rs`
+downloads a song end to end into `LFLY_DOWNLOADS_DIR`), the heart (saved to
 favorites.json as the Tauri app saves it, read again first; Drive backup and library sync are
 not told yet, as Tauri's `library_save` does), the shared player (queue, gapless preload,
 expired-URL retry), Liquid Glass on wgpu (checked against Chromium) and Direct3D 11 (not run
@@ -59,7 +62,7 @@ CSS numbers, a screenshot against `mock.html` in Chromium):
 1. Foundations still missing: the SelectionPill spring in the sidebar.
 2. Search: remembering the artists, albums and playlists opened from its shelves; Settings' "clear
    recent searches".
-3. Library: the downloads filter; Downloads; custom themes, Spicetify and its marketplace.
+3. Custom themes, Spicetify and its marketplace.
 4. LFly Connect and library sync, Google Drive, YouTube Music sign-in (a short-lived webview
    helper process: GPUI has no webview).
 5. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.

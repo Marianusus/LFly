@@ -21,6 +21,8 @@ pub struct RowData {
     pub cover: Option<Arc<Image>>,
     pub playing: bool,
     pub liked: bool,
+    /// On this computer (TrackRow.svelte `.saved`).
+    pub downloaded: bool,
     pub is_video: bool,
     /// The song for the right-click menu and "more", with its "remove from here" if any.
     pub menu: Option<(lfly_connect::protocol::TrackRef, Option<crate::menu::Remove>)>,
@@ -163,6 +165,9 @@ pub fn track_row(
                                 .text_color(s.text2)
                                 .when(d.is_video, |r| {
                                     r.child(div().px(px(5.)).rounded(px(4.)).bg(s.text.opacity(0.12)).text_size(px(10.)).font_weight(FontWeight::BOLD).child("Video"))
+                                })
+                                .when(d.downloaded, |r| {
+                                    r.child(div().size(px(15.)).flex_none().rounded_full().flex().items_center().justify_center().bg(accent).child(icon("download", 11., s.on_accent.hsla(1.))))
                                 })
                                 .child(div().truncate().child(d.artist)),
                         ),

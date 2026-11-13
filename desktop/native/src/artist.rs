@@ -43,6 +43,7 @@ impl Artist {
         let subs = vec![
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
@@ -166,6 +167,8 @@ impl Render for Artist {
                     let current = self.model.read(cx).current().map(|t| t.id.clone());
                     let lib = self.library.read(cx);
                     let liked: Vec<bool> = p.songs.iter().map(|t| lib.is_favorite(&t.id)).collect();
+                    let dl_model = crate::downloads::DownloadsModel::entity(cx);
+                    let dl_ids: Vec<bool> = p.songs.iter().map(|t| dl_model.read(cx).has(&t.id)).collect();
                     let n = if self.all { 16 } else { 6 };
                     let rows: Vec<AnyElement> = p
                         .songs
@@ -187,6 +190,7 @@ impl Render for Artist {
                                     cover,
                                     playing: current.as_deref() == Some(t.id.as_str()),
                                     liked: liked[i],
+                                    downloaded: dl_ids[i],
                                     is_video: t.is_video,
                                     menu: crate::core::track_ref(t).map(|r| (r, None)),
                                     like: crate::core::track_ref(t).map(|r| crate::menu::like_action(self.library.clone(), self.core.clone(), r)),

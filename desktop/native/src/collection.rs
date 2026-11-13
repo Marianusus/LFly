@@ -1,5 +1,6 @@
 //! A collection page: an album, a YouTube playlist, a library playlist or the liked songs
-//! (Tauri: pages/Album.svelte, RemotePlaylist.svelte, LocalPlaylist.svelte, Liked.svelte with
+//! or the downloads (Tauri: pages/Album.svelte, RemotePlaylist.svelte, LocalPlaylist.svelte,
+//! Liked.svelte, Downloads.svelte with
 //! parts/Hero.svelte and TrackList). The hero scrolls with the rows; the rows are a virtual list.
 
 use std::sync::Arc;
@@ -26,6 +27,8 @@ pub enum Source {
     Playlist(String),
     Local(String),
     Liked,
+    /// Downloads.svelte: the songs on this computer.
+    Downloads,
 }
 
 #[derive(Default, Clone)]
@@ -96,6 +99,13 @@ impl Collection {
                 }
             }),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), |this, _, cx| {
+                if this.source == Source::Downloads {
+                    this.load_local(cx);
+                } else {
+                    cx.notify();
+                }
+            }),
         ];
         Self {
             core,
@@ -132,7 +142,7 @@ impl Collection {
         self.header = Header { title: name.unwrap_or_default().into(), ..Default::default() };
         self.list.reset(1);
         match source {
-            Source::Liked | Source::Local(_) => self.load_local(cx),
+            Source::Liked | Source::Local(_) | Source::Downloads => self.load_local(cx),
             Source::Album(id) => self.load_album(id, cx),
             Source::Playlist(id) => self.load_playlist(id, cx),
         }
@@ -179,6 +189,21 @@ impl Collection {
                     }
                     None => self.error = Some("Questa playlist non c'è più.".into()),
                 }
+            }
+            Source::Downloads => {
+                let dl = crate::downloads::DownloadsModel::entity(cx);
+                let list = dl.read(cx).list.clone();
+                let tracks: Vec<Track> = list.tracks.iter().filter_map(crate::core::track_of).collect();
+                let b = list.bytes as f64;
+                let size = if b > 1e9 { format!("{:.1} GB", b / 1e9).replace('.', ",") } else { format!("{} MB", (b / 1e6).round()) };
+                self.header = Header {
+                    kind: "Sul computer".into(),
+                    title: "Scaricati".into(),
+                    byline: Some(("Disponibili anche offline".into(), None)),
+                    meta: [format!("{} brani", tracks.len()), minutes(&tracks), size].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                    ..Default::default()
+                };
+                self.set_tracks(tracks, cx);
             }
             _ => {}
         }
@@ -274,6 +299,7 @@ impl Collection {
         let core2 = self.core.clone();
         let nav = self.nav.clone();
         let liked_art = matches!(self.source, Source::Liked);
+        let dl_art = self.source == Source::Downloads;
         let actions = self.actions(&s, cx);
         div()
             .relative()
@@ -300,7 +326,15 @@ impl Collection {
                             .justify_center()
                             .child(icon("heart-fill", art * 0.33, white()))
                     })
-                    .when(!liked_art, |d| d.bg(s.text.opacity(0.08)))
+                    // Artwork.svelte tone "blue" with the download glyph.
+                    .when(dl_art, |d| {
+                        d.bg(linear_gradient(140., linear_color_stop(rgb(0x3d8bfd), 0.), linear_color_stop(rgb(0x1d2f8f), 1.)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon("download", art * 0.33, white()))
+                    })
+                    .when(!liked_art && !dl_art, |d| d.bg(s.text.opacity(0.08)))
                     .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(12.)))),
             )
             .child(
@@ -404,6 +438,11 @@ impl Collection {
                 .child(icon(name, if name == "plus" { 20. } else { 18. }, s.text2).group_hover(id, |d| d.text_color(s.text)))
         };
         let mut row = div().ml(px(4.)).flex().items_center().gap(px(6.));
+        // DownloadButton.svelte, on every page but the downloads themselves.
+        if self.source != Source::Downloads {
+            let refs: Vec<_> = self.tracks.iter().filter_map(crate::core::track_ref).collect();
+            row = row.child(crate::downloads::download_button("hero-dl", refs, s, cx));
+        }
         match self.source.clone() {
             Source::Local(id) => {
                 if let Some((input, _)) = &self.rename {
@@ -561,6 +600,15 @@ impl Render for Collection {
                         d = d.child(empty("Playlist vuota", Some("Aggiungi brani dal menu ⋯ di qualsiasi canzone."), "Cerca qualcosa da aggiungere", "search", Route::Search, this.nav.clone()));
                     } else if !this.loading && this.tracks.is_empty() && this.source == Source::Liked {
                         d = d.child(empty("Ancora nessun brano", Some("I brani a cui metti il cuore compaiono qui."), "Cerca qualcosa da ascoltare", "search", Route::Search, this.nav.clone()));
+                    } else if !this.loading && this.tracks.is_empty() && this.source == Source::Downloads {
+                        d = d.child(empty(
+                            "Nessun brano scaricato",
+                            Some("Scarica album, playlist o singoli brani (tasto destro › Scarica) per ascoltarli anche senza connessione."),
+                            "Vai alla libreria",
+                            "library",
+                            Route::Library,
+                            this.nav.clone(),
+                        ));
                     } else if this.loading {
                         d = d.child(div().px(px(24.)).py(px(8.)).text_color(s.text2).child("Carico…"));
                     } else {
@@ -585,6 +633,7 @@ impl Render for Collection {
                     cover,
                     playing: current.as_deref() == Some(t.id.as_str()),
                     liked,
+                    downloaded: crate::downloads::DownloadsModel::entity(cx).read(cx).has(&t.id),
                     is_video: t.is_video,
                     // A local playlist's songs can leave it from the menu.
                     menu: crate::core::track_ref(&t).map(|r| {
@@ -608,7 +657,7 @@ impl Render for Collection {
                     .relative()
                     // `.p-footer`: the facts again under the last song.
                     .when(last, |d| d.pb(px(104. + 32.)))
-                    .when(last && matches!(this.source, Source::Liked | Source::Local(_)), move |d| {
+                    .when(last && matches!(this.source, Source::Liked | Source::Local(_) | Source::Downloads), move |d| {
                         d.child(div().absolute().bottom(px(104.)).left(px(24.)).text_size(px(12.)).text_color(s.text3).child(facts))
                     })
                     .child(track_row(("track", i), row, show_album, &s, move |_, _, _| core.play(&tracks, i)))

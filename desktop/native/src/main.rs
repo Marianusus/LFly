@@ -9,6 +9,7 @@ mod art;
 mod audio;
 mod artist;
 mod core;
+mod downloads;
 mod collection;
 mod covers;
 mod flow;
@@ -167,6 +168,7 @@ impl Lfly {
         let start = crate::prefs::Prefs::new(cx).read(cx).v.start_page.clone();
         crate::audio::AudioModel::new(core.clone(), cx);
         crate::media::SystemMedia::start(model.clone(), window, cx);
+        crate::downloads::DownloadsModel::start(&core, cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
@@ -335,6 +337,7 @@ impl Lfly {
             let (k, id) = r.split_once(':').unwrap_or((r.as_str(), ""));
             let route = match k {
                 "liked" => Some(Route::Liked),
+                "downloads" => Some(Route::Downloads),
                 "library" => Some(Route::Library),
                 "settings" => Some(Route::Settings),
                 "lyrics" => Some(Route::Lyrics),
@@ -573,6 +576,7 @@ impl Lfly {
                 self.show_collection(if local { Source::Local(id) } else { Source::Playlist(id) }, Some(name), cx)
             }
             Route::Liked => self.show_collection(Source::Liked, None, cx),
+            Route::Downloads => self.show_collection(Source::Downloads, None, cx),
             Route::Artist { id, name } => {
                 self.artist.update(cx, |a, cx| a.show(id, name, cx));
                 cached(&self.artist)
@@ -596,7 +600,6 @@ impl Lfly {
                 .flex_col()
                 .gap(px(6.))
                 .child(div().text_size(px(28.)).font_weight(FontWeight::BOLD).child(match other {
-                    Route::Downloads => "Scaricati",
                     Route::Settings => "Impostazioni",
                     _ => "",
                 }))

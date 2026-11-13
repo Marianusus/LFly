@@ -59,6 +59,7 @@ impl LibraryPage {
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         // LFLY_LIBRARY_VIEW=list|grid and LFLY_SPOTIFY=1, for screenshots (nothing saved).
@@ -372,8 +373,64 @@ impl Render for LibraryPage {
             move |cx: &mut App| nav.update(cx, |n, cx| n.go(route.clone(), cx))
         };
 
+        let downloaded: Vec<lfly_yt::Track> = crate::downloads::DownloadsModel::entity(cx).read(cx).list.tracks.iter().filter_map(crate::core::track_of).collect();
         let mut sections: Vec<AnyElement> = Vec::new();
-        if self.filter == Filter::Downloads {
+        if self.filter == Filter::Downloads && !downloaded.is_empty() {
+            // `.dl-head`: how many, play them, open the page.
+            let pill = |id: &'static str, accent: bool| {
+                div()
+                    .id(id)
+                    .h(px(34.))
+                    .px(px(16.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded_full()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .cursor_pointer()
+                    .when(accent, |d| d.bg(s.accent.hsla(1.)).text_color(s.on_accent.hsla(1.)))
+                    .when(!accent, |d| d.bg(s.glass_tint).border_1().border_color(s.glass_border).text_color(s.text).hover(|d| d.bg(s.text.opacity(0.12))))
+            };
+            let play = play_tracks(downloaded.clone(), 0);
+            let open = go(Route::Downloads);
+            sections.push(
+                div()
+                    .px(px(24.))
+                    .pb(px(16.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .text_size(px(13.))
+                    .text_color(s.text2)
+                    .child(div().mr_auto().child(format!("{} brani sul computer", downloaded.len())))
+                    .child(pill("dl-play", true).on_click(move |_, _, cx| play(cx)).child(icon("play", 14., s.on_accent.hsla(1.))).child("Riproduci"))
+                    .child(pill("dl-open", false).on_click(move |_, _, cx| open(cx)).child("Apri Scaricati"))
+                    .into_any_element(),
+            );
+            sections.push(crate::track_row::columns(true, &s).into_any_element());
+            let lib = self.library.read(cx);
+            let liked: Vec<bool> = downloaded.iter().map(|t| lib.is_favorite(&t.id)).collect();
+            for (i, t) in downloaded.iter().enumerate() {
+                let cover = t.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
+                let row = crate::track_row::RowData {
+                    number: i + 1,
+                    title: t.title.clone().into(),
+                    artist: t.artist.clone().into(),
+                    album: t.album.clone().map(Into::into),
+                    duration_ms: t.duration_ms,
+                    cover,
+                    playing: current.as_deref() == Some(t.id.as_str()),
+                    liked: liked[i],
+                    downloaded: true,
+                    is_video: t.is_video,
+                    menu: crate::core::track_ref(t).map(|r| (r, None)),
+                    like: crate::core::track_ref(t).map(|r| crate::menu::like_action(self.library.clone(), self.core.clone(), r)),
+                };
+                let play = play_tracks(downloaded.clone(), i);
+                sections.push(crate::track_row::track_row(("dl-row", i), row, true, &s, move |_, _, cx| play(cx)).into_any_element());
+            }
+        } else if self.filter == Filter::Downloads {
             sections.push(
                 div()
                     .mx(px(24.))
@@ -407,6 +464,20 @@ impl Render for LibraryPage {
                         go(Route::Liked),
                         (!favorites.is_empty()).then(|| play_tracks(favorites.clone(), 0)),
                     ));
+                    if !downloaded.is_empty() {
+                        items.push(library_item(
+                            "lib-downloads".into(),
+                            "Scaricati".into(),
+                            format!("{} brani sul computer", downloaded.len()),
+                            Art::Icon("download", Some((0x3d8bfd, 0x1d2f8f))),
+                            list,
+                            item_w,
+                            false,
+                            &s,
+                            go(Route::Downloads),
+                            Some(play_tracks(downloaded.clone(), 0)),
+                        ));
+                    }
                 }
                 for (p, raw) in playlists.iter().zip(raw) {
                     let tracks = raw.as_ref().and_then(|r| r.get("tracks")).and_then(Value::as_array).map(|t| tracks_of(t)).unwrap_or_default();

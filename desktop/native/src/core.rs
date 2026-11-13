@@ -45,6 +45,10 @@ impl PlayerHost for NativeHost {
     fn notice(&self, text: &str) {
         let _ = self.0.send(PlayerUpdate::Notice(text.to_string()));
     }
+    /// A downloaded song plays from its file.
+    fn downloaded(&self, id: &str) -> Option<std::path::PathBuf> {
+        lfly_core::downloads::file_for(id)
+    }
     /// Settings → Riproduzione: play on with similar songs.
     fn autoplay(&self) -> bool {
         lfly_core::settings::autoplay()

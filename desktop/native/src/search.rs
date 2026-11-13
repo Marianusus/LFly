@@ -144,6 +144,7 @@ impl Search {
             }),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
@@ -300,6 +301,7 @@ impl Search {
                         cover,
                         playing: current.as_deref() == Some(t.id.as_str()),
                         liked,
+                        downloaded: crate::downloads::DownloadsModel::entity(cx).read(cx).has(&t.id),
                         is_video: t.is_video,
                         menu: crate::core::track_ref(t).map(|r| (r, None)),
                         like: crate::core::track_ref(t).map(|r| crate::menu::like_action(self.library.clone(), self.core.clone(), r)),

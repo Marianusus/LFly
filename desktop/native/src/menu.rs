@@ -294,7 +294,20 @@ impl Render for Menu {
             }
             menu = menu.child(sub);
         }
-        menu = menu.child(item("cm-download", "download", 15., "Scarica".into(), false, false));
+        let dl = crate::downloads::DownloadsModel::entity(cx);
+        let (have, going) = (dl.read(cx).has(&t.id), dl.read(cx).pending(&t.id));
+        let (t6, id6) = (t.clone(), t.id.clone());
+        menu = menu.child(if have {
+            item("cm-download", "trash", 15., "Rimuovi il download".into(), true, false)
+                .on_click(run(Rc::new(move |cx: &mut App| dl.update(cx, |m, cx| m.remove(vec![id6.clone()], cx)))))
+        } else {
+            let it = item("cm-download", "download", 15., if going { "Download in corso…" } else { "Scarica" }.into(), !going, false);
+            if going {
+                it
+            } else {
+                it.on_click(run(Rc::new(move |cx: &mut App| dl.update(cx, |m, cx| m.add(vec![t6.clone()], cx)))))
+            }
+        });
         if let Some(remove) = remove {
             menu = menu.child(item("cm-remove", "trash", 15., "Rimuovi da questa playlist".into(), true, true).on_click(run(remove)));
         }

@@ -4,6 +4,7 @@
 //! rewrite moves logic here a module at a time and the old window keeps working meanwhile.
 
 pub mod discord;
+pub mod downloads;
 pub mod identity;
 pub mod library;
 pub mod media;

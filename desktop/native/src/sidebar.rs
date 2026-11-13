@@ -38,6 +38,7 @@ impl Sidebar {
         let subs = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
         ];
@@ -180,6 +181,26 @@ impl Render for Sidebar {
             format!("Playlist · {favorites} brani").into(),
             Route::Liked,
         )];
+        // Sidebar.svelte `showDownloads`: once something is downloaded or on its way.
+        let (dl_count, downloading) = {
+            let d = crate::downloads::DownloadsModel::entity(cx);
+            let d = d.read(cx);
+            (d.list.tracks.len(), d.progress.len())
+        };
+        if dl_count > 0 || downloading > 0 {
+            let art = div()
+                .size(px(40.))
+                .flex_none()
+                .rounded(px(11.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(linear_gradient(140., linear_color_stop(rgb(0x34c3ff), 0.), linear_color_stop(rgb(0x2563eb), 1.)))
+                .child(icon("download", 17., white()))
+                .into_any_element();
+            let sub = if downloading > 0 { format!("In download: {downloading}") } else { format!("{dl_count} brani") };
+            entries.push(entry("downloads".into(), art, "Scaricati".into(), sub.into(), Route::Downloads));
+        }
         for p in playlists {
             let cover = p.cover_url.as_ref().and_then(|u| self.covers.update(cx, |cv, cx| cv.get(u, cx)));
             let art = div()
