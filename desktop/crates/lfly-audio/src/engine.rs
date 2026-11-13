@@ -19,6 +19,7 @@ use crate::cache::DiskCache;
 use crate::decode::{DecodeError, Resample, TrackDecoder};
 use crate::http::{prefetch, ReaderCtl};
 use crate::output::{self, OutShared, Output};
+use crate::stretch::Stretch;
 use crate::{PlayerEvent, Source};
 
 /// How much of the next song is fetched ahead.
@@ -33,6 +34,8 @@ pub(crate) enum Cmd {
     SetDevice(Option<String>),
     /// Crossfade length between songs, in ms (0: gapless, no fade).
     Crossfade(u64),
+    /// Playback speed, the pitch kept (1: as recorded).
+    Speed(f64),
     Shutdown,
 }
 
@@ -49,6 +52,8 @@ pub(crate) struct Segment {
     pub rate: u32,
     pub key: String,
     pub duration_ms: Option<u64>,
+    /// Song time per output time (the playback speed) while this segment plays.
+    pub speed: f64,
 }
 
 #[derive(Default)]
@@ -69,7 +74,8 @@ impl Timeline {
 
     pub fn position_ms(&self, consumed: u64) -> Option<u64> {
         let s = self.segments.front()?;
-        let ms = s.start_ms + consumed.saturating_sub(s.start_frame) * 1000 / s.rate.max(1) as u64;
+        let heard = consumed.saturating_sub(s.start_frame) as f64 * s.speed;
+        let ms = s.start_ms + (heard * 1000. / s.rate.max(1) as f64) as u64;
         Some(match s.duration_ms {
             Some(d) => ms.min(d),
             None => ms,
@@ -140,6 +146,10 @@ pub(crate) fn spawn(
         crossfade_ms: 0,
         mix: None,
         mix_buf: Vec::new(),
+        speed: 1.,
+        stretch: Stretch::new(48_000),
+        stretch_rate: 48_000,
+        stage: Vec::new(),
     };
     let e = std::thread::Builder::new().name("lfly-audio-engine".into()).spawn(move || engine.run())?;
     let c = std::thread::Builder::new().name("lfly-audio-clock".into()).spawn(move || clock(sh))?;
@@ -223,6 +233,12 @@ struct Engine {
     mix: Option<Mix>,
     /// The next song's decoded samples not mixed yet.
     mix_buf: Vec<f32>,
+    /// Playback speed, and what applies it to everything on its way to the ring.
+    speed: f64,
+    stretch: Stretch,
+    stretch_rate: u32,
+    /// Resampled samples on their way into the stretcher.
+    stage: Vec<f32>,
 }
 
 impl Engine {
@@ -313,6 +329,7 @@ impl Engine {
                 }
             }
             Cmd::Crossfade(ms) => self.crossfade_ms = ms.min(12_000),
+            Cmd::Speed(speed) => self.set_speed(speed),
             Cmd::SetDevice(id) => {
                 self.device = id;
                 self.reopen_output();
@@ -338,6 +355,7 @@ impl Engine {
                 self.written = self.sh.out.consumed.load(Ordering::Acquire);
                 self.sh.emit(PlayerEvent::DeviceChanged { id: out.device_id.clone(), name: out.device_name.clone() });
                 self.out = Some(out);
+                self.match_stretch_rate();
                 true
             }
             Err(e) => {
@@ -354,6 +372,7 @@ impl Engine {
     fn flush(&mut self) {
         self.pending.clear();
         self.pend_pos = 0;
+        self.stretch.reset();
         self.mix = None;
         self.mix_buf.clear();
         if self.out.is_none() {
@@ -428,6 +447,7 @@ impl Engine {
                 rate: out_rate,
                 key: track.key.clone(),
                 duration_ms: duration,
+                speed: self.speed,
             });
         }
         self.cur = Some(track);
@@ -498,6 +518,7 @@ impl Engine {
                 rate,
                 key: cur.key.clone(),
                 duration_ms: cur.dec.duration_ms(),
+                speed: self.speed,
             };
             tl.reset();
             tl.segments.push_back(seg);
@@ -619,6 +640,31 @@ impl Engine {
         }
     }
 
+    /// A new speed: heard at once (the ring is emptied and the song goes on from where the ear
+    /// is, as a seek does).
+    fn set_speed(&mut self, speed: f64) {
+        let speed = speed.clamp(0.25, 4.);
+        if (speed - self.speed).abs() < 1e-6 {
+            return;
+        }
+        let position = self.sh.position_ms();
+        self.speed = speed;
+        self.stretch.set_speed(speed);
+        if self.cur.is_some() && !self.sh.timeline().ended {
+            self.seek(position.unwrap_or(0));
+        }
+    }
+
+    /// The stretcher's frame follows the output's rate.
+    fn match_stretch_rate(&mut self) {
+        let rate = self.out.as_ref().map(|o| o.rate).unwrap_or(48_000);
+        if rate != self.stretch_rate {
+            self.stretch = Stretch::new(rate);
+            self.stretch.set_speed(self.speed);
+            self.stretch_rate = rate;
+        }
+    }
+
     /// Which song to decode now: the current one, or the preloaded one once the current is done.
     fn decoding_target(&self) -> Option<bool> {
         let cur = self.cur.as_ref()?;
@@ -666,15 +712,17 @@ impl Engine {
         if use_next && !self.next.as_ref().is_some_and(|n| n.started) {
             let next = self.next.as_mut().expect("target");
             next.started = true;
-            next.start_frame = self.written;
+            // After what the stretcher still holds of the song before.
+            next.start_frame = self.written + self.stretch.latency_frames();
             let mut tl = self.sh.timeline();
             tl.end_frame = None;
             tl.segments.push_back(Segment {
-                start_frame: self.written,
+                start_frame: next.start_frame,
                 start_ms: next.decoded_ms(),
                 rate: out_rate,
                 key: next.key.clone(),
                 duration_ms: next.dec.duration_ms(),
+                speed: self.speed,
             });
         }
         let has_next = self.next.is_some();
@@ -699,13 +747,19 @@ impl Engine {
                     track.rs = Resample::new(track.dec.sample_rate(), track.rs.rates().1);
                 }
                 track.decoded_frames += (self.decoded.len() / 2) as u64;
-                track.rs.process(&self.decoded, &mut self.pending);
+                self.stage.clear();
+                track.rs.process(&self.decoded, &mut self.stage);
+                self.stretch.process(&self.stage, &mut self.pending);
             }
             Ok(false) => {
                 track.eof = true;
-                track.rs.flush(&mut self.pending);
+                self.stage.clear();
+                track.rs.flush(&mut self.stage);
+                self.stretch.process(&self.stage, &mut self.pending);
                 let continues = !use_next && has_next;
                 if !continues {
+                    // The end of the music: what the stretcher still holds plays out too.
+                    self.stretch.flush(&mut self.pending);
                     self.sh.timeline().end_frame = Some(self.written + (self.pending.len() / 2) as u64);
                 }
             }
@@ -742,16 +796,17 @@ impl Engine {
         let left_ms = cur.dec.duration_ms().unwrap_or(0).saturating_sub(cur.decoded_ms()).max(500);
         let next = self.next.as_mut().expect("checked");
         next.started = true;
-        next.start_frame = self.written;
+        next.start_frame = self.written + self.stretch.latency_frames();
         log::info!("crossfade into {} over {left_ms} ms", next.key);
         let mut tl = self.sh.timeline();
         tl.end_frame = None;
         tl.segments.push_back(Segment {
-            start_frame: self.written,
+            start_frame: next.start_frame,
             start_ms: next.decoded_ms(),
             rate: out_rate,
             key: next.key.clone(),
             duration_ms: next.dec.duration_ms(),
+            speed: self.speed,
         });
         drop(tl);
         self.mix_buf.clear();
@@ -824,21 +879,23 @@ impl Engine {
         let mix = self.mix.as_mut().expect("mixing");
         let frames = a.len() / 2;
         let take = (self.mix_buf.len() / 2).min(frames);
+        self.stage.clear();
         for f in 0..frames {
             let g = ((mix.done + f as u64) as f32 / mix.total.max(1) as f32).min(1.0);
             let (fade_out, fade_in) = ((g * std::f32::consts::FRAC_PI_2).cos(), (g * std::f32::consts::FRAC_PI_2).sin());
             for ch in 0..2 {
                 let b = if f < take { self.mix_buf[f * 2 + ch] } else { 0.0 };
-                self.pending.push(a[f * 2 + ch] * fade_out + b * fade_in);
+                self.stage.push(a[f * 2 + ch] * fade_out + b * fade_in);
             }
         }
         self.mix_buf.drain(..take * 2);
         mix.done += frames as u64;
         if cur.eof {
             // The ending song is over: the rest of what was decoded of the next one, then on.
-            self.pending.append(&mut self.mix_buf);
+            self.stage.append(&mut self.mix_buf);
             self.mix = None;
         }
+        self.stretch.process(&self.stage, &mut self.pending);
     }
 }
 
@@ -896,5 +953,20 @@ fn clock(sh: Arc<Shared>) {
         for ev in events {
             sh.emit(ev);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Segment, Timeline};
+
+    #[test]
+    fn the_position_runs_at_the_speed() {
+        let mut tl = Timeline::default();
+        tl.segments.push_back(Segment { start_frame: 1_000, start_ms: 30_000, rate: 48_000, key: "k".into(), duration_ms: Some(200_000), speed: 1.5 });
+        // Two seconds heard at 1.5× are three seconds of the song.
+        assert_eq!(tl.position_ms(1_000 + 96_000), Some(33_000));
+        tl.segments[0].speed = 1.;
+        assert_eq!(tl.position_ms(1_000 + 96_000), Some(32_000));
     }
 }

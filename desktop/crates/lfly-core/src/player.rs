@@ -276,6 +276,15 @@ impl LocalPlayer {
         self.audio.set_crossfade(seconds.min(12) as u64 * 1000);
     }
 
+    /// Playback speed with the pitch kept (the phone's 0.5..2×); not kept between launches.
+    pub fn set_speed(&self, speed: f32) {
+        self.audio.set_speed(speed);
+    }
+
+    pub fn speed(&self) -> f32 {
+        self.audio.speed()
+    }
+
     pub fn set_equalizer(&self, curve: lfly_audio::EqCurve) {
         self.audio.set_equalizer(curve);
     }
