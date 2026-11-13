@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::broadcast;
 
+use crate::automix::{MixPlan, Mixer, TempoReturn};
 use crate::cache::DiskCache;
 use crate::decode::{DecodeError, Resample, TrackDecoder};
 use crate::http::{prefetch, ReaderCtl};
@@ -30,7 +31,10 @@ pub(crate) enum Cmd {
     Seek(u64),
     Stop,
     Preload(Option<Source>),
-    PreloadReady { gen: u64, track: Box<Result<TrackDecoder, DecodeError>> },
+    /// The preload thread opened the next song (and moved it to `at` ms, an Automix entry).
+    PreloadReady { gen: u64, track: Box<Result<TrackDecoder, DecodeError>>, at: u64 },
+    /// An Automix planned for the coming change (None: none).
+    Automix(Option<Box<MixPlan>>),
     SetDevice(Option<String>),
     /// Crossfade length between songs, in ms (0: gapless, no fade).
     Crossfade(u64),
@@ -150,6 +154,9 @@ pub(crate) fn spawn(
         stretch: Stretch::new(48_000),
         stretch_rate: 48_000,
         stage: Vec::new(),
+        plan: None,
+        automix: None,
+        automix_in_ms: 0.,
     };
     let e = std::thread::Builder::new().name("lfly-audio-engine".into()).spawn(move || engine.run())?;
     let c = std::thread::Builder::new().name("lfly-audio-clock".into()).spawn(move || clock(sh))?;
@@ -169,6 +176,18 @@ struct Track {
     base_ms: u64,
     decoded_frames: u64,
     resync: bool,
+    /// Frames the resampler gave since `base_ms` (output rate): where the song is, to the sample.
+    out_frames: u64,
+    /// After an Automix: the song's own tempo stretch, easing back to 1.
+    deck: Option<Deck>,
+}
+
+/// The incoming deck of an Automix, played on after the mix at its tempo until it is back to 1.
+struct Deck {
+    stretch: Stretch,
+    ret: TempoReturn,
+    /// The song's time of the next output frame, in ms.
+    song_ms: f64,
 }
 
 impl Track {
@@ -185,6 +204,8 @@ impl Track {
             base_ms: 0,
             decoded_frames: 0,
             resync: false,
+            out_frames: 0,
+            deck: None,
         }
     }
 
@@ -196,6 +217,7 @@ impl Track {
         self.resync = false;
         self.base_ms = at;
         self.decoded_frames = 0;
+        self.out_frames = 0;
         Ok(at)
     }
 
@@ -239,6 +261,11 @@ struct Engine {
     stretch_rate: u32,
     /// Resampled samples on their way into the stretcher.
     stage: Vec<f32>,
+    /// The Automix planned for the coming change, and the one under way.
+    plan: Option<MixPlan>,
+    automix: Option<Box<Mixer>>,
+    /// The incoming song's time (ms) of the next frame the mix gives.
+    automix_in_ms: f64,
 }
 
 impl Engine {
@@ -315,19 +342,22 @@ impl Engine {
                     self.next = None;
                 }
             }
-            Cmd::PreloadReady { gen, track } => {
+            Cmd::PreloadReady { gen, track, at } => {
                 if gen == self.preload_gen {
                     self.preload_ctl = None;
                     match *track {
                         Ok(dec) => {
                             let rate = self.out.as_ref().map(|o| o.rate).unwrap_or(48_000);
-                            log::info!("preloaded {}", dec.source().key());
-                            self.next = Some(Track::new(dec, rate));
+                            log::info!("preloaded {}{}", dec.source().key(), if at > 0 { format!(" from {at} ms") } else { String::new() });
+                            let mut t = Track::new(dec, rate);
+                            t.base_ms = at;
+                            self.next = Some(t);
                         }
                         Err(e) => log::warn!("preload failed: {e}"),
                     }
                 }
             }
+            Cmd::Automix(plan) => self.arm(plan.map(|p| *p)),
             Cmd::Crossfade(ms) => self.crossfade_ms = ms.min(12_000),
             Cmd::Speed(speed) => self.set_speed(speed),
             Cmd::SetDevice(id) => {
@@ -375,6 +405,7 @@ impl Engine {
         self.stretch.reset();
         self.mix = None;
         self.mix_buf.clear();
+        self.automix = None;
         if self.out.is_none() {
             return;
         }
@@ -397,6 +428,7 @@ impl Engine {
     }
 
     fn load(&mut self, source: Source, start_ms: u64, autoplay: bool) {
+        self.plan = None;
         self.flush();
         self.cur = None;
         self.sh.timeline().reset();
@@ -414,7 +446,9 @@ impl Engine {
             let mut t = self.next.take().expect("checked");
             t.dec.ctl().arm(&self.sh.cmd_gen, self.sh.cmd_gen.load(Ordering::SeqCst));
             t.set_out_rate(out_rate);
-            if t.started && start_ms == 0 {
+            t.deck = None;
+            // Started in a mix, or preloaded from an Automix entry: back to the top.
+            if (t.started || t.base_ms != 0) && start_ms == 0 {
                 if let Err(e) = t.seek(0) {
                     return self.fail_load(e);
                 }
@@ -473,20 +507,28 @@ impl Engine {
         if self.cur.is_none() {
             return;
         }
+        // A seek ends any Automix: the plan's places are gone, the song plays at its own tempo.
+        let mixing = self.mix.is_some() || self.automix.is_some();
+        self.plan = None;
+        if let Some(c) = self.cur.as_mut() {
+            c.deck = None;
+        }
         // Mid-crossfade, once the next song is heard, the seek is in the next song.
-        if self.mix.is_some() {
+        if mixing {
             let consumed = self.sh.out.consumed.load(Ordering::Acquire);
             if self.next.as_ref().is_some_and(|n| n.started && consumed >= n.start_frame) {
                 self.cur = self.next.take();
                 if let Some(c) = self.cur.as_mut() {
                     c.started = false;
+                    c.deck = None;
                 }
             }
         }
         self.flush();
         if let Some(n) = self.next.as_mut() {
-            if n.started {
+            if n.started || n.base_ms != 0 {
                 n.started = false;
+                n.deck = None;
                 if n.seek(0).is_err() {
                     self.next = None;
                 }
@@ -528,6 +570,7 @@ impl Engine {
     }
 
     fn stop(&mut self) {
+        self.plan = None;
         self.flush();
         self.cur = None;
         if self.next.as_ref().is_some_and(|n| n.started) {
@@ -542,8 +585,10 @@ impl Engine {
     }
 
     fn preload(&mut self, source: Source) {
+        // The Automix plan's incoming song is opened at its entry.
+        let entry = self.plan.as_ref().filter(|p| p.incoming_key == source.key()).map_or(0, |p| p.entry_ms);
         if self.cur.as_ref().is_some_and(|c| c.dec.source() == &source)
-            || self.next.as_ref().is_some_and(|n| n.dec.source() == &source)
+            || self.next.as_ref().is_some_and(|n| n.dec.source() == &source && (n.started || n.base_ms == entry))
         {
             return;
         }
@@ -569,8 +614,21 @@ impl Engine {
             if ctl.aborted() {
                 return;
             }
-            let track = Box::new(TrackDecoder::open(&source, &cache, ctl));
-            let _ = tx.send(Cmd::PreloadReady { gen, track });
+            let mut opened = TrackDecoder::open(&source, &cache, ctl.clone());
+            // An entry seek can take seconds (a FLAC without a seek table): here, not on the engine.
+            let mut at = 0;
+            if entry > 0 {
+                if let Ok(dec) = opened.as_mut() {
+                    match dec.seek(entry) {
+                        Ok(ms) => at = ms,
+                        Err(e) => opened = Err(e),
+                    }
+                }
+            }
+            if ctl.aborted() {
+                return;
+            }
+            let _ = tx.send(Cmd::PreloadReady { gen, track: Box::new(opened), at });
         });
         if let Err(e) = spawned {
             log::warn!("preload thread: {e}");
@@ -587,7 +645,8 @@ impl Engine {
     /// The gapless next song became the one heard.
     fn promote(&mut self) {
         let consumed = self.sh.out.consumed.load(Ordering::Acquire);
-        if self.mix.is_none() && self.next.as_ref().is_some_and(|n| n.started && consumed >= n.start_frame) {
+        // Not while a crossfade or an Automix still decodes both songs: the mix promotes at its end.
+        if self.mix.is_none() && self.automix.is_none() && self.next.as_ref().is_some_and(|n| n.started && consumed >= n.start_frame) {
             self.cur = self.next.take();
             if let Some(c) = self.cur.as_mut() {
                 c.started = false;
@@ -701,7 +760,12 @@ impl Engine {
         }
         self.pending.clear();
         self.pend_pos = 0;
-        if self.mix.is_none() && self.should_start_mix() {
+        if self.automix.is_some() {
+            self.pump_automix(out_rate);
+            return;
+        }
+        let exit_frame = self.armed_exit(out_rate);
+        if self.mix.is_none() && exit_frame.is_none() && self.should_start_mix() {
             self.start_mix(out_rate);
         }
         if self.mix.is_some() {
@@ -749,12 +813,44 @@ impl Engine {
                 track.decoded_frames += (self.decoded.len() / 2) as u64;
                 self.stage.clear();
                 track.rs.process(&self.decoded, &mut self.stage);
+                let produced = (self.stage.len() / 2) as u64;
+                let exit_ms = exit_frame.filter(|_| !use_next);
+                // The Automix exit falls in this packet: the part before it plays as it is, the
+                // rest is the first of the mix. Counted in resampled frames, or (a song that came
+                // in through an Automix) on its deck's clock, after the deck.
+                let plain_split = exit_ms.filter(|_| track.deck.is_none()).and_then(|ms| {
+                    let e = ms.saturating_sub(track.base_ms) * out_rate as u64 / 1000;
+                    (track.out_frames + produced > e).then(|| (e.saturating_sub(track.out_frames) * 2) as usize)
+                });
+                track.out_frames += produced;
+                if let Some(at) = plain_split {
+                    let rest = self.stage.split_off(at.min(self.stage.len()));
+                    self.stretch.process(&self.stage, &mut self.pending);
+                    self.start_automix(rest, out_rate);
+                    return;
+                }
+                let deck_before = track.deck.as_ref().map(|d| d.song_ms);
+                let deck_change = Self::through_deck(track, &mut self.stage, false, out_rate);
+                if let (Some(ms), Some(before), Some(after)) = (exit_ms, deck_before, track.deck.as_ref().map(|d| d.song_ms)) {
+                    if ms as f64 <= after && after > before {
+                        let frames = self.stage.len() / 2;
+                        let k = (((ms as f64 - before) / (after - before)) * frames as f64).round().clamp(0.0, frames as f64) as usize;
+                        let rest = self.stage.split_off(k * 2);
+                        self.stretch.process(&self.stage, &mut self.pending);
+                        self.start_automix(rest, out_rate);
+                        return;
+                    }
+                }
                 self.stretch.process(&self.stage, &mut self.pending);
+                if let Some((speed, song_ms)) = deck_change {
+                    self.deck_segment(speed, song_ms, out_rate);
+                }
             }
             Ok(false) => {
                 track.eof = true;
                 self.stage.clear();
                 track.rs.flush(&mut self.stage);
+                let _ = Self::through_deck(track, &mut self.stage, true, out_rate);
                 self.stretch.process(&self.stage, &mut self.pending);
                 let continues = !use_next && has_next;
                 if !continues {
@@ -813,6 +909,213 @@ impl Engine {
         self.mix = Some(Mix { total: left_ms * out_rate as u64 / 1000, done: 0 });
     }
 
+    /// The planned Automix, if the songs are the plan's and the next one waits at its entry:
+    /// the exit's frame in the current song (output rate, from its `base_ms`). A plan whose exit
+    /// has passed (a seek, a late plan) is dropped, and the change is a plain crossfade.
+    fn armed_exit(&mut self, out_rate: u32) -> Option<u64> {
+        let plan = self.plan.as_ref()?;
+        let cur = self.cur.as_ref()?;
+        let next = self.next.as_ref()?;
+        if cur.key != plan.outgoing_key || next.key != plan.incoming_key || next.started || next.failed || next.base_ms != plan.entry_ms {
+            return None;
+        }
+        if cur.eof || cur.failed || cur.resync {
+            return None;
+        }
+        // Where the song is: its deck's own clock after an Automix brought it in, else the
+        // resampler's frame count.
+        let passed = match cur.deck.as_ref() {
+            Some(d) => d.song_ms > plan.exit_ms as f64,
+            None => cur.base_ms > plan.exit_ms || cur.out_frames > (plan.exit_ms - cur.base_ms) * out_rate as u64 / 1000,
+        };
+        if passed {
+            log::info!("Automix: the exit at {} ms has passed, a plain crossfade instead", plan.exit_ms);
+            self.plan = None;
+            self.unpark_next();
+            return None;
+        }
+        Some(plan.exit_ms)
+    }
+
+    /// No plan any more: a next song waiting at a plan's entry goes back to its start, so a plain
+    /// change plays its intro.
+    fn unpark_next(&mut self) {
+        if let Some(n) = self.next.as_mut().filter(|n| !n.started && n.base_ms != 0) {
+            if n.seek(0).is_err() {
+                self.next = None;
+            }
+        }
+    }
+
+    /// The decks' samples of a song that came in through an Automix go through its tempo stretch:
+    /// what it holds plays too (`end`: and the rest of it).
+    fn deck_pass(t: &mut Track, out: &mut Vec<f32>, from: usize, end: bool) {
+        let Some(d) = t.deck.as_mut() else { return };
+        let fresh = out.split_off(from.min(out.len()));
+        d.stretch.process(&fresh, out);
+        if end {
+            d.stretch.flush(out);
+        }
+    }
+
+    /// Takes in a new plan; the next song is opened again at the plan's entry when it waits elsewhere.
+    fn arm(&mut self, plan: Option<MixPlan>) {
+        if self.automix.is_some() {
+            // For the change after this one (a short song): read once this mix is over.
+            self.plan = plan;
+            return;
+        }
+        self.plan = plan;
+        let Some(p) = self.plan.as_ref() else {
+            self.unpark_next();
+            return;
+        };
+        log::info!("Automix planned: exit {} ms, entry {} ms, rate {:.4}, mix {} ms", p.exit_ms, p.entry_ms, p.rate, p.mix_ms);
+        let reopen = self.next.as_ref().filter(|n| n.key == p.incoming_key && !n.started && n.base_ms != p.entry_ms).map(|n| n.dec.source().clone());
+        if let Some(source) = reopen {
+            self.next = None;
+            self.preload(source);
+        }
+    }
+
+    /// The mix begins with `first` (the outgoing song from the exit on).
+    fn start_automix(&mut self, first: Vec<f32>, out_rate: u32) {
+        let Some(plan) = self.plan.take() else { return };
+        let Some(next) = self.next.as_mut() else { return };
+        next.started = true;
+        next.start_frame = self.written + (self.pending.len() / 2) as u64 + self.stretch.latency_frames();
+        log::info!("Automix into {} ({:.4}x, {} ms)", next.key, plan.rate, plan.mix_ms);
+        {
+            let mut tl = self.sh.timeline();
+            tl.end_frame = None;
+            tl.segments.push_back(Segment {
+                start_frame: next.start_frame,
+                start_ms: plan.entry_ms,
+                rate: out_rate,
+                key: next.key.clone(),
+                duration_ms: next.dec.duration_ms(),
+                speed: self.speed * plan.rate,
+            });
+        }
+        self.automix_in_ms = plan.entry_ms as f64;
+        let mut m = Box::new(Mixer::new(plan, out_rate));
+        m.push_outgoing(&first);
+        self.automix = Some(m);
+    }
+
+    /// One step of the Automix: more of either song as the mixer wants it, then what both have.
+    fn pump_automix(&mut self, out_rate: u32) {
+        let Engine { automix, cur, next, decoded, stage, stretch, pending, automix_in_ms, .. } = self;
+        let (Some(m), Some(cur), Some(next)) = (automix.as_mut(), cur.as_mut(), next.as_mut()) else {
+            self.automix = None;
+            return;
+        };
+        let rate = m.plan.rate;
+        let mut feed = |t: &mut Track, out: &mut Vec<f32>| -> bool {
+            if t.eof {
+                return false;
+            }
+            if t.resync {
+                let ms = t.decoded_ms();
+                if t.seek(ms).is_err() {
+                    return false;
+                }
+            }
+            decoded.clear();
+            let d = &mut *decoded;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.dec.decode_next(d)))
+                .unwrap_or_else(|_| Err(DecodeError::Failed("the decoder crashed on this stream".into())));
+            match result {
+                Ok(true) => {
+                    t.decoded_frames += (decoded.len() / 2) as u64;
+                    let before = out.len();
+                    t.rs.process(decoded, out);
+                    t.out_frames += ((out.len() - before) / 2) as u64;
+                    Engine::deck_pass(t, out, before, false);
+                    true
+                }
+                Ok(false) | Err(DecodeError::Failed(_)) => {
+                    t.eof = true;
+                    let before = out.len();
+                    t.rs.flush(out);
+                    Engine::deck_pass(t, out, before, true);
+                    true
+                }
+                Err(DecodeError::Aborted) => {
+                    t.resync = true;
+                    false
+                }
+            }
+        };
+        let mut buf = Vec::new();
+        if m.wants_outgoing() {
+            if feed(cur, &mut buf) {
+                m.push_outgoing(&buf);
+            } else if cur.eof {
+                // The outgoing song ended before the mix did: it is silence from here.
+                m.push_outgoing(&vec![0.0; 2 * 1024]);
+            }
+        }
+        for _ in 0..4 {
+            if !m.wants_incoming() {
+                break;
+            }
+            buf.clear();
+            if feed(next, &mut buf) {
+                m.push_incoming(&buf);
+            } else if next.eof {
+                m.push_incoming(&vec![0.0; 2 * 1024]);
+            } else {
+                break;
+            }
+        }
+        stage.clear();
+        m.mix(stage);
+        *automix_in_ms += (stage.len() / 2) as f64 * rate * 1000. / out_rate as f64;
+        stretch.process(stage, pending);
+        if m.finished() {
+            let m = self.automix.take().expect("mixing");
+            log::info!("Automix: the limiter held the sum down in {} of {} blocks", m.limited, m.blocks.max(1));
+            let (rest, deck) = m.into_incoming();
+            let mut song_ms = self.automix_in_ms + (rest.len() / 2) as f64 * rate * 1000. / out_rate as f64;
+            if let Some(c) = self.cur.as_mut() {
+                c.eof = true;
+            }
+            self.stretch.process(&rest, &mut self.pending);
+            if let Some(n) = self.next.as_mut() {
+                song_ms = song_ms.max(0.);
+                n.deck = Some(Deck { stretch: deck, ret: TempoReturn::new(rate, out_rate), song_ms });
+            }
+            log::info!("Automix mixed; the incoming song eases back to its own tempo from {rate:.4}x");
+        }
+    }
+
+    /// A song after an Automix plays through its own tempo stretch, which eases back to 1: returns
+    /// the new speed and the song's time where it starts, when it changed in this block.
+    fn through_deck(track: &mut Track, stage: &mut Vec<f32>, end: bool, out_rate: u32) -> Option<(f64, f64)> {
+        let deck = track.deck.as_mut()?;
+        let mut out = Vec::with_capacity(stage.len() + 64);
+        deck.stretch.process(stage, &mut out);
+        if end {
+            deck.stretch.flush(&mut out);
+        }
+        *stage = out;
+        let n = (stage.len() / 2) as u64;
+        deck.song_ms += n as f64 * deck.ret.rate * 1000. / out_rate as f64;
+        let changed = deck.ret.advance(n)?;
+        deck.stretch.glide_to(changed);
+        Some((changed, deck.song_ms))
+    }
+
+    /// The song's tempo moved on its way back to 1: the position follows from the next frame on.
+    fn deck_segment(&mut self, deck_speed: f64, song_ms: f64, out_rate: u32) {
+        let start_frame = self.written + (self.pending.len() / 2) as u64 + self.stretch.latency_frames();
+        let mut tl = self.sh.timeline();
+        let Some(last) = tl.segments.back() else { return };
+        let (key, duration_ms) = (last.key.clone(), last.duration_ms);
+        tl.segments.push_back(Segment { start_frame, start_ms: song_ms.max(0.) as u64, rate: out_rate, key, duration_ms, speed: self.speed * deck_speed });
+    }
+
     /// One packet of the ending song, mixed with as much of the next one, equal-power curves.
     fn pump_mix(&mut self) {
         let (Some(cur), Some(next)) = (self.cur.as_mut(), self.next.as_mut()) else {
@@ -834,10 +1137,12 @@ impl Engine {
             Ok(true) => {
                 cur.decoded_frames += (self.decoded.len() / 2) as u64;
                 cur.rs.process(&self.decoded, &mut a);
+                Engine::deck_pass(cur, &mut a, 0, false);
             }
             Ok(false) | Err(DecodeError::Failed(_)) => {
                 cur.eof = true;
                 cur.rs.flush(&mut a);
+                Engine::deck_pass(cur, &mut a, 0, true);
             }
             Err(DecodeError::Aborted) => {
                 cur.resync = true;
@@ -912,11 +1217,14 @@ fn clock(sh: Arc<Shared>) {
         {
             let mut tl = sh.timeline();
             while tl.segments.len() > 1 && consumed >= tl.segments[1].start_frame {
-                tl.segments.pop_front();
+                let gone = tl.segments.pop_front().expect("two");
                 let s = &tl.segments[0];
-                events.push(PlayerEvent::TrackChanged { key: s.key.clone() });
-                if let Some(d) = s.duration_ms {
-                    events.push(PlayerEvent::Duration { ms: d });
+                // The same song at another tempo (an Automix easing back) is no change of song.
+                if s.key != gone.key {
+                    events.push(PlayerEvent::TrackChanged { key: s.key.clone() });
+                    if let Some(d) = s.duration_ms {
+                        events.push(PlayerEvent::Duration { ms: d });
+                    }
                 }
                 last_position = Instant::now() - Duration::from_secs(1);
             }

@@ -575,3 +575,37 @@ impl Resample {
         self.emitted += (produced - skip) as u64;
     }
 }
+
+/// Mono audio of `seconds` from `start_ms` of `source`, at `rate` Hz (the Automix's analysis
+/// input), read through the same decoder as playback (so priming and seeks agree), and where it
+/// starts in the song in seconds. Cancel `ctl` to stop it; an analysis has its own reader.
+pub fn decode_window(
+    source: &Source,
+    cache: &Arc<DiskCache>,
+    ctl: Arc<ReaderCtl>,
+    start_ms: u64,
+    seconds: f64,
+    rate: u32,
+) -> Result<(Vec<f32>, f64), DecodeError> {
+    let mut dec = TrackDecoder::open(source, cache, ctl)?;
+    let at = if start_ms > 0 { dec.seek(start_ms)? } else { 0 };
+    let mut rs = Resample::new(dec.sample_rate(), rate);
+    let want = (seconds * rate as f64) as usize;
+    let (mut stereo, mut buf) = (Vec::with_capacity(want * 2 + 4096), Vec::new());
+    loop {
+        buf.clear();
+        if !dec.decode_next(&mut buf)? {
+            rs.flush(&mut stereo);
+            break;
+        }
+        if dec.sample_rate() != rs.rates().0 {
+            rs = Resample::new(dec.sample_rate(), rate);
+        }
+        rs.process(&buf, &mut stereo);
+        if stereo.len() / 2 >= want {
+            break;
+        }
+    }
+    let mono = stereo.as_chunks::<2>().0.iter().take(want).map(|c| (c[0] + c[1]) * 0.5).collect();
+    Ok((mono, at as f64 / 1000.0))
+}

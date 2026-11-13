@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# The Automix's beat model (ONNX Runtime and 23 MB of weights): only the native app enables it.
+beat-model = ["lfly-beat/onnx"]
+
 [dependencies]
 lfly-connect = { path = "../lfly-connect" }
 serde.workspace = true
@@ -15,6 +19,8 @@ rand = "0.8"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 lfly-audio = { path = "../lfly-audio" }
+lfly-mix = { path = "../lfly-mix" }
+lfly-beat = { path = "../lfly-beat" }
 lfly-yt = { path = "../lfly-yt" }
 tokio.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "json"] }

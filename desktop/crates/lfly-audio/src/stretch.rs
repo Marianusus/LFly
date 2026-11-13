@@ -8,6 +8,9 @@
 /// Interleaved stereo in, interleaved stereo out.
 pub struct Stretch {
     speed: f64,
+    /// Kept working at 1× too (a deck easing back to its own tempo): passing the input straight
+    /// through would strand what it holds and click.
+    engaged: bool,
     /// Frame length and half of it (the output hop), in frames.
     n: usize,
     hs: usize,
@@ -31,7 +34,7 @@ impl Stretch {
         let hs = n / 2;
         // A periodic Hann: two of them half a frame apart add up to exactly 1.
         let window = (0..n).map(|i| 0.5 - 0.5 * (2. * std::f32::consts::PI * i as f32 / n as f32).cos()).collect();
-        Stretch { speed: 1., n, hs, tol: rate as usize * 8 / 1000, window, input: Vec::new(), at: 0., natural: None, tail: vec![0.; hs * 2] }
+        Stretch { speed: 1., engaged: false, n, hs, tol: rate as usize * 8 / 1000, window, input: Vec::new(), at: 0., natural: None, tail: vec![0.; hs * 2] }
     }
 
     pub fn speed(&self) -> f64 {
@@ -42,6 +45,17 @@ impl Stretch {
     pub fn set_speed(&mut self, speed: f64) {
         self.speed = speed.clamp(0.25, 4.);
         self.reset();
+    }
+
+    /// Changes the speed while it plays, without dropping what it holds: the next frames are cut
+    /// that much further apart. For a gradual change (a deck easing back to its tempo).
+    pub fn glide_to(&mut self, speed: f64) {
+        self.speed = speed.clamp(0.25, 4.);
+    }
+
+    /// Keeps it working at 1× (see `engaged`).
+    pub fn engage(&mut self) {
+        self.engaged = true;
     }
 
     /// Forgets what it holds (a seek, a new song).
@@ -63,7 +77,7 @@ impl Stretch {
     }
 
     pub fn active(&self) -> bool {
-        (self.speed - 1.).abs() > 1e-3
+        self.engaged || (self.speed - 1.).abs() > 1e-3
     }
 
     /// Takes [input], appends what it can make of it so far to [out].
@@ -241,5 +255,67 @@ mod tests {
         let rms: Vec<f32> = l.chunks(block).skip(2).take(30).map(|b| (b.iter().map(|v| v * v).sum::<f32>() / b.len() as f32).sqrt()).collect();
         let (lo, hi) = rms.iter().fold((f32::MAX, 0f32), |(a, b), &v| (a.min(v), b.max(v)));
         assert!(hi / lo < 1.15, "ripple {lo}..{hi}");
+    }
+
+    #[test]
+    fn easing_back_to_1x_has_no_jump() {
+        // A tone through a deck easing from 0.95 to 1 (a step every second), kept engaged at 1:
+        // no sample-to-sample jump beyond what the tone itself does.
+        let rate = 48_000;
+        let x = tone(rate, 14., 440.);
+        let mut st = Stretch::new(rate);
+        st.set_speed(0.95);
+        st.engage();
+        let mut out = Vec::new();
+        let mut speed = 0.95;
+        for (k, chunk) in x.chunks(2 * 4_800).enumerate() {
+            if k > 0 && k % 10 == 0 && speed < 1.0 {
+                speed = (speed + 0.005f64).min(1.0);
+                st.glide_to(speed);
+            }
+            st.process(chunk, &mut out);
+        }
+        assert!(st.active(), "still engaged at 1x");
+        let l: Vec<f32> = out.iter().step_by(2).copied().collect();
+        let slope = 0.5 * 2. * std::f32::consts::PI * 440. / rate as f32;
+        let worst = l.windows(2).skip(4_800).map(|w| (w[1] - w[0]).abs()).fold(0f32, f32::max);
+        assert!(worst < slope * 1.6, "jump {worst} against a slope of {slope}");
+        let hz = crossings(&out[out.len() / 2 & !1..], rate);
+        assert!((hz - 440.).abs() < 6., "{hz} Hz");
+    }
+
+    #[test]
+    fn percussion_keeps_its_hits_through_a_tempo_change() {
+        // Clicks every 0.5 s at 0.97x: as many clicks out as in, none doubled, none clipped.
+        let rate = 48_000;
+        let n = rate as usize * 20;
+        let mut x = vec![0f32; n * 2];
+        // From 0.25 s: a stream's very first 16 ms come in on the window's rise.
+        for k in 0..40 {
+            let at = k * rate as usize / 2 + rate as usize / 4;
+            for i in 0..96 {
+                let v = 0.8 * (1. - i as f32 / 96.) * if i % 2 == 0 { 1. } else { -1. };
+                x[(at + i) * 2] = v;
+                x[(at + i) * 2 + 1] = v;
+            }
+        }
+        let mut st = Stretch::new(rate);
+        st.set_speed(0.97);
+        st.engage();
+        let mut out = Vec::new();
+        for chunk in x.chunks(2 * 1_024) {
+            st.process(chunk, &mut out);
+        }
+        st.flush(&mut out);
+        let l: Vec<f32> = out.iter().step_by(2).copied().collect();
+        let (mut hits, mut quiet) = (0, 10_000);
+        for v in &l {
+            if v.abs() > 0.2 && quiet > 4_800 {
+                hits += 1;
+            }
+            quiet = if v.abs() > 0.2 { 0 } else { quiet + 1 };
+        }
+        assert_eq!(hits, 40);
+        assert!(l.iter().all(|v| v.abs() <= 1.0));
     }
 }

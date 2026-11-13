@@ -72,11 +72,15 @@ pub struct Audio {
     pub device: Option<String>,
     /// Seconds each song fades into the next (0: back to back, without gaps).
     pub crossfade: u32,
+    /// Songs mixed on the beat (the phone's Automix), off at first, and its style ("AUTO",
+    /// "FADE", "BASS_SWAP", "EQ_SWAP", "FILTER", "RISE").
+    pub automix: bool,
+    pub automix_style: String,
 }
 
 impl Default for Audio {
     fn default() -> Self {
-        Audio { eq: lfly_audio::EqCurve::FLAT, device: None, crossfade: 0 }
+        Audio { eq: lfly_audio::EqCurve::FLAT, device: None, crossfade: 0, automix: false, automix_style: "AUTO".into() }
     }
 }
 
@@ -92,6 +96,7 @@ pub fn set_audio(a: &Audio) -> Result<(), String> {
 pub fn apply_audio(player: &crate::player::LocalPlayer, a: &Audio) {
     player.set_equalizer(a.eq);
     player.set_crossfade(a.crossfade);
+    player.set_automix(a.automix, lfly_mix::curves::MixStyle::from_key(&a.automix_style));
     if a.device.is_some() {
         player.set_device(a.device.clone());
     }

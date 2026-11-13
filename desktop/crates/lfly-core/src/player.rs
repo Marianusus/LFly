@@ -69,6 +69,12 @@ struct Now {
     /// A seek the engine has not reported yet: until it does, this is the position to show,
     /// so controllers never see the bar jump back.
     seeking: Option<(i64, Instant)>,
+    /// What the engine plays now and what it has preloaded (by song id): the Automix analyses
+    /// read these very sources.
+    current_source: Option<Source>,
+    next_source: Option<(String, Source)>,
+    /// The listener's crossfade, in seconds (Automix may fade longer when it is off).
+    crossfade: u32,
 }
 
 impl Now {
@@ -92,6 +98,7 @@ pub struct LocalPlayer {
     yt: YtMusic,
     now: Mutex<Now>,
     urls: Mutex<HashMap<String, Resolved>>,
+    automix: Arc<Mutex<crate::automix::Automix>>,
     host: OnceLock<Host>,
     device_id: String,
 }
@@ -114,6 +121,7 @@ impl LocalPlayer {
             yt,
             now: Mutex::new(Now { volume: 80, ..Default::default() }),
             urls: Mutex::default(),
+            automix: Arc::default(),
             host: OnceLock::new(),
             device_id,
         });
@@ -273,7 +281,41 @@ impl LocalPlayer {
     }
 
     pub fn set_crossfade(&self, seconds: u32) {
-        self.audio.set_crossfade(seconds.min(12) as u64 * 1000);
+        self.now.lock().unwrap().crossfade = seconds.min(12);
+        self.apply_crossfade();
+    }
+
+    /// The listener's crossfade; with Automix on (and beats tracked in this build) a change that
+    /// cannot be mixed on the beat still fades, over five seconds, when the crossfade is off.
+    fn apply_crossfade(&self) {
+        let set = self.now.lock().unwrap().crossfade;
+        let automix = self.automix.lock().unwrap().on && crate::automix::available();
+        let seconds = if set == 0 && automix { crate::automix::FALLBACK_SECONDS } else { set };
+        self.audio.set_crossfade(seconds as u64 * 1000);
+    }
+
+    /// Automix: songs mixed on the beat when their beats and tempos allow it, in `style`.
+    pub fn set_automix(&self, on: bool, style: lfly_mix::curves::MixStyle) {
+        {
+            let mut a = self.automix.lock().unwrap();
+            if !on {
+                a.cancel();
+            }
+            if a.on != on || a.style != style {
+                a.sent = None;
+            }
+            a.on = on;
+            a.style = style;
+        }
+        if !on {
+            self.audio.set_automix(None);
+        }
+        self.apply_crossfade();
+    }
+
+    /// How fast the song heard runs: the speed, times an Automix's tempo match while it lasts.
+    pub fn effective_speed(&self) -> f64 {
+        self.audio.effective_speed()
     }
 
     /// Playback speed with the pitch kept (the phone's 0.5..2×); not kept between launches.
@@ -343,6 +385,8 @@ impl LocalPlayer {
             now.seeking = Some((ms, Instant::now()));
         }
         self.audio.seek(ms as u64);
+        // The engine dropped its plan: planned again from where the song is now.
+        self.automix.lock().unwrap().sent = None;
         self.changed(true);
     }
 
@@ -390,6 +434,12 @@ impl LocalPlayer {
                         return;
                     }
                     let play = me.now.lock().unwrap().wants_play;
+                    me.now.lock().unwrap().current_source = Some(source.clone());
+                    {
+                        let mut a = me.automix.lock().unwrap();
+                        a.cancel();
+                        a.sent = None;
+                    }
                     me.audio.load(source, position_ms.max(0) as u64, play);
                     me.preload_next();
                 }
@@ -475,6 +525,7 @@ impl LocalPlayer {
                     return;
                 }
                 now.preloaded = Some(index);
+                now.next_source = Some((track.id.clone(), source.clone()));
                 drop(now);
                 me.audio.preload(source);
             }
@@ -533,6 +584,7 @@ impl LocalPlayer {
                 // Four times a second: only the position, never the whole queue. A full state here
                 // made every listener in the window (and the system media controls) run again.
                 self.sink.position(position_ms, lfly_connect::controller::now_ms());
+                self.automix_tick(position_ms);
             }
             PlayerEvent::Duration { ms } => {
                 if ms > 0 {
@@ -572,7 +624,11 @@ impl LocalPlayer {
                     now.position_ms = 0;
                     now.duration_ms = now.queue.current().map_or(0, |t| t.duration_ms);
                     now.load_seq += 1;
+                    if let Some((_, s)) = now.next_source.take().filter(|(_, s)| s.key() == key) {
+                        now.current_source = Some(s);
+                    }
                 }
+                self.automix.lock().unwrap().sent = None;
                 self.preload_next();
                 self.changed(true);
             }
@@ -620,6 +676,56 @@ impl LocalPlayer {
                 });
             }
             PlayerEvent::Buffering(_) | PlayerEvent::Loading | PlayerEvent::DeviceChanged { .. } => {}
+        }
+    }
+
+    /// Automix, on every position tick: from 150 s before the end, the playing song's tail and
+    /// the next song's head are analysed (from the sources playback uses); once both are in, the
+    /// plan (or none) goes to the engine, once per pair.
+    fn automix_tick(&self, position_ms: i64) {
+        if !crate::automix::available() || !self.automix.lock().unwrap().on {
+            return;
+        }
+        let (cur, next, duration, cur_src, next_src) = {
+            let now = self.now.lock().unwrap();
+            let next = now.queue.after_end().filter(|i| *i != now.queue.index).and_then(|i| now.queue.tracks.get(i as usize).cloned());
+            let next_src = next.as_ref().and_then(|n| now.next_source.as_ref().filter(|(id, _)| *id == n.id).map(|(_, s)| s.clone()));
+            (now.queue.current().cloned(), next, now.duration_ms, now.current_source.clone(), next_src)
+        };
+        let (Some(cur), Some(next), Some(cur_src), Some(next_src)) = (cur, next, cur_src, next_src) else { return };
+        if duration < lfly_mix::planner::MIN_SONG_MS as i64 || position_ms < duration - crate::automix::ANALYSIS_LEAD_MS {
+            return;
+        }
+        let pair = (cur.id.clone(), next.id.clone());
+        let cache = self.audio.cache().clone();
+        let (tail, head) = {
+            let mut a = self.automix.lock().unwrap();
+            if a.sent.as_ref() == Some(&pair) {
+                return;
+            }
+            let (cl, nl) = (crate::automix::source_len(&cur_src, &cache), crate::automix::source_len(&next_src, &cache));
+            (a.get(&cur.id, crate::automix::Part::Tail, cl), a.get(&next.id, crate::automix::Part::Head, nl))
+        };
+        use crate::automix::{Automix, Part};
+        if tail.is_none() {
+            Automix::request(&self.automix, cur.id.clone(), Part::Tail, cur_src.clone(), cache.clone(), duration, || {});
+        }
+        if head.is_none() {
+            Automix::request(&self.automix, next.id.clone(), Part::Head, next_src.clone(), cache, next.duration_ms, || {});
+        }
+        let (Some(tail), Some(head)) = (tail, head) else { return };
+        let plan = {
+            let mut a = self.automix.lock().unwrap();
+            a.sent = Some(pair);
+            a.plan((&cur.id, &tail, duration), (&next.id, &head))
+        };
+        match plan {
+            Some(mut p) => {
+                p.outgoing_key = cur_src.key();
+                p.incoming_key = next_src.key();
+                self.audio.set_automix(Some(p));
+            }
+            None => log::info!("Automix: '{}' -> '{}' cannot be mixed on the beat: a crossfade", cur.title, next.title),
         }
     }
 
