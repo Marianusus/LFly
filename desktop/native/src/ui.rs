@@ -87,3 +87,19 @@ pub fn brani(n: impl Into<u64>) -> String {
     let n = n.into();
     if n == 1 { "1 brano".into() } else { format!("{n} brani") }
 }
+
+/// The window's text fields (search, a playlist's new name, this computer's name, a Spotify
+/// link): while one has the keyboard, the shortcuts (Space, Ctrl+arrows...) leave keys alone.
+#[derive(Default)]
+struct TextFields(Vec<WeakFocusHandle>);
+impl Global for TextFields {}
+
+pub fn register_field(handle: &FocusHandle, cx: &mut App) {
+    let fields = cx.default_global::<TextFields>();
+    fields.0.retain(|h| h.upgrade().is_some());
+    fields.0.push(handle.downgrade());
+}
+
+pub fn typing(window: &Window, cx: &App) -> bool {
+    cx.try_global::<TextFields>().is_some_and(|f| f.0.iter().filter_map(WeakFocusHandle::upgrade).any(|h| h.is_focused(window)))
+}

@@ -119,6 +119,7 @@ impl Search {
         cx: &mut Context<Self>,
     ) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Artisti, brani, album e playlist"));
+        crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
         let subs = vec![
             cx.subscribe_in(&input, window, |this, state, ev: &InputEvent, _w, cx| match ev {
                 InputEvent::PressEnter { .. } => {
@@ -494,11 +495,6 @@ fn section_title(t: &'static str) -> Div {
 }
 
 impl Search {
-    /// The search field has the keyboard: shortcuts leave the keys to it.
-    pub fn typing(&self, window: &Window, cx: &App) -> bool {
-        self.input.read(cx).focus_handle(cx).is_focused(window)
-    }
-
     /// Ctrl+K: the field takes the keyboard.
     pub fn field_focus(&self, cx: &App) -> FocusHandle {
         self.input.read(cx).focus_handle(cx)

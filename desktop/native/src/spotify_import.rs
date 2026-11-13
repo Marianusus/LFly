@@ -40,6 +40,7 @@ impl EventEmitter<SpotifyEvent> for SpotifyImport {}
 impl SpotifyImport {
     pub fn new(core: Arc<Core>, look: Entity<Look>, library: Entity<LibraryModel>, nav: Entity<Nav>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("https://open.spotify.com/playlist/…"));
+        crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
         let subs = vec![
             cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, _w, cx| {
                 if let InputEvent::PressEnter { .. } = ev {

@@ -525,6 +525,7 @@ impl Collection {
     fn start_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.header.title.to_string();
         let input = cx.new(|cx| InputState::new(window, cx).default_value(name));
+        crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
         let sub = cx.subscribe_in(&input, window, |this, state, ev: &InputEvent, _w, cx| {
             if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                 let name = state.read(cx).value().to_string();

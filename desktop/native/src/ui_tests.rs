@@ -206,3 +206,25 @@ fn a_slider_drag_follows_the_pointer_off_the_bar(cx: &mut TestAppContext) {
     assert_eq!(drags[1], 1.);
     assert_eq!(*releases.borrow(), vec![1.]);
 }
+
+/// A focusable field, as a text input.
+struct Field(gpui::FocusHandle);
+
+impl Render for Field {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().id("field").track_focus(&self.0).size(px(100.))
+    }
+}
+
+#[gpui::test]
+fn shortcuts_stand_aside_while_a_field_has_the_keyboard(cx: &mut TestAppContext) {
+    let (view, cx) = cx.add_window_view(|_, cx| Field(cx.focus_handle()));
+    cx.update(|window, cx| {
+        let h = view.read(cx).0.clone();
+        crate::ui::register_field(&h, cx);
+        assert!(!crate::ui::typing(window, cx));
+        h.focus(window, cx);
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| assert!(crate::ui::typing(window, cx)));
+}

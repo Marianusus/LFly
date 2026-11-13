@@ -303,7 +303,7 @@ impl Lfly {
                 esc_nav.update(cx, |n, cx| n.go_forward(cx));
                 return stop(cx);
             }
-            if keys_search.read(cx).typing(window, cx) {
+            if crate::ui::typing(window, cx) {
                 return;
             }
             let pm = keys_model.read(cx);

@@ -1157,6 +1157,7 @@ impl SettingsPage {
             Some(i) => i,
             None => {
                 let input = cx.new(|cx| InputState::new(window, cx).default_value(me.clone()));
+                crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
                 // "Salva" follows the typing; Enter saves.
                 let c = crate::connect::ConnectModel::entity(cx);
                 self._subs.push(cx.subscribe(&input, move |_, state, ev: &gpui_kit::component::input::InputEvent, cx| {
