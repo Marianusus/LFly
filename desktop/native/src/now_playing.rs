@@ -74,6 +74,9 @@ impl NowPlaying {
         lyrics: Entity<Lyrics>,
         cx: &mut Context<Self>,
     ) -> Self {
+        if std::env::var_os("LFLY_NP_OUTPUT").is_some() {
+            crate::audio::AudioModel::entity(cx).update(cx, |a, cx| a.load_devices(cx));
+        }
         let subs = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
             cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
@@ -105,7 +108,7 @@ impl NowPlaying {
             art: Tween::still(1.),
             pp: Tween::still(1.),
             was_playing: None,
-            output_open: false,
+            output_open: std::env::var_os("LFLY_NP_OUTPUT").is_some(),
             ambient,
             width: 1100.,
             height: 720.,

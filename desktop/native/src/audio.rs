@@ -11,6 +11,8 @@ use crate::core::Core;
 
 pub const BANDS: [&str; 5] = ["60 Hz", "230 Hz", "910 Hz", "3,6 kHz", "10 kHz"];
 pub const MAX_DB: f32 = 12.;
+/// ALSA's default device, which follows the system (PipeWire, PulseAudio).
+pub const SYSTEM_DEFAULT: &str = "alsa:default";
 
 /// The phone's presets (EqualizerManager.kt): name, bands, bass boost.
 pub const PRESETS: [(&str, [f32; 5], i32); 7] = [
@@ -58,7 +60,11 @@ impl AudioModel {
     pub fn load_devices(&mut self, cx: &mut Context<Self>) {
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
-            let list = cx.background_executor().spawn(async move { core.player.devices() }).await;
+            let mut list = cx.background_executor().spawn(async move { core.player.devices() }).await;
+            // ALSA's "Default ALSA Output (currently PipeWire Media Server)": the system's choice.
+            for d in list.iter_mut().filter(|d| d.id == SYSTEM_DEFAULT) {
+                d.name = "Predefinita del sistema".into();
+            }
             let _ = this.update(cx, |this, cx| {
                 this.devices = list;
                 cx.notify();

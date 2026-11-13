@@ -8,9 +8,11 @@ use std::rc::Rc;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-/// Where a slider was laid out last frame, for turning pointer positions into values.
+/// Where a slider was laid out last frame, for turning pointer positions into values, and
+/// whether a drag that started on it is still going (it follows the pointer anywhere in the
+/// window, as a browser's range input does, until the button is let go).
 #[derive(Clone, Default)]
-pub struct SliderBounds(Rc<Cell<Bounds<Pixels>>>);
+pub struct SliderBounds(Rc<Cell<Bounds<Pixels>>>, Rc<Cell<bool>>);
 
 impl SliderBounds {
     /// Bottom 0, top 1 (a vertical slider).
@@ -29,6 +31,39 @@ impl SliderBounds {
         }
         ((at.x - b.origin.x) / b.size.width).clamp(0., 1.)
     }
+}
+
+type OnFrac = Rc<dyn Fn(f32, &mut Window, &mut App)>;
+
+/// Records the slider's bounds and, while a drag is on, hears the pointer over the whole window.
+fn tracker(bounds: SliderBounds, vertical: bool, on_drag: OnFrac, on_release: Option<OnFrac>) -> impl IntoElement {
+    let b = bounds.clone();
+    canvas(
+        move |r, _, _| b.0.set(r),
+        move |_, _, window, _| {
+            let frac = move |b: &SliderBounds, at: Point<Pixels>| if vertical { b.fraction_y(at) } else { b.fraction(at) };
+            let (b1, b2) = (bounds.clone(), bounds);
+            window.on_mouse_event(move |e: &MouseMoveEvent, phase, w, cx| {
+                if phase == DispatchPhase::Bubble && b1.1.get() {
+                    if e.pressed_button == Some(MouseButton::Left) {
+                        on_drag(frac(&b1, e.position), w, cx);
+                    } else {
+                        b1.1.set(false);
+                    }
+                }
+            });
+            window.on_mouse_event(move |e: &MouseUpEvent, phase, w, cx| {
+                if phase == DispatchPhase::Bubble && e.button == MouseButton::Left && b2.1.get() {
+                    b2.1.set(false);
+                    if let Some(f) = &on_release {
+                        f(frac(&b2, e.position), w, cx);
+                    }
+                }
+            });
+        },
+    )
+    .absolute()
+    .inset_0()
 }
 
 pub struct SliderStyle {
@@ -51,8 +86,9 @@ pub fn slider(
     let pct = relative(frac.clamp(0., 1.));
     let track_bg = style.text.opacity(0.18);
     let fill = style.text.opacity(0.82);
-    let (b1, b2, b3) = (bounds.clone(), bounds.clone(), bounds.clone());
-    let on_drag = Rc::new(on_drag);
+    let b1 = bounds.clone();
+    let on_drag: OnFrac = Rc::new(on_drag);
+    let on_release: OnFrac = Rc::new(on_release);
     let on_drag2 = on_drag.clone();
     div()
         .id(id)
@@ -66,19 +102,12 @@ pub fn slider(
         .when(disabled, |s| s.opacity(0.5))
         .when(!disabled, |s| {
             s.cursor_pointer()
-                .on_mouse_down(MouseButton::Left, move |e, w, cx| on_drag(b1.fraction(e.position), w, cx))
-                .on_mouse_move(move |e, w, cx| {
-                    if e.pressed_button == Some(MouseButton::Left) {
-                        on_drag2(b2.fraction(e.position), w, cx);
-                    }
+                .on_mouse_down(MouseButton::Left, move |e, w, cx| {
+                    b1.1.set(true);
+                    on_drag2(b1.fraction(e.position), w, cx)
                 })
-                .on_mouse_up(MouseButton::Left, move |e, w, cx| on_release(b3.fraction(e.position), w, cx))
         })
-        .child(
-            canvas(move |b, _, _| bounds.0.set(b), |_, _, _, _| {})
-                .absolute()
-                .inset_0(),
-        )
+        .child(tracker(bounds, false, on_drag, Some(on_release)))
         .child(
             div()
                 .w_full()
@@ -132,8 +161,9 @@ pub fn bar_slider(
 ) -> Stateful<Div> {
     let id: ElementId = id.into();
     let group: SharedString = format!("bar-slider-{id}").into();
-    let (b1, b2, b3) = (bounds.clone(), bounds.clone(), bounds.clone());
-    let on_drag = Rc::new(on_drag);
+    let b1 = bounds.clone();
+    let on_drag: OnFrac = Rc::new(on_drag);
+    let on_release: OnFrac = Rc::new(on_release);
     let on_drag2 = on_drag.clone();
     div()
         .id(id)
@@ -146,15 +176,12 @@ pub fn bar_slider(
         .when(disabled, |s| s.opacity(0.5))
         .when(!disabled, |s| {
             s.cursor_pointer()
-                .on_mouse_down(MouseButton::Left, move |e, w, cx| on_drag(b1.fraction(e.position), w, cx))
-                .on_mouse_move(move |e, w, cx| {
-                    if e.pressed_button == Some(MouseButton::Left) {
-                        on_drag2(b2.fraction(e.position), w, cx);
-                    }
+                .on_mouse_down(MouseButton::Left, move |e, w, cx| {
+                    b1.1.set(true);
+                    on_drag2(b1.fraction(e.position), w, cx)
                 })
-                .on_mouse_up(MouseButton::Left, move |e, w, cx| on_release(b3.fraction(e.position), w, cx))
         })
-        .child(canvas(move |b, _, _| bounds.0.set(b), |_, _, _, _| {}).absolute().inset_0())
+        .child(tracker(bounds, false, on_drag, Some(on_release)))
         .child(
             div()
                 .w_full()
@@ -187,8 +214,8 @@ pub fn vslider(
     on_reset: impl Fn(&mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let f = frac.clamp(0., 1.);
-    let (b1, b2) = (bounds.clone(), bounds.clone());
-    let on_drag = Rc::new(on_drag);
+    let b1 = bounds.clone();
+    let on_drag: OnFrac = Rc::new(on_drag);
     let on_drag2 = on_drag.clone();
     div()
         .id(id)
@@ -200,15 +227,11 @@ pub fn vslider(
             if e.click_count == 2 {
                 on_reset(w, cx);
             } else {
-                on_drag(b1.fraction_y(e.position), w, cx);
+                b1.1.set(true);
+                on_drag2(b1.fraction_y(e.position), w, cx);
             }
         })
-        .on_mouse_move(move |e, w, cx| {
-            if e.pressed_button == Some(MouseButton::Left) {
-                on_drag2(b2.fraction_y(e.position), w, cx);
-            }
-        })
-        .child(canvas(move |b, _, _| bounds.0.set(b), |_, _, _, _| {}).absolute().inset_0())
+        .child(tracker(bounds, true, on_drag, None))
         .child(
             div()
                 .absolute()
@@ -229,5 +252,56 @@ pub fn vslider(
                 .rounded_full()
                 .bg(white())
                 .shadow(vec![BoxShadow { color: black().opacity(0.35), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(0.), inset: false }]),
+        )
+}
+
+/// EqualizerPanel.svelte `.bass input`: a horizontal 6 px track (accent from the left) with a
+/// 20 px white thumb, the whole width of its parent.
+pub fn hslider(
+    id: impl Into<ElementId>,
+    frac: f32,
+    accent: Hsla,
+    track: Hsla,
+    bounds: SliderBounds,
+    on_drag: impl Fn(f32, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let f = frac.clamp(0., 1.);
+    let b1 = bounds.clone();
+    let on_drag: OnFrac = Rc::new(on_drag);
+    let on_drag2 = on_drag.clone();
+    div()
+        .id(id)
+        .relative()
+        .w_full()
+        .h(px(20.))
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, move |e, w, cx| {
+            b1.1.set(true);
+            on_drag2(b1.fraction(e.position), w, cx);
+        })
+        .child(tracker(bounds, false, on_drag, None))
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .top(px(7.))
+                .h(px(6.))
+                .rounded_full()
+                .bg(track)
+                .child(div().absolute().top_0().bottom_0().left_0().w(relative(f)).rounded_full().bg(accent)),
+        )
+        // The thumb travels inside the track, as a browser's range thumb does.
+        .child(
+            div().absolute().top_0().bottom_0().left_0().right(px(20.)).child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left(relative(f))
+                    .size(px(20.))
+                    .rounded_full()
+                    .bg(white())
+                    .shadow(vec![BoxShadow { color: black().opacity(0.35), offset: point(px(0.), px(2.)), blur_radius: px(6.), spread_radius: px(0.), inset: false }]),
+            ),
         )
 }

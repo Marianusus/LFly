@@ -888,7 +888,7 @@ impl SettingsPage {
                     ))
                     .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(i.text2).child(label.to_string()))
             }));
-        let (au3, au4) = (audio.clone(), audio.clone());
+        let au3 = audio.clone();
         let bass = div()
             .mt(px(16.))
             .flex()
@@ -896,15 +896,14 @@ impl SettingsPage {
             .gap(px(8.))
             .text_color(i.text2)
             .child(div().flex().gap(px(4.)).child("Potenziamento bassi:").child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(format!("{}%", eq.bass_boost / 10))))
-            .child(div().flex().child(slider(
+            .child(crate::slider::hslider(
                 "bass",
                 eq.bass_boost as f32 / 1000.,
-                false,
-                SliderStyle { text: i.s_text, accent: i.accent },
+                i.accent,
+                i.s_text.opacity(0.16),
                 self.bass_bounds.clone(),
                 move |f, _, cx| au3.update(cx, |a, cx| a.set_bass(f * 1000., cx)),
-                move |f, _, cx| au4.update(cx, |a, cx| a.set_bass(f * 1000., cx)),
-            )));
+            ));
         let eq_card = card()
             .child(head)
             .child(help("Lo stesso equalizzatore del telefono, dentro il player: suona uguale su casse, cuffie e DAC. Quando è piatto l'audio passa intatto, bit per bit."))
@@ -912,7 +911,7 @@ impl SettingsPage {
             .child(bands)
             .child(bass);
 
-        let (au5, au6) = (audio.clone(), audio.clone());
+        let au5 = audio.clone();
         let automix = card()
             .child(h2("Automix"))
             .child(
@@ -929,21 +928,20 @@ impl SettingsPage {
                             .child("Dissolvenza tra i brani:")
                             .child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(if crossfade > 0 { format!("{crossfade} s") } else { "spenta".into() })),
                     )
-                    .child(div().flex().child(slider(
+                    .child(crate::slider::hslider(
                         "crossfade",
                         crossfade as f32 / 12.,
-                        false,
-                        SliderStyle { text: i.s_text, accent: i.accent },
+                        i.accent,
+                        i.s_text.opacity(0.16),
                         self.cross_bounds.clone(),
                         move |f, _, cx| au5.update(cx, |a, cx| a.set_crossfade(f * 12., cx)),
-                        move |f, _, cx| au6.update(cx, |a, cx| a.set_crossfade(f * 12., cx)),
-                    ))),
+                    )),
             )
             .child(help("Ogni brano sfuma nel successivo. Con la dissolvenza spenta i brani si susseguono senza pause, come negli album dal vivo."));
 
         // `<select>`: the system's default, then each device; the chosen one ticked.
         let mut options: Vec<(Option<String>, String)> = vec![(None, "Predefinita del sistema".into())];
-        options.extend(devices.iter().map(|d| (Some(d.id.clone()), format!("{}{}", d.name, if d.is_default { " (predefinita)" } else { "" }))));
+        options.extend(devices.iter().filter(|d| d.id != crate::audio::SYSTEM_DEFAULT).map(|d| (Some(d.id.clone()), format!("{}{}", d.name, if d.is_default { " (predefinita)" } else { "" }))));
         let output = card().child(h2("Uscita audio")).child(
             div().mt(px(8.)).flex().flex_col().gap(px(2.)).children(options.into_iter().enumerate().map(|(k, (id, name))| {
                 let on = id == device;

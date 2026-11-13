@@ -894,7 +894,12 @@ fn main() {
         }
         gpui_kit::init(cx);
         gpui_kit::component::Theme::change(gpui_kit::component::ThemeMode::Dark, None, cx);
-        let bounds = Bounds::centered(None, size(px(1100.), px(720.)), cx);
+        // LFLY_SIZE=WxH (test runs): another window size.
+        let (w, h) = std::env::var("LFLY_SIZE")
+            .ok()
+            .and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))))
+            .unwrap_or((1100., 720.));
+        let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(720.), px(480.))),
