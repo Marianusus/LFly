@@ -47,6 +47,8 @@ pub struct ConnectModel {
     pub controllers: usize,
     /// Whether the network is looked at (not in test runs).
     pub online: bool,
+    /// Whether this computer is announced (not when another LFly is it already).
+    announced: bool,
 }
 
 struct ConnectGlobal(Entity<ConnectModel>);
@@ -123,6 +125,7 @@ impl ConnectModel {
         };
 
         // This computer as a speaker the phones and the watch can pick.
+        let mut announced = false;
         if !quiet || std::env::var_os("LFLY_CONNECT_PORT").is_some() {
             let host_tx = tx.clone();
             let player: Arc<dyn HostPlayer> = core.player.clone();
@@ -134,9 +137,17 @@ impl ConnectModel {
             }));
             match started {
                 Ok(host) => {
-                    if let Some(d) = &discovery {
-                        if let Err(e) = d.announce(&me, host.port()) {
-                            log::warn!("Cannot announce this computer: {e}");
+                    // Another LFly (the Tauri app) holds the usual port: it is this computer on
+                    // the network already, with the same id; a second announcement would only
+                    // show the phones a twin.
+                    let twin = host.port() != protocol::DEFAULT_PORT && std::env::var_os("LFLY_CONNECT_PORT").is_none();
+                    if twin {
+                        log::warn!("Connect: another LFly holds port {}; this window is not announced", protocol::DEFAULT_PORT);
+                    }
+                    if let (Some(d), false) = (&discovery, twin) {
+                        match d.announce(&me, host.port()) {
+                            Ok(()) => announced = true,
+                            Err(e) => log::warn!("Cannot announce this computer: {e}"),
                         }
                     }
                     core.player.attach_host(host);
@@ -159,6 +170,7 @@ impl ConnectModel {
             request: None,
             controllers: 0,
             online,
+            announced,
         });
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -328,7 +340,7 @@ impl ConnectModel {
         self.controller.set_identity(self.me.clone(), secret.as_deref());
         if let Some(host) = self.core.player.host() {
             host.set_identity(self.me.clone(), secret.as_deref());
-            if let Some(d) = &self.discovery {
+            if let (Some(d), true) = (&self.discovery, self.announced) {
                 if let Err(e) = d.announce(&self.me, host.port()) {
                     log::warn!("Cannot announce this computer again: {e}");
                 }
