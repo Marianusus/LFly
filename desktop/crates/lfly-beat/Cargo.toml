@@ -1,0 +1,16 @@
+[package]
+name = "lfly-beat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Beat This! (CPJKU, MIT) on ONNX Runtime: beats and downbeats of mono audio, for the Automix"
+
+[features]
+# The model (23 MB, embedded) and ONNX Runtime (linked statically). Without it every call answers
+# None, which means a plain crossfade: the classic app and the windows-gnu check build without it.
+onnx = ["dep:ort"]
+
+[dependencies]
+lfly-mix = { path = "../lfly-mix" }
+log.workspace = true
+ort = { version = "=2.0.0-rc.15", optional = true }
