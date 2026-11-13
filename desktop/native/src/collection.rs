@@ -150,6 +150,12 @@ impl Collection {
     }
 
     fn set_tracks(&mut self, tracks: Vec<Track>, cx: &mut Context<Self>) {
+        // LFLY_DOWNLOAD_PAGE=1 (tests, with LFLY_DOWNLOADS_DIR): the page downloads itself (what is
+        // there or on its way already is skipped).
+        if std::env::var_os("LFLY_DOWNLOAD_PAGE").is_some() && std::env::var_os("LFLY_DOWNLOADS_DIR").is_some() && !tracks.is_empty() && self.source != Source::Downloads {
+            let refs: Vec<_> = tracks.iter().filter_map(crate::core::track_ref).collect();
+            crate::downloads::DownloadsModel::entity(cx).update(cx, |m, cx| m.add(refs, cx));
+        }
         self.tracks = tracks;
         self.list.reset(1 + self.tracks.len());
         self.load_glow(cx);

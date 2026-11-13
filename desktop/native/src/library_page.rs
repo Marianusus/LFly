@@ -72,7 +72,14 @@ impl LibraryPage {
             Err(_) => lfly_core::store::get(VIEW_KEY).ok().flatten().and_then(|v| v.as_str().map(|s| s == "list")).unwrap_or(false),
         };
         let spotify = std::env::var_os("LFLY_SPOTIFY").is_some();
-        Self { core, covers, look, nav, library, model, filter: Filter::All, list, spotify, spotify_panel: None, page_width: 800., _subs: subs }
+        Self { core, covers, look, nav, library, model, filter: match std::env::var("LFLY_LIBRARY_FILTER").as_deref() {
+            // Test runs: a filter at start.
+            Ok("playlists") => Filter::Playlists,
+            Ok("downloads") => Filter::Downloads,
+            Ok("youtube") => Filter::YouTube,
+            Ok("recent") => Filter::Recent,
+            _ => Filter::All,
+        }, list, spotify, spotify_panel: None, page_width: 800., _subs: subs }
     }
 }
 
