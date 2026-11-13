@@ -530,6 +530,18 @@ impl TextSystem {
 
     /// Get the rasterized size and location of a specific, rendered glyph.
     pub(crate) fn raster_bounds(&self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
+        // LFly patch: a blurred glyph is the sharp one, grown by the blur's reach.
+        if params.blur > 0 {
+            let sharp = self.raster_bounds(&RenderGlyphParams { blur: 0, ..params.clone() })?;
+            if sharp.size.width.0 <= 0 || sharp.size.height.0 <= 0 {
+                return Ok(sharp);
+            }
+            let pad = blur_reach(params.blur) as i32;
+            return Ok(Bounds {
+                origin: Point { x: DevicePixels(sharp.origin.x.0 - pad), y: DevicePixels(sharp.origin.y.0 - pad) },
+                size: Size { width: DevicePixels(sharp.size.width.0 + 2 * pad), height: DevicePixels(sharp.size.height.0 + 2 * pad) },
+            });
+        }
         let raster_bounds = self.raster_bounds.upgradable_read();
         if let Some(bounds) = raster_bounds.get(params) {
             Ok(*bounds)
@@ -545,6 +557,16 @@ impl TextSystem {
         &self,
         params: &RenderGlyphParams,
     ) -> Result<(Size<DevicePixels>, Vec<u8>)> {
+        // LFly patch: blurred glyphs are the sharp mask, padded and blurred here, so every
+        // platform's text system gets them.
+        if params.blur > 0 {
+            let sharp_params = RenderGlyphParams { blur: 0, ..params.clone() };
+            let sharp_bounds = self.raster_bounds(&sharp_params)?;
+            let (sharp_size, mask) = self
+                .platform_text_system
+                .rasterize_glyph(&sharp_params, sharp_bounds)?;
+            return Ok(blur_mask(sharp_size, &mask, params.blur));
+        }
         let raster_bounds = self.raster_bounds(params)?;
         self.platform_text_system
             .rasterize_glyph(params, raster_bounds)
@@ -1112,6 +1134,9 @@ pub struct RenderGlyphParams {
     pub is_emoji: bool,
     pub subpixel_rendering: bool,
     pub dilation: u8,
+    /// LFly patch: a Gaussian blur of the glyph, its sigma in half device pixels (0: sharp).
+    /// Only for monochrome glyphs without subpixel rendering.
+    pub blur: u8,
 }
 
 impl Eq for RenderGlyphParams {}
@@ -1126,6 +1151,7 @@ impl Hash for RenderGlyphParams {
         self.is_emoji.hash(state);
         self.subpixel_rendering.hash(state);
         self.dilation.hash(state);
+        self.blur.hash(state);
     }
 }
 
@@ -1394,3 +1420,67 @@ mod missing_glyph_tests {
         MissingGlyph::new(grapheme.into(), FallbackFontClass::Proportional)
     }
 }
+
+/// LFly patch: how far a blur of [blur] half device pixels (sigma) reaches: three sigmas.
+fn blur_reach(blur: u8) -> usize {
+    (blur as f32 * 0.5 * 3.).ceil() as usize
+}
+
+/// LFly patch: a one-byte mask of [size], padded by the blur's reach on every side and blurred
+/// with a separable Gaussian of sigma [blur] / 2 device pixels.
+fn blur_mask(size_in: Size<DevicePixels>, mask: &[u8], blur: u8) -> (Size<DevicePixels>, Vec<u8>) {
+    let (w, h) = (size_in.width.0.max(0) as usize, size_in.height.0.max(0) as usize);
+    let pad = blur_reach(blur);
+    let (ow, oh) = (w + 2 * pad, h + 2 * pad);
+    let out_size = Size { width: DevicePixels(ow as i32), height: DevicePixels(oh as i32) };
+    if w == 0 || h == 0 || mask.len() < w * h {
+        return (out_size, vec![0; ow * oh]);
+    }
+    let sigma = blur as f32 * 0.5;
+    let kernel: Vec<f32> = {
+        let k: Vec<f32> = (0..=2 * pad)
+            .map(|i| {
+                let x = i as f32 - pad as f32;
+                (-x * x / (2. * sigma * sigma)).exp()
+            })
+            .collect();
+        let sum: f32 = k.iter().sum();
+        k.into_iter().map(|v| v / sum).collect()
+    };
+    // The mask placed in the middle of the padded box.
+    let mut a = vec![0f32; ow * oh];
+    for y in 0..h {
+        for x in 0..w {
+            a[(y + pad) * ow + x + pad] = mask[y * w + x] as f32;
+        }
+    }
+    let mut b = vec![0f32; ow * oh];
+    // Rows (only the mask's rows hold anything yet), then columns.
+    for y in pad..pad + h {
+        for x in 0..ow {
+            let mut v = 0.;
+            for (k, &kv) in kernel.iter().enumerate() {
+                let sx = x as isize + k as isize - pad as isize;
+                if sx >= 0 && (sx as usize) < ow {
+                    v += a[y * ow + sx as usize] * kv;
+                }
+            }
+            b[y * ow + x] = v;
+        }
+    }
+    let mut out = vec![0u8; ow * oh];
+    for y in 0..oh {
+        for x in 0..ow {
+            let mut v = 0.;
+            for (k, &kv) in kernel.iter().enumerate() {
+                let sy = y as isize + k as isize - pad as isize;
+                if sy >= 0 && (sy as usize) < oh {
+                    v += b[sy as usize * ow + x] * kv;
+                }
+            }
+            out[y * ow + x] = v.round().clamp(0., 255.) as u8;
+        }
+    }
+    (out_size, out)
+}
+

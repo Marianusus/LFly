@@ -53,3 +53,17 @@ background fades in over 120 ms and out over 220 ms, easing out, instead of swit
 app's CSS `transition: background`). Only the background blends (straight RGBA weighted by alpha);
 the rest of the hover style switches at once. Only stateful elements (with an id) fade, the state
 is written in the paint pass only, and nothing fades under `App::reduce_motion`.
+
+## Blurred and scaled glyphs
+
+The lyrics (Tauri: LyricsLines.svelte; phone: LyricsView.kt) blur the lines away from the one
+sung, glow under what is sung and grow the word being sung. GPUI has no text blur or text shadow,
+so:
+
+- `gpui-pre/src/text_system.rs`: `RenderGlyphParams::blur` (a Gaussian's sigma in half device
+  pixels, part of the atlas key). `TextSystem::raster_bounds` grows the sharp glyph's bounds by
+  three sigmas; `rasterize_glyph` rasterises the sharp glyph with the platform's text system and
+  blurs its one-byte mask (`blur_mask`, separable), so Linux and Windows both get it.
+- `gpui-pre/src/window.rs`: `Window::paint_glyph_fx(origin, font, glyph, size, color, blur, scale,
+  pivot)`, like `paint_glyph` but always a grayscale `MonochromeSprite` (sharp, blurred or scaled
+  glyphs look alike), blurred glyphs on whole pixels, the scale a sprite transform about `pivot`.

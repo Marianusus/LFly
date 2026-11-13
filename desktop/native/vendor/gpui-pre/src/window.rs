@@ -5143,6 +5143,7 @@ impl Window {
             is_emoji: false,
             subpixel_rendering,
             dilation,
+            blur: 0,
         };
 
         let raster_bounds = self.text_system().raster_bounds(&params)?;
@@ -5181,6 +5182,94 @@ impl Window {
                     transformation: TransformationMatrix::unit(),
                 });
             }
+        }
+        Ok(())
+    }
+
+    /// LFly patch: a monochrome glyph as [`paint_glyph`](Self::paint_glyph) paints it, blurred by
+    /// a Gaussian of sigma [blur] and scaled by [scale] about [pivot] (both in window pixels).
+    /// Always grayscale (no subpixel rendering), so a glyph looks the same sharp or blurred,
+    /// still or scaled. Blurs are kept in half device pixel steps; a blurred glyph sits on whole
+    /// pixels.
+    pub fn paint_glyph_fx(
+        &mut self,
+        origin: Point<Pixels>,
+        font_id: FontId,
+        glyph_id: GlyphId,
+        font_size: Pixels,
+        color: Hsla,
+        blur: Pixels,
+        scale: f32,
+        pivot: Point<Pixels>,
+    ) -> Result<()> {
+        self.invalidator.debug_assert_paint();
+
+        let element_opacity = self.element_opacity();
+        let scale_factor = self.scale_factor();
+        let glyph_origin = origin.scale(scale_factor);
+        let blur = (blur.0 * scale_factor * 2.).round().clamp(0., 255.) as u8;
+        let (integer_origin, subpixel_variant) = if blur > 0 {
+            (glyph_origin.map(|c| ScaledPixels(c.0.round())), Point::default())
+        } else {
+            let quantized_origin = Point::new(
+                round_half_toward_zero(glyph_origin.x.0 * SUBPIXEL_VARIANTS_X as f32)
+                    / SUBPIXEL_VARIANTS_X as f32,
+                round_half_toward_zero(glyph_origin.y.0 * SUBPIXEL_VARIANTS_Y as f32)
+                    / SUBPIXEL_VARIANTS_Y as f32,
+            );
+            (
+                quantized_origin.map(|c| ScaledPixels(c.trunc())),
+                Point::new(
+                    (quantized_origin.x.fract() * SUBPIXEL_VARIANTS_X as f32) as u8,
+                    (quantized_origin.y.fract() * SUBPIXEL_VARIANTS_Y as f32) as u8,
+                ),
+            )
+        };
+        let dilation = self.text_system().glyph_dilation_for_color(color);
+        let params = RenderGlyphParams {
+            font_id,
+            glyph_id,
+            font_size,
+            subpixel_variant,
+            scale_factor,
+            is_emoji: false,
+            subpixel_rendering: false,
+            dilation,
+            blur,
+        };
+
+        let raster_bounds = self.text_system().raster_bounds(&params)?;
+        if !raster_bounds.is_zero() {
+            let tile = self
+                .sprite_atlas
+                .get_or_insert_with(params.clone().into(), &mut || {
+                    let (size, bytes) = self.text_system().rasterize_glyph(&params)?;
+                    Ok(Some((size, Cow::Owned(bytes))))
+                })?
+                .expect("Callback above only errors or returns Some");
+            let bounds = Bounds {
+                origin: integer_origin + raster_bounds.origin.map(Into::into),
+                size: tile.bounds.size.map(Into::into),
+            };
+            let content_mask = self.snapped_content_mask();
+            let transformation = if (scale - 1.).abs() > 1e-4 {
+                let p = pivot.scale(scale_factor);
+                TransformationMatrix {
+                    rotation_scale: [[scale, 0.], [0., scale]],
+                    translation: [p.x.0 * (1. - scale), p.y.0 * (1. - scale)],
+                }
+            } else {
+                TransformationMatrix::unit()
+            };
+            self.next_frame.scene.insert_primitive(MonochromeSprite {
+                order: 0,
+                pad: 0,
+                bounds,
+                content_mask,
+                color: color.opacity(element_opacity),
+                tile,
+                transformation,
+            });
         }
         Ok(())
     }
@@ -5233,6 +5322,7 @@ impl Window {
             is_emoji: true,
             subpixel_rendering: false,
             dilation: 0,
+            blur: 0,
         };
 
         let raster_bounds = self.text_system().raster_bounds(&params)?;
