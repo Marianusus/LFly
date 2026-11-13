@@ -454,8 +454,8 @@ impl Lfly {
                 s.run(q, cx);
             });
         }
-        // LFLY_SEEK="<seconds>@<ms>" (tests): moves the song to <ms> after <seconds>.
-        if let Some((after, to)) = std::env::var("LFLY_SEEK").ok().and_then(|v| v.split_once('@').and_then(|(a, b)| Some((a.parse::<f64>().ok()?, b.parse::<i64>().ok()?)))) {
+        // LFLY_SEEK="<seconds>@<ms>[;<seconds>@<ms>…]" (tests): moves the song to <ms> after <seconds>.
+        for (after, to) in std::env::var("LFLY_SEEK").unwrap_or_default().split(';').filter_map(|v| v.split_once('@').and_then(|(a, b)| Some((a.trim().parse::<f64>().ok()?, b.trim().parse::<i64>().ok()?)))) {
             let model = this.model.clone();
             cx.spawn(async move |_, cx| {
                 cx.background_executor().timer(std::time::Duration::from_secs_f64(after)).await;

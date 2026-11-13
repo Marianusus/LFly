@@ -125,6 +125,17 @@ impl AudioModel {
         self.save_soon(cx);
     }
 
+    /// Automix on or off, and its style (the phone's names: "AUTO", "BASS_SWAP"…).
+    pub fn set_automix(&mut self, on: bool, style: Option<&str>, cx: &mut Context<Self>) {
+        self.v.automix = on;
+        if let Some(s) = style {
+            self.v.automix_style = s.to_string();
+        }
+        self.core.player.set_automix(on, lfly_mix::curves::MixStyle::from_key(&self.v.automix_style));
+        self.save_soon(cx);
+        cx.notify();
+    }
+
     pub fn set_device(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         self.v.device = id.clone();
         self.core.player.set_device(id);

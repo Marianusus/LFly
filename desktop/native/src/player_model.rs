@@ -170,6 +170,12 @@ impl PlayerModel {
         d.max(0) as u64
     }
 
+    /// How fast the song runs against the wall clock: the speed, times an Automix's tempo match
+    /// (1 for a controlled device).
+    pub fn rate(&self) -> f64 {
+        if self.remote.is_none() { self.core.player.effective_speed() } else { 1. }
+    }
+
     /// The position now (player.svelte.ts `livePosition`): the last sample, carried forward at the
     /// playback speed while playing.
     pub fn live_position(&self) -> f64 {
@@ -179,7 +185,8 @@ impl PlayerModel {
         }
         let d = self.duration_ms() as f64;
         // At this computer's speed (a controlled device plays at its own, 1×).
-        let speed = if self.remote.is_none() { self.core.player.speed() as f64 } else { 1. };
+        // An Automix bends the incoming song's tempo for a while: that counts too.
+        let speed = self.rate();
         let p = p + self.position_at.elapsed().as_secs_f64() * 1000. * speed;
         if d > 0. { p.min(d) } else { p }
     }

@@ -846,6 +846,7 @@ impl SettingsPage {
         let audio = AudioModel::entity(cx);
         let a = audio.read(cx);
         let (eq, crossfade, device, devices, preset) = (a.v.eq, a.v.crossfade, a.v.device.clone(), a.devices.clone(), a.preset());
+        let (automix_on, automix_style) = (a.v.automix, a.v.automix_style.clone());
         let text3 = self.look.read(cx).scheme.text3;
         let card = || {
             div().pt(px(18.)).px(px(20.)).pb(px(20.)).rounded(px(24.)).bg(self.look.read(cx).scheme.glass_tint).border_1().border_color(i.border)
@@ -985,7 +986,49 @@ impl SettingsPage {
                         move |f, _, cx| au5.update(cx, |a, cx| a.set_crossfade(f * 12., cx)),
                     )),
             )
-            .child(help("Ogni brano sfuma nel successivo. Con la dissolvenza spenta i brani si susseguono senza pause, come negli album dal vivo."));
+            .child(help("Ogni brano sfuma nel successivo. Con la dissolvenza spenta i brani si susseguono senza pause, come negli album dal vivo."))
+            .child({
+                let (au6, au7) = (audio.clone(), audio.clone());
+                let usable = lfly_core::automix::available();
+                div()
+                    .mt(px(14.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(12.))
+                            .child(label(
+                                "Mixa a tempo",
+                                Some(if usable {
+                                    "Come sul telefono: trova le battute alla fine di un brano e all'inizio del successivo, li porta allo stesso tempo e li mixa su una battuta, con EQ e filtri. Se due brani non si possono mixare a tempo, sfumano (5 s se la dissolvenza è spenta)."
+                                        .into()
+                                } else {
+                                    "Non disponibile in questa versione: serve il modello delle battute.".into()
+                                }),
+                                i,
+                            ))
+                            .child(switch("sw-automix", automix_on, !usable, i, move |cx| au6.update(cx, |a, cx| a.set_automix(!automix_on, None, cx)))),
+                    )
+                    .when(automix_on && usable, |d| {
+                        d.child(seg(
+                            "automix-style",
+                            &automix_style,
+                            &[
+                                ("AUTO".to_string(), "Automatico"),
+                                ("BASS_SWAP".to_string(), "Bass swap"),
+                                ("EQ_SWAP".to_string(), "EQ"),
+                                ("FILTER".to_string(), "Filtro"),
+                                ("RISE".to_string(), "Rise"),
+                                ("FADE".to_string(), "Dissolvenza"),
+                            ],
+                            i,
+                            move |v, cx| au7.update(cx, |a, cx| a.set_automix(true, Some(&v), cx)),
+                        ))
+                    })
+            });
 
         // `<select>`: the system's default, then each device; the chosen one ticked.
         let mut options: Vec<(Option<String>, String)> = vec![(None, "Predefinita del sistema".into())];

@@ -668,16 +668,18 @@ impl Render for Lyrics {
                 }
 
                 // The clock between the player's samples: carried forward, re-anchored on drift.
-                let (raw, playing_now) = {
+                let (raw, playing_now, rate) = {
                     let m = model.read(cx);
-                    (m.live_position(), m.playing())
+                    (m.live_position(), m.playing(), m.rate())
                 };
-                let clock = if !playing_now || (st.anchor_pos + (now - st.anchor_at) - raw).abs() > 150. {
+                // At the song's own rate (Velocità, an Automix's tempo match), not the wall's.
+                let carried = st.anchor_pos + (now - st.anchor_at) * rate;
+                let clock = if !playing_now || (carried - raw).abs() > 150. {
                     st.anchor_pos = raw;
                     st.anchor_at = now;
                     raw
                 } else {
-                    st.anchor_pos + (now - st.anchor_at)
+                    carried
                 };
                 let at = clock - offset;
                 let dt = (now - st.last).min(64.);

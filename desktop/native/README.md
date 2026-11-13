@@ -17,7 +17,7 @@ opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast,
 test run, `LFLY_CONNECT_PORT=<port>` serves LFly Connect on loopback only, `LFLY_CONNECT_FOLLOW=<host>:<port>`
 follows such a host at start, `LFLY_CONNECT_ID`/`NAME`/`SECRET` stand in for the identity, `LFLY_CONNECT_PLAY_HERE_AFTER=<s>` presses "Ascolta qui", `LFLY_CONNECT_FOLLOW_AFTER=<s>` delays the follow, `LFLY_CONNECT_ACCEPT=1` accepts a pairing (use a copied config: it trusts), `LFLY_MENU=sleep` opens the full player's menu with the sleep timer,
 `LFLY_SLEEP_AFTER=<s>` sets a short sleep timer, `LFLY_DOWNLOAD_PAGE=1` (with `LFLY_DOWNLOADS_DIR`) downloads the
-collection opened, `LFLY_LIBRARY_FILTER=playlists|downloads|youtube|recent` picks the library's filter, `LFLY_STANDBY=1` opens Modalità Ambient (not full screen) once a song plays, `LFLY_SPEED=1.5` plays at that speed, `LFLY_SEEK="20@120000"` moves the song to 2:00 after 20 s, `LFLY_MENU=speed` shows the speeds, `LFLY_HOVER_SWEEP="x,y0,y1@start+secs"` moves the pointer, `LFLY_SHELF_NEXT=recent@6` turns a Home shelf's page (its ›) after 6 s (`all`: every shelf),
+collection opened, `LFLY_LIBRARY_FILTER=playlists|downloads|youtube|recent` picks the library's filter, `LFLY_STANDBY=1` opens Modalità Ambient (not full screen) once a song plays, `LFLY_SPEED=1.5` plays at that speed, `LFLY_SEEK="20@120000;90@30000"` moves the song to 2:00 after 20 s (and to 0:30 after 90 s), `LFLY_MENU=speed` shows the speeds, `LFLY_HOVER_SWEEP="x,y0,y1@start+secs"` moves the pointer, `LFLY_SHELF_NEXT=recent@6` turns a Home shelf's page (its ›) after 6 s (`all`: every shelf),
 `LFLY_SETTINGS=general|sound|lyrics|devices|account|storage|about` opens a Settings section, `LFLY_MUTE=1`,
 `LFLY_NO_GLASS=1` (no glass at all, to measure it), `LFLY_GLASS_BLEED=0|1`;
 `LFLY_GLASS_DEBUG`, `LFLY_GLASS_EMPTY`, `LFLY_GLASS_HIDE` for the glass check
@@ -77,6 +77,15 @@ LyricsPlus, Unison, YouTube captions, YouTube Music, KuGou, LRCLIB, Musixmatch a
 listener's order (lfly-yt `lyrics/order.rs`). PaxSenix's keyless source is left out: it reads a
 token out of Apple Music's web player. Songs play from YouTube Music and Monochrome raced
 (Settings > Riproduzione > Da dove suona; lfly-yt `monochrome.rs`); downloads stay on YouTube Music.
+
+Automix (Settings > Riproduzione > Automix > Mixa a tempo, off at first), as on the phone: the
+last minute of the playing song and the first of the next are analysed from 150 s before the end
+(lfly-core `automix.rs`: the Beat This! model on ONNX Runtime in lfly-beat, loudness and energy in
+lfly-mix), the planner picks the bars and the incoming tempo, and the engine mixes the two decks
+on the exit's very sample (lfly-audio `automix.rs`), the incoming song eased back to its own tempo
+afterwards. Analyses are kept in the data folder (`lfly/automix`). Not ported yet: the send
+effects (echo, reverb, loop roll), Playlist Mix and the DJ. The model is built in only where ONNX
+Runtime ships a build (not for windows-gnu); elsewhere Automix falls back to a crossfade.
 
 Known differences, from what GPUI can draw: the lyrics' soft edge sweeps letter by letter (no
 gradient text), their fog fades whole lines (no masks);
