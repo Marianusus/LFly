@@ -1,7 +1,7 @@
 //! The sidebar (Tauri: components/Sidebar.svelte): a glass panel with the mark, the three tabs,
 //! the playlists (liked songs, downloads, local and account playlists) and Settings.
-//! The selected row sits on the accent-tinted pill of SelectionPill.svelte (still, for now:
-//! Tauri slides it with a spring).
+//! The selected row sits on the accent-tinted pill of SelectionPill.svelte, which travels between
+//! rows on the phone's spring (pill.rs).
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -23,6 +23,9 @@ pub struct Sidebar {
     library: Entity<LibraryModel>,
     look: Entity<Look>,
     covers: Entity<Covers>,
+    /// SelectionPill.svelte: one for the tabs, one for the playlists.
+    tabs_pill: crate::pill::Pill,
+    list_pill: crate::pill::Pill,
     _subs: Vec<Subscription>,
 }
 
@@ -42,7 +45,7 @@ impl Sidebar {
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
         ];
-        Self { nav, ui, wide: true, can_toggle: true, library, look, covers, _subs: subs }
+        Self { nav, ui, wide: true, can_toggle: true, library, look, covers, tabs_pill: crate::pill::Pill::new(), list_pill: crate::pill::Pill::new(), _subs: subs }
     }
 }
 
@@ -70,7 +73,8 @@ fn pill_bg(c: &C) -> Hsla {
 }
 
 impl Render for Sidebar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let light = self.look.read(cx).scheme.light;
         let (c, look) = {
             let l = self.look.read(cx);
             let s = &l.scheme;
@@ -88,6 +92,19 @@ impl Render for Sidebar {
             )
         };
         let key = self.nav.read(cx).page_route().key();
+        // The pills first (they read where the rows were drawn last frame).
+        let pill_look = crate::pill::PillLook {
+            fill: pill_bg(&c),
+            ring: c.accent.hsla(0.22),
+            glass: white().opacity(if light { 0.5 } else { 0.1 }),
+            glass_rim: white().opacity(if light { 0.7 } else { 0.22 }),
+            radius: 999.,
+        };
+        let reduce = crate::prefs::Prefs::reduce_motion(cx);
+        let tab_key = ["home", "search", "library"].contains(&key.as_str()).then_some(key.as_str());
+        let tabs_pill = self.tabs_pill.render(tab_key, &pill_look, reduce, window);
+        let list_key = (key == "liked" || key == "downloads" || key.starts_with("playlist:")).then_some(key.as_str());
+        let list_pill = self.list_pill.render(list_key, &crate::pill::PillLook { radius: 16., ..pill_look }, reduce, window);
         // Folded: every icon stays where it is, the words go (Sidebar.svelte `.narrow`).
         let wide = self.wide;
         let lib = self.library.read(cx);
@@ -101,8 +118,11 @@ impl Render for Sidebar {
         };
 
         // `.item`: 40 px, 600 14px, text-2; active: text, the icon in the accent, on the pill.
+        let tabs_marks = &self.tabs_pill;
         let item = |k: &'static str, label: &'static str, name: &'static str, size: f32, route: Route| {
             let on = key == k;
+            // Settings sits outside the tabs: its own still fill.
+            let own_fill = k == "settings";
             let name = if on && name == "home" { "home-fill" } else { name };
             let group: SharedString = format!("sb-{k}").into();
             div()
@@ -120,7 +140,8 @@ impl Render for Sidebar {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if on { c.text } else { c.text2 })
                 .cursor_pointer()
-                .when(on, |s| s.bg(pill_bg(&c)).border_1().border_color(accent.opacity(0.22)))
+                .when(on && own_fill, |s| s.bg(pill_bg(&c)).border_1().border_color(accent.opacity(0.22)))
+                .when(!own_fill, |s| s.child(tabs_marks.mark(k)))
                 .when(!on, |s| s.hover(|s| s.text_color(c.text).bg(c.text.opacity(0.06))))
                 .on_click(go(route))
                 .child(
@@ -133,10 +154,14 @@ impl Render for Sidebar {
         };
 
         // `.entry`: 6 px padding, a 40 px art, name 500 13.5px and a 12px subtitle.
+        let list_marks = &self.list_pill;
         let entry = |k: String, art: AnyElement, name: SharedString, sub: SharedString, route: Route| {
             let on = key == k;
+            let mark = list_marks.mark(k.clone());
             div()
                 .id(SharedString::from(k))
+                .relative()
+                .child(mark)
                 .w_full()
                 .p(px(6.))
                 .flex()
@@ -144,7 +169,6 @@ impl Render for Sidebar {
                 .gap(px(12.))
                 .rounded(px(16.))
                 .cursor_pointer()
-                .when(on, |s| s.bg(pill_bg(&c)).border_1().border_color(accent.opacity(0.22)))
                 .when(!on, |s| s.hover(|s| s.bg(c.text.opacity(0.06))))
                 .on_click(go(route))
                 .child(art)
@@ -307,10 +331,13 @@ impl Render for Sidebar {
                     })
                     .child(
                         div()
-                            .px(px(4.))
+                            .relative()
+                            .mx(px(4.))
                             .flex()
                             .flex_col()
                             .gap(px(2.))
+                            .child(self.tabs_pill.origin())
+                            .children(tabs_pill)
                             .child(item("home", "Home", "home", 20., Route::Home))
                             .child(item("search", "Cerca", "search", 20., Route::Search))
                             .child(item("library", "Libreria", "library", 20., Route::Library)),
@@ -353,10 +380,16 @@ impl Render for Sidebar {
                             .px(px(4.))
                             .pt(px(2.))
                             .pb(px(8.))
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .children(entries),
+                            .child(
+                                div()
+                                    .relative()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.))
+                                    .child(self.list_pill.origin())
+                                    .children(list_pill)
+                                    .children(entries),
+                            ),
                     )
                     .child(
                         div()

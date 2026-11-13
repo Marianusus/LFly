@@ -28,7 +28,7 @@ Glass (see `vendor/PATCHES.md`). Windows check from Linux:
 
 ## Port status
 
-Done: the shell (sidebar with the library's playlists, top bar with the glass pills and window
+Done: the shell (sidebar with the library's playlists and SelectionPill's spring, top bar with the glass pills and window
 controls, navigation), the theme (palette.ts, checked number for number) and the scene behind
 the window, Inter in its five weights (the face the Tauri window bundles; Segoe UI Variable on
 Windows, as there), the icon set, the full player bar (with its 900/620 px layouts), Home, Album,
@@ -59,11 +59,10 @@ LFly Connect's.
 To do, in this order (each screen: its Tauri commands into lfly-core, the Svelte file with its
 CSS numbers, a screenshot against `mock.html` in Chromium):
 
-1. Foundations still missing: the SelectionPill spring in the sidebar.
-2. Custom themes, Spicetify and its marketplace.
-3. LFly Connect and library sync, Google Drive, YouTube Music sign-in (a short-lived webview
+1. Custom themes, Spicetify and its marketplace.
+2. LFly Connect and library sync, Google Drive, YouTube Music sign-in (a short-lived webview
    helper process: GPUI has no webview).
-4. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.
+3. Installers (the Tauri bundler made them), and macOS (Metal glass) if it stays.
 
 Cannot be ported: a Spicetify `user.css` imported as a theme (arbitrary CSS needs a web
 engine). Its colours (`color.ini`) can.

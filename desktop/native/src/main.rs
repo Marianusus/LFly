@@ -26,6 +26,7 @@ mod media;
 mod motion;
 mod nav;
 mod now_playing;
+mod pill;
 mod player_bar;
 mod player_model;
 mod prefs;
