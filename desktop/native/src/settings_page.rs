@@ -1049,7 +1049,7 @@ impl SettingsPage {
                             let ask = self.asking("downloads");
                             let me3 = cx.entity().downgrade();
                             row()
-                                .child(label("Brani scaricati", Some(format!("{n} brani · {}", size(bytes))), i))
+                                .child(label("Brani scaricati", Some(format!("{} · {}", crate::ui::brani(n as u64), size(bytes))), i))
                                 .when_some(folder, |r, f| {
                                     r.child(button("open-dl", "Apri cartella", false, false, i).on_click(move |_, _, cx| cx.open_with_system(&f)))
                                 })
@@ -1111,7 +1111,7 @@ impl SettingsPage {
                             .child(switch("sw-pause", paused, false, i, move |cx| prefs.update(cx, |p, cx| p.update(|d| d.pause_history = !paused, cx))))
                             .into_any_element(),
                         row()
-                            .child(label("Cronologia di ascolto", Some(format!("{history} brani")), i))
+                            .child(label("Cronologia di ascolto", Some(crate::ui::brani(history as u64)), i))
                             .child(button("clear-history", if ask_history { "Sicuro? Cancella" } else { "Cancella" }, ask_history, history == 0, i).when(history > 0, |b| {
                                 b.on_click(move |_, _, cx| {
                                     let _ = me2.update(cx, |this, cx| {

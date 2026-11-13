@@ -403,7 +403,7 @@ impl Render for LibraryPage {
                     .gap(px(10.))
                     .text_size(px(13.))
                     .text_color(s.text2)
-                    .child(div().mr_auto().child(format!("{} brani sul computer", downloaded.len())))
+                    .child(div().mr_auto().child(format!("{} sul computer", crate::ui::brani(downloaded.len() as u64))))
                     .child(pill("dl-play", true).on_click(move |_, _, cx| play(cx)).child(icon("play", 14., s.on_accent.hsla(1.))).child("Riproduci"))
                     .child(pill("dl-open", false).on_click(move |_, _, cx| open(cx)).child("Apri Scaricati"))
                     .into_any_element(),
@@ -455,7 +455,7 @@ impl Render for LibraryPage {
                     items.push(library_item(
                         "lib-liked".into(),
                         "Brani che ti piacciono".into(),
-                        format!("{} brani", favorites.len()),
+                        crate::ui::brani(favorites.len() as u64),
                         Art::Icon("heart-fill", None),
                         list,
                         item_w,
@@ -468,7 +468,7 @@ impl Render for LibraryPage {
                         items.push(library_item(
                             "lib-downloads".into(),
                             "Scaricati".into(),
-                            format!("{} brani sul computer", downloaded.len()),
+                            format!("{} sul computer", crate::ui::brani(downloaded.len() as u64)),
                             Art::Icon("download", Some((0x3d8bfd, 0x1d2f8f))),
                             list,
                             item_w,
@@ -485,7 +485,7 @@ impl Render for LibraryPage {
                     items.push(library_item(
                         format!("lib-{}", p.id).into(),
                         p.name.clone(),
-                        format!("Playlist · {} brani", p.count),
+                        format!("Playlist · {}", crate::ui::brani(p.count as u64)),
                         Art::Cover(cover),
                         list,
                         item_w,

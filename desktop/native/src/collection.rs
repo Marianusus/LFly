@@ -164,7 +164,7 @@ impl Collection {
                 self.header = Header {
                     kind: "Playlist".into(),
                     title: "Brani che ti piacciono".into(),
-                    meta: [format!("{} brani", tracks.len()), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                    meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
                     ..Default::default()
                 };
                 self.set_tracks(tracks, cx);
@@ -179,7 +179,7 @@ impl Collection {
                         self.header = Header {
                             kind: "Playlist".into(),
                             title: str_of("name").unwrap_or_default().into(),
-                            meta: [format!("{} brani", tracks.len()), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                            meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
                             byline: Some(("La tua playlist".into(), None)),
                             description: str_of("description").filter(|d| !d.trim().is_empty()).map(Into::into),
                             cover_url: str_of("coverUrl").or_else(|| tracks.first().and_then(|t| t.cover_url.clone())),
@@ -200,7 +200,7 @@ impl Collection {
                     kind: "Sul computer".into(),
                     title: "Scaricati".into(),
                     byline: Some(("Disponibili anche offline".into(), None)),
-                    meta: [format!("{} brani", tracks.len()), minutes(&tracks), size].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                    meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks), size].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
                     ..Default::default()
                 };
                 self.set_tracks(tracks, cx);
@@ -218,7 +218,7 @@ impl Collection {
                 this.loading = false;
                 match r {
                     Ok(p) => {
-                        let meta = [p.year.clone().unwrap_or_default(), format!("{} brani", p.tracks.len()), minutes(&p.tracks)]
+                        let meta = [p.year.clone().unwrap_or_default(), crate::ui::brani(p.tracks.len() as u64), minutes(&p.tracks)]
                             .into_iter()
                             .filter(|s| !s.is_empty())
                             .collect::<Vec<_>>()
@@ -251,7 +251,7 @@ impl Collection {
                 this.loading = false;
                 match r {
                     Ok(p) => {
-                        let meta = [format!("{} brani", p.tracks.len()), minutes(&p.tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+                        let meta = [crate::ui::brani(p.tracks.len() as u64), minutes(&p.tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
                         this.header = Header {
                             kind: "Playlist".into(),
                             title: p.title.into(),

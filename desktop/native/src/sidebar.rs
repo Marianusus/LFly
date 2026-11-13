@@ -202,7 +202,7 @@ impl Render for Sidebar {
             "liked".into(),
             liked_art,
             "Brani che ti piacciono".into(),
-            format!("Playlist · {favorites} brani").into(),
+            format!("Playlist · {}", crate::ui::brani(favorites as u64)).into(),
             Route::Liked,
         )];
         // Sidebar.svelte `showDownloads`: once something is downloaded or on its way.
@@ -222,7 +222,7 @@ impl Render for Sidebar {
                 .bg(linear_gradient(140., linear_color_stop(rgb(0x34c3ff), 0.), linear_color_stop(rgb(0x2563eb), 1.)))
                 .child(icon("download", 17., white()))
                 .into_any_element();
-            let sub = if downloading > 0 { format!("In download: {downloading}") } else { format!("{dl_count} brani") };
+            let sub = if downloading > 0 { format!("In download: {downloading}") } else { crate::ui::brani(dl_count as u64) };
             entries.push(entry("downloads".into(), art, "Scaricati".into(), sub.into(), Route::Downloads));
         }
         for p in playlists {
@@ -239,7 +239,7 @@ impl Render for Sidebar {
                 format!("playlist:{}", p.id),
                 art,
                 p.name.clone().into(),
-                format!("Playlist · {} brani", p.count).into(),
+                format!("Playlist · {}", crate::ui::brani(p.count as u64)).into(),
                 Route::Playlist { id: p.id, name: p.name, local: true },
             ));
         }

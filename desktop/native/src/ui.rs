@@ -81,3 +81,9 @@ impl Ui {
         self.sidebar_wide && width > 900. && !(self.panel.is_some() && width < 1180.)
     }
 }
+
+/// "1 brano", "12 brani".
+pub fn brani(n: impl Into<u64>) -> String {
+    let n = n.into();
+    if n == 1 { "1 brano".into() } else { format!("{n} brani") }
+}

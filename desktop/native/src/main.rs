@@ -335,23 +335,20 @@ impl Lfly {
             this.nav.update(cx, |n, _| n.route = route);
         }
         if let Ok(r) = std::env::var("LFLY_ROUTE") {
-            let (k, id) = r.split_once(':').unwrap_or((r.as_str(), ""));
-            let route = match k {
-                "liked" => Some(Route::Liked),
-                "downloads" => Some(Route::Downloads),
-                "library" => Some(Route::Library),
-                "settings" => Some(Route::Settings),
-                "lyrics" => Some(Route::Lyrics),
-                "nowplaying" => Some(Route::NowPlaying),
-                "album" => Some(Route::Album { id: id.into(), name: String::new() }),
-                "playlist" => Some(Route::Playlist { id: id.into(), name: String::new(), local: false }),
-                "local" => Some(Route::Playlist { id: id.into(), name: String::new(), local: true }),
-                "artist" => Some(Route::Artist { id: id.into(), name: String::new() }),
-                _ => None,
-            };
-            if let Some(route) = route {
+            if let Some(route) = test_route(&r) {
                 this.nav.update(cx, |n, cx| n.go(route, cx));
             }
+        }
+        // LFLY_ROUTE_AFTER="<route>@<seconds>": a second page later (the sidebar pill's journey).
+        if let Some((r, secs)) = std::env::var("LFLY_ROUTE_AFTER").ok().and_then(|v| v.rsplit_once('@').map(|(r, s)| (r.to_string(), s.parse::<f64>().unwrap_or(3.)))) {
+            let nav = this.nav.clone();
+            cx.spawn(async move |_, cx| {
+                cx.background_executor().timer(std::time::Duration::from_secs_f64(secs)).await;
+                if let Some(route) = test_route(&r) {
+                    let _ = nav.update(cx, |n, cx| n.go(route, cx));
+                }
+            })
+            .detach();
         }
         this
     }
@@ -607,6 +604,24 @@ impl Lfly {
                 .child(div().text_color(text3).child("Questa pagina non è ancora stata portata nella versione nativa."))
                 .into_any_element(),
         }
+    }
+}
+
+/// LFLY_ROUTE's pages (`examples/ids.rs` prints real ids).
+fn test_route(r: &str) -> Option<Route> {
+    let (k, id) = r.split_once(':').unwrap_or((r, ""));
+    match k {
+        "liked" => Some(Route::Liked),
+        "downloads" => Some(Route::Downloads),
+        "library" => Some(Route::Library),
+        "settings" => Some(Route::Settings),
+        "lyrics" => Some(Route::Lyrics),
+        "nowplaying" => Some(Route::NowPlaying),
+        "album" => Some(Route::Album { id: id.into(), name: String::new() }),
+        "playlist" => Some(Route::Playlist { id: id.into(), name: String::new(), local: false }),
+        "local" => Some(Route::Playlist { id: id.into(), name: String::new(), local: true }),
+        "artist" => Some(Route::Artist { id: id.into(), name: String::new() }),
+        _ => None,
     }
 }
 

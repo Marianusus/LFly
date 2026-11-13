@@ -407,7 +407,7 @@ impl Render for Home {
                             .flex()
                             .flex_col()
                             .child(div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).truncate().child(p.name.clone()))
-                            .child(div().text_size(px(11.5)).text_color(s.text3).child(format!("{} brani", p.count))),
+                            .child(div().text_size(px(11.5)).text_color(s.text3).child(crate::ui::brani(p.count as u64))),
                     )
                     .into_any_element()
             })
