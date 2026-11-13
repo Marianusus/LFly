@@ -57,6 +57,8 @@ pub struct NowPlaying {
     was_playing: Option<bool>,
     /// OutputMenu.svelte `open`.
     output_open: bool,
+    /// When the menu opened: OutputMenu.svelte's `pop` (240 ms, up 8 px, fading in).
+    output_at: Instant,
     ambient: Entity<crate::ambient::Ambient>,
     pub width: f32,
     pub height: f32,
@@ -110,6 +112,7 @@ impl NowPlaying {
             pp: Tween::still(1.),
             was_playing: None,
             output_open: std::env::var_os("LFLY_NP_OUTPUT").is_some(),
+            output_at: Instant::now(),
             ambient,
             width: 1100.,
             height: 720.,
@@ -601,6 +604,12 @@ impl Render for NowPlaying {
             .or_else(|| devices.iter().find(|d| d.is_default))
             .map_or("Questo computer".to_string(), |d| d.name.clone());
         let open = self.output_open;
+        let pop = if crate::prefs::Prefs::reduce_motion(cx) { 1. } else { (self.output_at.elapsed().as_secs_f32() / 0.24).min(1.) };
+        if open && pop < 1. {
+            window.request_animation_frame();
+        }
+        // ease-out: fast, then settling.
+        let pop = 1. - (1. - pop).powi(3);
         let me_out = cx.entity().downgrade();
         // LFly Connect: the device this computer controls, the others on the network.
         let connect = crate::connect::ConnectModel::entity(cx);
@@ -692,9 +701,10 @@ impl Render for NowPlaying {
             deferred(
                 div()
                     .absolute()
-                    .bottom(px(32. + 10.))
+                    .bottom(px(32. + 10. - 8. * (1. - pop)))
                     .left(px(-150. + 0.))
                     .w(px(300.))
+                    .opacity(pop)
                     .max_h(px(self.height * 0.6))
                     .rounded(px(22.))
                     .occlude()
@@ -730,6 +740,7 @@ impl Render for NowPlaying {
                             audio2.update(cx, |a, cx| a.load_devices(cx));
                             let _ = me_t.update(cx, |this, cx| {
                                 this.output_open = !this.output_open;
+                                this.output_at = Instant::now();
                                 cx.notify();
                             });
                         })
