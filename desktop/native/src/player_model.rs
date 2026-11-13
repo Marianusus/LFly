@@ -95,7 +95,34 @@ impl PlayerModel {
     /// Starts or stops showing the device this computer controls ([name] None: back here).
     pub fn set_remote(&mut self, name: Option<String>, cx: &mut Context<Self>) {
         match (&self.remote, &name) {
-            (None, Some(_)) => self.local = self.state.take().map(|s| (s, self.position_ms)),
+            (None, Some(_)) => {
+                self.local = self.state.take().map(|s| (s, self.position_ms));
+                // The device reports every few seconds: the bar moves on by itself in between,
+                // four times a second as here (connect.svelte.ts ticks at 250 ms).
+                cx.spawn(async move |this, cx| loop {
+                    cx.background_executor().timer(std::time::Duration::from_millis(250)).await;
+                    let go_on = this
+                        .update(cx, |m, cx| {
+                            if m.remote.is_none() {
+                                return false;
+                            }
+                            if m.playing() {
+                                // The bar draws the sample: carry it forward, as local ticks do.
+                                m.position_ms = m.live_position().max(0.) as u64;
+                                m.position_at = std::time::Instant::now();
+                                if m.active {
+                                    cx.notify();
+                                }
+                            }
+                            true
+                        })
+                        .unwrap_or(false);
+                    if !go_on {
+                        break;
+                    }
+                })
+                .detach();
+            }
             (Some(_), None) => {
                 // The local player's latest, or what it says now.
                 let (state, p) = self.local.take().unwrap_or_else(|| {
