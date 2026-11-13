@@ -15,7 +15,7 @@ real ids), `LFLY_NP_PANEL=lyrics|queue|none` picks the full player's panel, `LFL
 opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast,
 `LFLY_NP_OUTPUT=1` opens the full player's output menu, `LFLY_SIZE=WxH` sizes the window, `LFLY_ROUTE_AFTER=<route>@<seconds>` opens a second page later, `LFLY_MEDIA_TEST=1` registers the system media controls in a
 test run, `LFLY_CONNECT_PORT=<port>` serves LFly Connect on loopback only, `LFLY_CONNECT_FOLLOW=<host>:<port>`
-follows such a host at start, `LFLY_CONNECT_ID`/`NAME`/`SECRET` stand in for the identity, `LFLY_CONNECT_PLAY_HERE_AFTER=<s>` presses "Ascolta qui", `LFLY_CONNECT_FOLLOW_AFTER=<s>` delays the follow, `LFLY_MENU=sleep` opens the full player's menu with the sleep timer,
+follows such a host at start, `LFLY_CONNECT_ID`/`NAME`/`SECRET` stand in for the identity, `LFLY_CONNECT_PLAY_HERE_AFTER=<s>` presses "Ascolta qui", `LFLY_CONNECT_FOLLOW_AFTER=<s>` delays the follow, `LFLY_CONNECT_ACCEPT=1` accepts a pairing (use a copied config: it trusts), `LFLY_MENU=sleep` opens the full player's menu with the sleep timer,
 `LFLY_SLEEP_AFTER=<s>` sets a short sleep timer, `LFLY_DOWNLOAD_PAGE=1` (with `LFLY_DOWNLOADS_DIR`) downloads the
 collection opened, `LFLY_LIBRARY_FILTER=playlists|downloads|youtube|recent` picks the library's filter,
 `LFLY_SETTINGS=general|sound|lyrics|devices|account|storage|about` opens a Settings section, `LFLY_MUTE=1`,

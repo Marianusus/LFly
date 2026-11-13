@@ -239,7 +239,11 @@ impl ConnectModel {
             Ev::Host(e) => match e {
                 HostEvent::PairRequest { request, device_name, code } => {
                     log::info!("Connect: '{device_name}' asks to control this computer");
-                    self.request = Some(Request { request, device_name, code })
+                    self.request = Some(Request { request, device_name, code });
+                    // LFLY_CONNECT_ACCEPT=1 (tests, on a copy of the config): "Accetta" by itself.
+                    if std::env::var_os("LFLY_CONNECT_ACCEPT").is_some() {
+                        self.answer(true, cx);
+                    }
                 }
                 HostEvent::PairGone { request } => {
                     if self.request.as_ref().is_some_and(|r| r.request == request) {
