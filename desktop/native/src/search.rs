@@ -289,6 +289,7 @@ impl Search {
                         this.core.play(&res.songs, 0);
                     }
                 }
+                crate::home::reset_rails("s-");
                 this.results = Some(r);
                 cx.notify();
             });
@@ -299,6 +300,7 @@ impl Search {
     fn song_rows(&mut self, key: &str, songs: &[Track], show_album: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let s = self.look.read(cx).scheme.clone();
         let current = self.model.read(cx).current().map(|t| t.id.clone());
+        let sounding = self.model.read(cx).playing();
         songs
             .iter()
             .enumerate()
@@ -318,6 +320,7 @@ impl Search {
                         duration_ms: t.duration_ms,
                         cover,
                         playing: current.as_deref() == Some(t.id.as_str()),
+                        live: current.as_deref() == Some(t.id.as_str()) && sounding,
                         liked,
                         downloaded: crate::downloads::DownloadsModel::entity(cx).read(cx).has(&t.id),
                         is_video: t.is_video,
@@ -380,7 +383,7 @@ impl Search {
                     let rad = if round { 24. } else { 8. };
                     let cover = it.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
                     (
-                        div().size(px(48.)).flex_none().rounded(px(rad)).bg(s.text.opacity(0.08)).children(cover.map(|im| img(im).size_full().object_fit(ObjectFit::Cover).rounded(px(rad)))).into_any_element(),
+                        div().size(px(48.)).flex_none().rounded(px(rad)).bg(s.text.opacity(0.08)).children(cover.map(|im| crate::covers::fade(im.id(), img(im).size_full().object_fit(ObjectFit::Cover).rounded(px(rad))))).into_any_element(),
                         it.title.clone(),
                         format!("{}{}", kind_name(it.kind), it.subtitle.as_ref().map_or(String::new(), |x| format!(" · {x}"))),
                     )
@@ -395,7 +398,7 @@ impl Search {
                         .flex()
                         .items_center()
                         .rounded(px(12.))
-                        .hover(|d| d.bg(s.glass_tint))
+                        .hover(|d| d.bg(s.glass_tint)).active(|d| d.bg(s.text.opacity(0.12)))
                         .child(
                             div()
                                 .id(("recent-open", i))
@@ -442,7 +445,7 @@ impl Search {
                                 .cursor_pointer()
                                 .invisible()
                                 .group_hover(group, |d| d.visible())
-                                .hover(|d| d.bg(s.glass_tint))
+                                .hover(|d| d.bg(s.glass_tint)).active(|d| d.bg(s.text.opacity(0.12)))
                                 .on_click(move |_, _, cx| {
                                     let r2 = r2.clone();
                                     let _ = me2.update(cx, |this, cx| {
@@ -503,6 +506,7 @@ impl Search {
 
 impl Render for Search {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::track_row::eq_begin();
         let (s, look) = {
             let l = self.look.read(cx);
             (l.scheme.clone(), l.glass())
@@ -564,7 +568,7 @@ impl Render for Search {
                             .rounded(px(14.))
                             .text_size(px(14.))
                             .cursor_pointer()
-                            .hover(|d| d.bg(s.glass_tint))
+                            .hover(|d| d.bg(s.glass_tint)).active(|d| d.bg(s.text.opacity(0.12)))
                             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                                 cx.stop_propagation();
                                 let q = q2.clone();
@@ -791,7 +795,7 @@ impl Render for Search {
                                         .p(px(22.))
                                         .rounded(px(18.))
                                         .bg(s.surface.hsla(0.65))
-                                        .hover(|d| d.bg(s.surface2.hsla(0.8)))
+                                        .hover(|d| d.bg(s.surface2.hsla(0.8))).active(|d| d.bg(s.surface2.hsla(1.)))
                                         .cursor_pointer()
                                         .flex()
                                         .flex_col()
@@ -810,22 +814,23 @@ impl Render for Search {
                                                 .rounded(px(if round { 56. } else { 12. }))
                                                 .overflow_hidden()
                                                 .bg(s.text.opacity(0.08))
-                                                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(if round { 56. } else { 12. })))),
+                                                .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(if round { 56. } else { 12. }))))),
                                         )
                                         .child(
                                             div()
                                                 .flex()
                                                 .flex_col()
                                                 .gap(px(8.))
-                                                .child(div().text_size(px(30.)).line_height(relative(1.1)).font_weight(FontWeight::EXTRA_BOLD).line_clamp(2).child(top.title.clone()))
+                                                .child(div().when(!round, |d| d.pr(px(64.))).text_size(px(30.)).line_height(relative(1.1)).font_weight(FontWeight::EXTRA_BOLD).line_clamp(2).text_ellipsis().child(top.title.clone()))
                                                 .child(
                                                     div()
                                                         .flex()
                                                         .items_center()
+                                                        .min_w_0()
                                                         .text_size(px(14.))
                                                         .text_color(s.text2)
-                                                        .child(div().mr(px(8.)).px(px(10.)).py(px(3.)).rounded_full().bg(s.glass_tint).text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(s.text).child(kind))
-                                                        .child(top.subtitle.clone().unwrap_or_default()),
+                                                        .child(div().flex_none().mr(px(8.)).px(px(10.)).py(px(3.)).rounded_full().bg(s.glass_tint).text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(s.text).child(kind))
+                                                        .child(div().min_w_0().flex_1().truncate().child(top.subtitle.clone().unwrap_or_default())),
                                                 ),
                                         )
                                         .when(!round, |d| {
@@ -841,7 +846,7 @@ impl Render for Search {
                                                     .items_center()
                                                     .justify_center()
                                                     .pl(px(3.))
-                                                    .bg(accent)
+                                                    .bg(accent).active(|d| d.opacity(0.85))
                                                     .invisible()
                                                     .group_hover("top", |d| d.visible())
                                                     .on_click(move |_, _, cx| {
@@ -893,7 +898,6 @@ impl Render for Search {
                         );
                     }
                     body.push(top_row.into_any_element());
-                    let card_w = (w * 0.15).clamp(150., 196.);
                     let nav = self.nav.clone();
                     // What is opened from the shelves joins the recents (as the top result does).
                     let me = cx.entity().downgrade();
@@ -902,7 +906,7 @@ impl Render for Search {
                     });
                     for (key, label, items) in [("s-artists", "Artisti", &r.artists), ("s-albums", "Album", &r.albums), ("s-playlists", "Playlist", &r.playlists)] {
                         let items: Vec<Item> = items.iter().map(|i| i.clone_item()).collect();
-                        if let Some(shelf) = card_shelf(key, label, &items, card_w, &self.covers, &s, &self.core, &nav, Some(remember.clone()), cx) {
+                        if let Some(shelf) = card_shelf(key, label, &items, (self.page_width - 48.).max(crate::home::CARD_MIN), &self.covers, &s, &self.core, &nav, Some(remember.clone()), cx.entity_id(), cx) {
                             body.push(shelf);
                         }
                     }

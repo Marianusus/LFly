@@ -18,6 +18,9 @@ pub struct DownloadsModel {
     ids: HashSet<String>,
     /// Songs on their way: id → 0..1.
     pub progress: HashMap<String, f32>,
+    /// Downloaded songs whose lyrics are not kept, and the lyrics being fetched (done, total).
+    pub missing_lyrics: usize,
+    pub lyrics_progress: Option<(usize, usize)>,
 }
 
 struct DownloadsGlobal(Entity<DownloadsModel>);
@@ -33,10 +36,23 @@ impl DownloadsModel {
             log::warn!("downloads: no folder");
         }
         let e = cx.new(|_| {
-            let mut m = Self { d, list: DownloadList::default(), ids: HashSet::new(), progress: HashMap::new() };
+            let mut m = Self { d, list: DownloadList::default(), ids: HashSet::new(), progress: HashMap::new(), missing_lyrics: 0, lyrics_progress: None };
             m.refresh();
             m
         });
+        // Settings > Spazio "Scarica anche i testi" reaches the downloads.
+        let prefs = crate::prefs::Prefs::entity(cx);
+        let apply = {
+            let e = e.clone();
+            move |cx: &mut App| {
+                let on = crate::prefs::Prefs::get(cx).download_lyrics;
+                if let Some(d) = &e.read(cx).d {
+                    d.set_lyrics_too(on);
+                }
+            }
+        };
+        apply(cx);
+        cx.observe(&prefs, move |_, cx| apply(cx)).detach();
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
             while let Some(ev) = rx.recv().await {
@@ -58,12 +74,30 @@ impl DownloadsModel {
         if let Some(d) = &self.d {
             self.list = d.list();
             self.ids = self.list.tracks.iter().map(|t| t.id.clone()).collect();
+            self.missing_lyrics = d.missing_lyrics().len();
         }
     }
 
     fn apply(&mut self, ev: DownloadEvent, cx: &mut Context<Self>) {
         match ev {
             DownloadEvent::Changed => self.refresh(),
+            DownloadEvent::Lyrics { done, total } => {
+                let was = self.lyrics_progress.map(|_| self.missing_lyrics);
+                self.lyrics_progress = (done < total).then_some((done, total));
+                if done >= total {
+                    self.refresh();
+                    let found = was.map_or(0, |w| w.saturating_sub(self.missing_lyrics));
+                    Toasts::say(
+                        match (total, found) {
+                            (0, _) => "Nessun testo da cercare".to_string(),
+                            (_, 0) => "Nessun testo trovato: riprova più tardi".to_string(),
+                            (_, 1) => "1 testo salvato".to_string(),
+                            (_, n) => format!("{n} testi salvati"),
+                        },
+                        cx,
+                    );
+                }
+            }
             DownloadEvent::Progress { id, done } if done < 0. => {
                 self.progress.remove(&id);
                 Toasts::say("Un download non è riuscito: riprova più tardi.", cx);
@@ -111,6 +145,37 @@ impl DownloadsModel {
     pub fn remove(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
         if let Some(d) = &self.d {
             d.remove(&ids);
+            self.refresh();
+            cx.notify();
+        }
+    }
+
+    /// "Scarica mancanti": the lyrics of the downloads that have none kept.
+    pub fn fetch_missing_lyrics(&mut self, cx: &mut Context<Self>) {
+        if let Some(d) = &self.d {
+            self.lyrics_progress = Some((0, self.missing_lyrics));
+            d.fetch_missing_lyrics();
+            cx.notify();
+        }
+    }
+
+    pub fn remove_lyrics(&mut self, cx: &mut Context<Self>) {
+        if let Some(d) = &self.d {
+            d.remove_lyrics();
+            self.refresh();
+            cx.notify();
+        }
+    }
+
+    /// A downloaded song's kept lyrics (or that it has none), without the network.
+    pub fn kept_lyrics(&self, id: &str) -> Option<lfly_core::lyrics_store::Saved> {
+        self.d.as_ref()?.lyrics(id)
+    }
+
+    /// Keeps what was found online for a downloaded song.
+    pub fn keep_lyrics(&mut self, id: &str, l: Option<&lfly_core::pages::Lyrics>, cx: &mut Context<Self>) {
+        if let Some(d) = &self.d {
+            d.keep_lyrics(id, l);
             self.refresh();
             cx.notify();
         }
@@ -186,7 +251,7 @@ pub fn download_button(id: impl Into<ElementId>, tracks: Vec<TrackRef>, s: &crat
                 .when(!all, |d| d.bg(s.glass_tint).border_1().border_color(s.glass_border))
                 .when(n == 0, |d| d.opacity(0.4))
                 .when(n > 0, |d| {
-                    d.cursor_pointer().when(!all, |d| d.hover(|d| d.bg(s.text.opacity(0.14)))).on_click(move |_, _, cx| {
+                    d.cursor_pointer().when(!all, |d| d.hover(|d| d.bg(s.text.opacity(0.14))).active(|d| d.bg(s.text.opacity(0.25)))).on_click(move |_, _, cx| {
                         let tracks = tracks.clone();
                         dl.update(cx, |m, cx| if all { m.remove(tracks.iter().map(|t| t.id.clone()).collect(), cx) } else { m.add(tracks, cx) })
                     })

@@ -50,11 +50,28 @@ impl Home {
         ];
         let mut this = Self { core, covers, look, nav, library, model, shelves: None, width: 1100., page_width: 800., _subs: subs };
         this.load(cx);
+        // LFLY_SHELF_NEXT=<shelf id>@<seconds> (tests): turns that shelf's page, as its › does.
+        if let Some((id, secs)) = std::env::var("LFLY_SHELF_NEXT").ok().and_then(|v| v.split_once('@').map(|(a, b)| (a.to_string(), b.parse::<f64>().ok())))
+            .and_then(|(a, b)| Some((a, b?)))
+        {
+            let view = cx.entity_id();
+            cx.spawn(async move |_, cx| {
+                cx.background_executor().timer(std::time::Duration::from_secs_f64(secs)).await;
+                // "all": every shelf.
+                let ids: Vec<SharedString> = if id == "all" { RAILS.with(|r| r.borrow().keys().cloned().collect()) } else { vec![id.into()] };
+                for id in ids {
+                    let to = with_rail(&id, |r| r.fwd);
+                    cx.update(|cx| slide(id, to, view, cx));
+                }
+            })
+            .detach();
+        }
         this
     }
 
     fn load(&mut self, cx: &mut Context<Self>) {
         self.shelves = None;
+        reset_rails("shelf-");
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
             let r = core.home().await;
@@ -148,7 +165,7 @@ pub fn card(
         .rounded(px(22.))
         .cursor_pointer()
         .when(!round, |d| d.bg(s.glass_tint).border_1().border_color(glass_tile_shadow(s)))
-        .hover(|d| d.bg(s.text.opacity(0.1)))
+        .hover(|d| d.bg(s.text.opacity(0.1))).active(|d| d.bg(s.text.opacity(0.18)))
         .on_click(move |_, _, cx| open_item(&open, &c1, &n1, cx))
         .child(
             div()
@@ -158,7 +175,7 @@ pub fn card(
                 .rounded(px(if round { art / 2. } else { 15. }))
                 .overflow_hidden()
                 .bg(s.text.opacity(0.08))
-                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(if round { art / 2. } else { 15. })))),
+                .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(if round { art / 2. } else { 15. }))))),
         )
         .child(
             div()
@@ -169,6 +186,7 @@ pub fn card(
                 .text_color(s.text)
                 .when(round, |d| d.text_center())
                 .line_clamp(2)
+                .text_ellipsis()
                 .child(item.title.clone()),
         )
         .children(item.subtitle.clone().map(|sub| {
@@ -194,7 +212,7 @@ pub fn card(
                     .items_center()
                     .justify_center()
                     .pl(px(2.))
-                    .bg(accent)
+                    .bg(accent).active(|d| d.opacity(0.85))
                     .shadow(vec![BoxShadow { color: black().opacity(0.35), offset: point(px(0.), px(8.)), blur_radius: px(20.), spread_radius: px(0.), inset: false }])
                     .invisible()
                     .group_hover(group, |d| d.visible())
@@ -245,7 +263,7 @@ pub fn song_tile(id: SharedString, item: &Item, width: f32, cover: Option<Arc<Im
         .border_1()
         .border_color(if current { accent } else { s.glass_border })
         .cursor_pointer()
-        .hover(|d| d.bg(s.text.opacity(0.1)))
+        .hover(|d| d.bg(s.text.opacity(0.1))).active(|d| d.bg(s.text.opacity(0.18)))
         .on_click(move |_, _, _| {
             if let Some(t) = open.track.clone() {
                 core.play_with_radio(t);
@@ -259,7 +277,7 @@ pub fn song_tile(id: SharedString, item: &Item, width: f32, cover: Option<Arc<Im
                 .rounded(px(14.))
                 .overflow_hidden()
                 .bg(s.text.opacity(0.08))
-                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.))))
+                .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.)))))
                 .child(
                     div()
                         .absolute()
@@ -284,41 +302,195 @@ pub fn song_tile(id: SharedString, item: &Item, width: f32, cover: Option<Arc<Im
         )
 }
 
-/// Shelf.svelte `.row`: a horizontal rail (cards), or two rows of song tiles.
-pub fn rail(id: SharedString, children: Vec<AnyElement>, two_rows: bool) -> impl IntoElement {
-    div()
-        .id(id)
-        .overflow_x_scroll()
-        .px(px(24.))
-        .pt(px(6.))
-        .pb(px(14.))
-        .child(
-            div()
-                .flex()
-                .when(two_rows, |d| d.flex_col().flex_wrap().h(px(2. * 74. + 10.)).gap_y(px(10.)).gap_x(px(12.)))
-                .when(!two_rows, |d| d.gap(px(14.)))
-                .children(children),
-        )
+/// How many items at least [min] px wide fit in [avail] with [gap] between them, and the width
+/// that makes exactly that many fill the row (no item cut by the edge).
+pub fn fit(avail: f32, min: f32, gap: f32) -> (usize, f32) {
+    let cols = ((avail + gap) / (min + gap)).floor().max(1.);
+    (cols as usize, ((avail - gap * (cols - 1.)) / cols).floor())
 }
 
-/// A titled shelf of cards (Shelf.svelte), nothing when empty.
+/// The smallest card and song tile; [fit] makes them wider to fill the row.
+pub const CARD_MIN: f32 = 170.;
+pub const CARD_GAP: f32 = 14.;
+pub const TILE_MIN: f32 = 250.;
+pub const TILE_GAP: f32 = 12.;
+
+/// A shelf's scroll position and what moves it.
+struct Rail {
+    handle: ScrollHandle,
+    /// Bumped by every slide (and reset): a running slide that sees it change stops.
+    turn: u64,
+    /// Where › goes from here (the test hook presses it).
+    fwd: f32,
+    /// The item pitch it was drawn with: when the width changes, the position follows in items.
+    unit: f32,
+    /// Where the running slide is going: a second press pages on from there.
+    target: Option<f32>,
+}
+
+thread_local! {
+    /// Each shelf's scroll position and the paging animation running on it (by its id).
+    static RAILS: std::cell::RefCell<std::collections::HashMap<SharedString, Rail>> = Default::default();
+}
+
+fn with_rail<R>(id: &SharedString, f: impl FnOnce(&mut Rail) -> R) -> R {
+    RAILS.with(|r| f(r.borrow_mut().entry(id.clone()).or_insert_with(|| Rail { handle: ScrollHandle::new(), turn: 0, fwd: 0., unit: 0., target: None })))
+}
+
+/// Back to the first page, for the shelves whose ids start with [prefix] (their content changed:
+/// another artist, another search, Home loaded again).
+pub fn reset_rails(prefix: &str) {
+    RAILS.with(|r| {
+        for (id, rail) in r.borrow_mut().iter_mut() {
+            if id.starts_with(prefix) {
+                rail.handle.set_offset(point(px(0.), px(0.)));
+                rail.turn += 1;
+                rail.target = None;
+            }
+        }
+    });
+}
+
+/// Slides the shelf [id] to [to] (a negative x offset) in 360 ms, easing out, redrawing [view].
+fn slide(id: SharedString, to: f32, view: EntityId, cx: &mut App) {
+    let (handle, me) = with_rail(&id, |r| {
+        r.turn += 1;
+        r.target = Some(to);
+        (r.handle.clone(), r.turn)
+    });
+    let from = f32::from(handle.offset().x);
+    let done = move |id: &SharedString| with_rail(id, |r| r.target = None);
+    if crate::prefs::Prefs::reduce_motion(cx) {
+        handle.set_offset(point(px(to), px(0.)));
+        done(&id);
+        cx.notify(view);
+        return;
+    }
+    let start = std::time::Instant::now();
+    cx.spawn(async move |cx| loop {
+        cx.background_executor().timer(std::time::Duration::from_millis(8)).await;
+        if with_rail(&id, |r| r.turn) != me {
+            return; // Another press, or new content, took over.
+        }
+        let p = (start.elapsed().as_secs_f32() / 0.36).min(1.);
+        let e = 1. - (1. - p).powi(3);
+        handle.set_offset(point(px(from + (to - from) * e), px(0.)));
+        if p >= 1. {
+            done(&id);
+        }
+        cx.update(|cx| cx.notify(view));
+        if p >= 1. {
+            return;
+        }
+    })
+    .detach();
+}
+
+/// A shelf (Shelf.svelte): the title, ‹ › that turn its pages when it holds more than one, and a
+/// row of items [item_w] wide, [cols] to a page (or two rows of song tiles). The row is exactly a
+/// page wide and clipped there, so what shows is whole items.
+#[allow(clippy::too_many_arguments)]
+pub fn shelf(id: SharedString, title: SharedString, children: Vec<AnyElement>, two_rows: bool, cols: usize, item_w: f32, view: EntityId, s: &Scheme) -> AnyElement {
+    let gap = if two_rows { TILE_GAP } else { CARD_GAP };
+    let n = children.len();
+    let columns = if two_rows { n.div_ceil(2) } else { n };
+    let unit = item_w + gap;
+    let step = cols as f32 * unit;
+    let max = columns.saturating_sub(cols) as f32 * unit;
+    let paged = columns > cols;
+    // A page from wherever it rests (snapped to a whole item, in case it was scrolled by hand),
+    // or from where the running slide is going.
+    let snap = |x: f32| ((x / unit).round() * unit).clamp(0., max);
+    let (handle, from) = with_rail(&id, |r| {
+        let mut at = -f32::from(r.handle.offset().x);
+        if r.unit > 0. && (r.unit - unit).abs() > 0.5 {
+            // Wider or narrower now: the same first item stays first.
+            at = ((at / r.unit).round() * unit).min(max);
+            r.handle.set_offset(point(px(-at), px(0.)));
+            r.target = None;
+            r.turn += 1;
+        }
+        r.unit = unit;
+        let from = r.target.map_or(at, |t| -t);
+        (r.handle.clone(), from)
+    });
+    let back = -snap((from - step).max(0.));
+    let fwd = -snap((from + step).min(max));
+    with_rail(&id, |r| r.fwd = fwd);
+    let arrow = |dir: &'static str, enabled: bool, to: f32| {
+        let id = id.clone();
+        div()
+            .id(SharedString::from(format!("{id}-{dir}")))
+            .size(px(30.))
+            .flex_none()
+            .rounded_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(s.text.opacity(0.08))
+            .when(!enabled, |d| d.opacity(0.35))
+            .when(enabled, |d| {
+                d.cursor_pointer().hover(|d| d.bg(s.text.opacity(0.14))).active(|d| d.bg(s.text.opacity(0.22))).on_click(move |_, _, cx| slide(id.clone(), to, view, cx))
+            })
+            .child(icon(dir, 14., s.text))
+    };
+    let half = unit * 0.5;
+    div()
+        .mb(px(36.))
+        .child(
+            div()
+                .px(px(24.))
+                .mb(px(12.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(div().flex_1().min_w_0().truncate().text_size(px(22.)).line_height(px(26.4)).font_weight(FontWeight::BOLD).text_color(s.text).child(title))
+                .when(paged, |d| d.child(arrow("back", from > half, back)).child(arrow("forward", from < max - half, fwd))),
+        )
+        .child(
+            div()
+                .id(id.clone())
+                .ml(px(24.))
+                .w(px(step - gap))
+                .overflow_x_scroll()
+                .track_scroll(&handle)
+                .pt(px(6.))
+                .pb(px(14.))
+                .child(
+                    // Its width told: the scroller measures what it can scroll from it (a block
+                    // child would just take the scroller's width, a column-wrapped one too).
+                    div()
+                        .flex()
+                        .flex_none()
+                        .w(px(columns as f32 * unit - gap))
+                        .when(two_rows, |d| d.flex_col().flex_wrap().h(px(2. * 74. + 10.)).gap_y(px(10.)).gap_x(px(gap)))
+                        .when(!two_rows, |d| d.gap(px(gap)))
+                        .children(children),
+                ),
+        )
+        .into_any_element()
+}
+
+/// A titled shelf of cards filling [avail] px (Shelf.svelte), nothing when empty.
 #[allow(clippy::too_many_arguments)]
 pub fn card_shelf(
     key: &str,
     title: &str,
     items: &[Item],
-    card_w: f32,
+    avail: f32,
     covers: &Entity<Covers>,
     s: &Scheme,
     core: &Arc<Core>,
     nav: &Entity<Nav>,
     // Called with the card opened (Search remembers it among the recents).
     on_open: Option<std::rc::Rc<dyn Fn(&Item, &mut App)>>,
+    view: EntityId,
     cx: &mut App,
 ) -> Option<AnyElement> {
     if items.is_empty() {
         return None;
     }
+    let (cols, card_w) = fit(avail, CARD_MIN, CARD_GAP);
     let children = items
         .iter()
         .enumerate()
@@ -334,18 +506,7 @@ pub fn card_shelf(
             }
         })
         .collect();
-    Some(div().mb(px(36.)).child(shelf_header(title.to_string().into(), s)).child(rail(key.to_string().into(), children, false)).into_any_element())
-}
-
-pub fn shelf_header(title: SharedString, s: &Scheme) -> impl IntoElement {
-    div()
-        .px(px(24.))
-        .mb(px(12.))
-        .text_size(px(22.))
-        .line_height(px(26.4))
-        .font_weight(FontWeight::BOLD)
-        .text_color(s.text)
-        .child(title)
+    Some(shelf(key.to_string().into(), title.to_string().into(), children, false, cols, card_w, view, s))
 }
 
 impl Render for Home {
@@ -363,13 +524,15 @@ impl Render for Home {
         let quick: Vec<_> = lib.playlists.iter().take(8).cloned().collect();
         let recent: Vec<Item> = lib.history.iter().take(12).filter_map(history_item).collect();
         let current = self.model.read(cx).current().map(|t| t.id.clone());
-        let card_w = (w * 0.15).clamp(150., 196.);
+        let view = cx.entity_id();
+        let row_w = (self.page_width - 48.).max(TILE_MIN);
+        let (card_cols, card_w) = fit(row_w, CARD_MIN, CARD_GAP);
+        let (tile_cols, tile_w) = fit(row_w, TILE_MIN, TILE_GAP);
         // `.quick`: grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)), gap 10.
         let avail = (self.page_width - 48.).max(230.);
         let cols = ((avail + 10.) / 240.).floor().max(1.);
         // Floored: three 252.67 px tiles and their gaps must not add up past the row.
         let quick_w = ((avail - 10. * (cols - 1.)) / cols).floor();
-        let tile_w = (w * 0.26).clamp(250., 320.);
         let core = self.core.clone();
         let nav = self.nav.clone();
 
@@ -397,9 +560,9 @@ impl Render for Home {
                     .border_1()
                     .border_color(if s.light { Rgb::hex(0x15151a).hsla(0.1) } else { Rgb::hex(0xffffff).hsla(0.1) })
                     .cursor_pointer()
-                    .hover(|d| d.bg(s.surface2.hsla(0.85)))
+                    .hover(|d| d.bg(s.surface2.hsla(0.85))).active(|d| d.bg(s.surface2.hsla(1.)))
                     .on_click(move |_, _, cx| nav.update(cx, |n, cx| n.go(route.clone(), cx)))
-                    .child(div().size(px(56.)).flex_none().bg(s.text.opacity(0.08)).children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded_l(px(14.)))))
+                    .child(div().size(px(56.)).flex_none().bg(s.text.opacity(0.08)).children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded_l(px(14.))))))
                     .child(
                         div()
                             .min_w_0()
@@ -424,16 +587,10 @@ impl Render for Home {
                     song_tile(format!("recent-{i}").into(), it, tile_w, cover, current.as_deref() == Some(it.id.as_str()), &s, &core).into_any_element()
                 })
                 .collect();
-            sections.push(
-                div()
-                    .mb(px(36.))
-                    .child(shelf_header("Ascoltati di recente".into(), &s))
-                    .child(rail("recent".into(), tiles, true))
-                    .into_any_element(),
-            );
+            sections.push(shelf("recent".into(), "Ascoltati di recente".into(), tiles, true, tile_cols, tile_w, view, &s));
         }
         match &self.shelves {
-            None => sections.push(div().px(px(24.)).text_color(s.text3).child("Caricamento…").into_any_element()),
+            None => sections.push(crate::skeleton::shelves(card_w, &s, cx)),
             Some(Err(e)) => sections.push(
                 div()
                     .px(px(24.))
@@ -485,13 +642,8 @@ impl Render for Home {
                             }
                         })
                         .collect();
-                    sections.push(
-                        div()
-                            .mb(px(36.))
-                            .child(shelf_header(title.into(), &s))
-                            .child(rail(format!("shelf-{si}").into(), children, songs))
-                            .into_any_element(),
-                    );
+                    let (cols, item_w) = if songs { (tile_cols, tile_w) } else { (card_cols, card_w) };
+                    sections.push(shelf(format!("shelf-{si}").into(), title.into(), children, songs, cols, item_w, view, &s));
                 }
             }
         }

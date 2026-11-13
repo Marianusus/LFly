@@ -102,7 +102,7 @@ fn ctl(
         .justify_center()
         .rounded_full()
         .when(disabled, |s| s.opacity(0.35))
-        .when(!disabled, |s| s.cursor_pointer().hover(|s| s.bg(c.text.opacity(0.09))))
+        .when(!disabled, |s| s.cursor_pointer().hover(|s| s.bg(c.text.opacity(0.09))).active(|s| s.bg(c.text.opacity(0.16))))
         .child(
             icon(name, icon_size, fg).when(!disabled, |i| i.group_hover(group.clone(), |s| s.text_color(hover))),
         )
@@ -203,7 +203,7 @@ impl Render for PlayerBar {
                         spread_radius: px(0.),
                         inset: false,
                     }])
-                    .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.)))),
+                    .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.))))),
             )
             .child(
                 div()
@@ -263,7 +263,7 @@ impl Render for PlayerBar {
                                 .text_color(c.text)
                                 .bg(c.text.opacity(0.1))
                                 .cursor_pointer()
-                                .hover(|s| s.bg(c.text.opacity(0.18)))
+                                .hover(|s| s.bg(c.text.opacity(0.18))).active(|s| s.bg(c.text.opacity(0.30)))
                                 .on_click(open3)
                                 .child(icon("chevron-up", 16., c.text)),
                         ),
@@ -315,7 +315,7 @@ impl Render for PlayerBar {
                                 inset: false,
                             }])
                             .when(!has, |s| s.opacity(0.4))
-                            .when(has, |s| s.cursor_pointer().on_click(cmd(protocol::CMD_TOGGLE, 0)))
+                            .when(has, |s| s.cursor_pointer().active(|s| s.opacity(0.85)).on_click(cmd(protocol::CMD_TOGGLE, 0)))
                             .child(icon(if playing { "pause" } else { "play" }, 18., c.bg)),
                     )
                     .child(ctl("next", "next", 19., 38., false, !has, Some(c.text), &c).on_click(cmd(protocol::CMD_NEXT, 0)))
@@ -335,7 +335,7 @@ impl Render for PlayerBar {
                     .flex()
                     .items_center()
                     .gap(px(10.))
-                    .child(div().min_w(px(34.)).text_right().text_size(px(11.)).text_color(c.text3).child(clock(position_ms)))
+                    .child(div().min_w(px(36.)).text_right().text_size(px(11.5)).font_features(crate::ui::tnum()).text_color(c.text3).child(clock(position_ms)))
                     .child(slider(
                         "seek",
                         seek_frac,
@@ -356,7 +356,7 @@ impl Render for PlayerBar {
                             });
                         },
                     ))
-                    .child(div().min_w(px(34.)).text_size(px(11.)).text_color(c.text3).child(clock(duration_ms))),
+                    .child(div().min_w(px(36.)).text_size(px(11.5)).font_features(crate::ui::tnum()).text_color(c.text3).child(clock(duration_ms))),
             ));
 
         let panel = self.ui.read(cx).panel;
@@ -449,7 +449,7 @@ impl Render for PlayerBar {
                         .rounded(px(999.))
                         .overflow_hidden()
                         // Pages scroll under the bar: a little of the canvas colour keeps it legible.
-                        .bg(c.bg.opacity(0.58))
+                        .bg(c.bg.opacity(0.72))
                         .pl(px(if narrow { 8. } else { 12. }))
                         .pr(px(if narrow { 10. } else { 18. }))
                         .flex()

@@ -19,6 +19,8 @@ pub struct PrefsData {
     /// "system", "reduce" or "full".
     pub motion: String,
     pub pause_history: bool,
+    /// Each downloaded song brings its lyrics (the phone's "Scarica anche i testi", off at first).
+    pub download_lyrics: bool,
 }
 
 impl PrefsData {
@@ -51,6 +53,7 @@ fn read() -> PrefsData {
         start_page: text("startPage", "home", &["home", "library", "liked", "search"]),
         motion: text("motion", "system", &["system", "reduce", "full"]),
         pause_history: flag("pauseHistory", false),
+        download_lyrics: flag("downloadLyrics", false),
     }
 }
 
@@ -58,6 +61,13 @@ impl Prefs {
     pub fn new(cx: &mut App) -> Entity<Self> {
         let e = cx.new(|_| Self { v: read() });
         cx.set_global(PrefsGlobal(e.clone()));
+        // GPUI's own animations (with_animation: covers, placeholders) follow "Ridotte" too.
+        cx.set_reduce_motion(Self::reduce_motion(cx));
+        cx.observe(&e, |_, cx| {
+            let reduce = Self::reduce_motion(cx);
+            cx.set_reduce_motion(reduce);
+        })
+        .detach();
         e
     }
 
@@ -88,6 +98,7 @@ impl Prefs {
             ("startPage", json!(v.start_page)),
             ("motion", json!(v.motion)),
             ("pauseHistory", json!(v.pause_history)),
+            ("downloadLyrics", json!(v.download_lyrics)),
         ] {
             s[k] = x;
         }

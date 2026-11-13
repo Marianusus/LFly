@@ -29,7 +29,7 @@ fn cover_box(image: Option<Arc<Image>>) -> Div {
         .flex_none()
         .rounded(px(8.))
         .bg(white().opacity(0.08))
-        .children(image.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(8.))))
+        .children(image.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(8.)))))
 }
 
 fn text_col(title: String, artist: String) -> Div {
@@ -46,20 +46,15 @@ fn text_col(title: String, artist: String) -> Div {
 pub fn queue_list(model: &Entity<PlayerModel>, covers: &Entity<Covers>, core: &Arc<Core>, accent: Hsla, cx: &mut App) -> Div {
     let m = model.read(cx);
     let playing = m.playing();
+    let moving = playing && m.active;
     let (queue, index) = m.state.as_ref().map_or((Vec::new(), -1), |s| (s.queue.clone(), s.index));
     let current = usize::try_from(index).ok().and_then(|i| queue.get(i)).cloned();
     let mut cover = |url: &Option<String>| url.as_ref().and_then(|u| covers.update(cx, |c, cx| c.get(u, cx)));
 
     let mut out = div().flex().flex_col();
     if let Some(t) = &current {
-        // `.eq`: three bars in the accent, low and still while paused (no animation here).
-        let bars = div()
-            .h(px(14.))
-            .mr(px(6.))
-            .flex()
-            .items_end()
-            .gap(px(2.))
-            .children([1.0f32, 0.6, 0.8].map(|h| div().w(px(3.)).h(px(14. * if playing { h } else { 0.35 })).rounded(px(2.)).bg(accent)));
+        // `.eq`: three bars in the accent, moving while the music plays, low and still in pause.
+        let bars = div().mr(px(6.)).child(crate::track_row::eq_bars("queue-eq", 14., accent, playing, moving));
         out = out.child(section("IN RIPRODUZIONE".into(), true)).child(
             div()
                 .flex()
@@ -99,7 +94,7 @@ pub fn queue_list(model: &Entity<PlayerModel>, covers: &Entity<Covers>, core: &A
                 .px(px(8.))
                 .py(px(6.))
                 .rounded(px(12.))
-                .hover(|d| d.bg(white().opacity(0.08)))
+                .hover(|d| d.bg(white().opacity(0.08))).active(|d| d.bg(white().opacity(0.14)))
                 .child(
                     div()
                         .id(("q-open", i))
@@ -150,7 +145,7 @@ pub fn queue_list(model: &Entity<PlayerModel>, covers: &Entity<Covers>, core: &A
                         .cursor_pointer()
                         .invisible()
                         .group_hover(group, |d| d.visible())
-                        .hover(|d| d.bg(white().opacity(0.12)))
+                        .hover(|d| d.bg(white().opacity(0.12))).active(|d| d.bg(white().opacity(0.22)))
                         .on_click(move |_, _, _| core.remove_from_queue(i))
                         .child(icon("close", 14., white().opacity(0.6))),
                 ),

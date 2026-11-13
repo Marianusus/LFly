@@ -43,6 +43,8 @@ pub struct Menu {
     sub: bool,
     /// The sleep timer's choices are shown.
     sleep_sub: bool,
+    /// The speed choices shown (full player menu).
+    speed_sub: bool,
     /// The view's size and where it starts in the window, set before it draws.
     pub size: Size<Pixels>,
     pub origin: Point<Pixels>,
@@ -56,7 +58,7 @@ impl Menu {
         let e = cx.new(|cx| {
             cx.observe(&covers, |_, _, cx| cx.notify()).detach();
             cx.observe(&library, |_, _, cx| cx.notify()).detach();
-            Self { core, look, covers, library, nav, open: None, sub: false, sleep_sub: false, size: size(px(1100.), px(720.)), origin: Point::default() }
+            Self { core, look, covers, library, nav, open: None, sub: false, sleep_sub: false, speed_sub: false, size: size(px(1100.), px(720.)), origin: Point::default() }
         });
         cx.set_global(MenuGlobal(e.clone()));
         e
@@ -69,6 +71,7 @@ impl Menu {
             m.open = Some(Open { at, track, remove, since: Instant::now(), player: false });
             m.sub = false;
             m.sleep_sub = false;
+            m.speed_sub = false;
             cx.notify();
         });
     }
@@ -82,6 +85,15 @@ impl Menu {
         });
     }
 
+    /// Shows or hides the speed choices (LFLY_MENU=speed).
+    pub fn toggle_speed(cx: &mut App) {
+        let Some(e) = cx.try_global::<MenuGlobal>().map(|g| g.0.clone()) else { return };
+        e.update(cx, |m, cx| {
+            m.speed_sub = !m.speed_sub;
+            cx.notify();
+        });
+    }
+
     /// The song menu of the full player, with the sleep timer.
     pub fn open_player_track(at: Point<Pixels>, track: TrackRef, cx: &mut App) {
         let Some(e) = cx.try_global::<MenuGlobal>().map(|g| g.0.clone()) else { return };
@@ -89,6 +101,7 @@ impl Menu {
             m.open = Some(Open { at, track, remove: None, since: Instant::now(), player: true });
             m.sub = false;
             m.sleep_sub = false;
+            m.speed_sub = false;
             cx.notify();
         });
     }
@@ -147,10 +160,13 @@ impl Render for Menu {
 
         // Its height, for flipping up near the bottom: the head, the rules, the rows.
         let player = open.player;
-        let rows = 7 + usize::from(remove.is_some()) + usize::from(player);
+        // The speed is this computer's: not offered while it controls another device.
+        let speed_row = player && self.core.remote().is_none();
+        let rows = 7 + usize::from(remove.is_some()) + 2 * usize::from(player) + usize::from(speed_row);
         let sub_h = if self.sub { (32. * (playlists.len() + 1) as f32).min(220.) + 6. } else { 0. };
         let sleep_h = if player && self.sleep_sub { 32. * (crate::sleep::PRESET_MINUTES.len() + 2) as f32 + 6. } else { 0. };
-        let height = 12. + 50. + (3 + usize::from(player)) as f32 * 11. + 32. * rows as f32 + sub_h + sleep_h;
+        let speed_h = if speed_row && self.speed_sub { 32. * SPEEDS.len() as f32 + 6. } else { 0. };
+        let height = 12. + 50. + (3 + usize::from(player)) as f32 * 11. + 32. * rows as f32 + sub_h + sleep_h + speed_h;
         let (ww, wh) = (f32::from(self.size.width), f32::from(self.size.height));
         let (mx, my) = (f32::from(open.at.x - self.origin.x), f32::from(open.at.y - self.origin.y));
         let left = mx + WIDTH > ww - 8.;
@@ -224,7 +240,7 @@ impl Render for Menu {
                     .pt(px(6.))
                     .px(px(8.))
                     .pb(px(8.))
-                    .child(div().size(px(36.)).flex_none().rounded(px(8.)).bg(s.text.opacity(0.08)).children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(8.)))))
+                    .child(div().size(px(36.)).flex_none().rounded(px(8.)).bg(s.text.opacity(0.08)).children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(8.))))))
                     .child(
                         div()
                             .min_w_0()
@@ -383,6 +399,56 @@ impl Render for Menu {
                 menu = menu.child(sub);
             }
         }
+        // The phone's "Modalità Ambient" (its ⋮ menu): the song as a bedside clock.
+        if player {
+            menu = menu.child(item("cm-standby", "clock", 15., "Modalità Ambient".into(), true, false).on_click(run(Rc::new(|cx: &mut App| crate::standby::request(cx)))));
+        }
+        // TrackActionsSheet.kt SpeedPage: the tempo, the pitch kept; the value in the accent when
+        // it is not 1×.
+        if speed_row {
+            let speed = self.core.player.speed();
+            let me3 = me.clone();
+            menu = menu.child(
+                item("cm-speed", "forward", 15., "Velocità".into(), true, false)
+                    .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(if (speed - 1.).abs() > 0.01 { accent } else { s.text2 }).child(format_speed(speed)))
+                    .child(icon(if self.speed_sub { "chevron-up" } else { "chevron-down" }, 13., s.text2))
+                    .on_click(move |_, _, cx| {
+                        let _ = me3.update(cx, |m, cx| {
+                            m.speed_sub = !m.speed_sub;
+                            cx.notify();
+                        });
+                    }),
+            );
+            if self.speed_sub {
+                let mut sub = div().mt(px(2.)).mb(px(4.)).ml(px(18.)).pl(px(8.)).border_l_1().border_color(sep);
+                for (k, v) in SPEEDS.iter().copied().enumerate() {
+                    let on = (v - speed).abs() < 0.01;
+                    let (core, me4) = (self.core.clone(), me.clone());
+                    sub = sub.child(
+                        div()
+                            .id(("cm-speed", k))
+                            .min_h(px(32.))
+                            .px(px(10.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(10.))
+                            .text_size(px(13.))
+                            .text_color(if on { accent } else { s.text })
+                            .when(on, |d| d.font_weight(FontWeight::SEMIBOLD))
+                            .cursor_pointer()
+                            .hover(move |d| d.bg(accent).text_color(on_accent))
+                            .on_click(move |_, _, cx| {
+                                core.player.set_speed(v);
+                                // Stays open: the choice shows where it went.
+                                let _ = me4.update(cx, |_, cx| cx.notify());
+                            })
+                            .child(div().flex_1().child(if v == 1. { "Normale (1×)".to_string() } else { format_speed(v) }))
+                            .when(on, |d| d.child(icon("check", 13., accent))),
+                    );
+                }
+                menu = menu.child(sub);
+            }
+        }
         let (nav3, nav4) = (nav.clone(), nav);
         let (artist_id, artist) = (t.artist_id.clone(), t.artist.clone());
         let (album_id, album) = (t.album_id.clone(), t.album.clone().unwrap_or_default());
@@ -441,5 +507,29 @@ impl Render for Menu {
                     .child(div().relative().child(menu)),
             )
             .into_any_element()
+    }
+}
+
+/// TrackActionsSheet.kt's speeds.
+const SPEEDS: [f32; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
+
+/// "1,25×" (TrackActionsSheet.kt `formatSpeed`, Italian).
+fn format_speed(v: f32) -> String {
+    let s = format!("{:.2}", v);
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    format!("{}×", s.replace('.', ","))
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: gpui's `test` attribute would shadow std's.
+    use super::format_speed;
+
+    #[test]
+    fn speeds_read_as_on_the_phone() {
+        assert_eq!(format_speed(1.25), "1,25×");
+        assert_eq!(format_speed(1.5), "1,5×");
+        assert_eq!(format_speed(2.), "2×");
+        assert_eq!(format_speed(0.75), "0,75×");
     }
 }

@@ -17,7 +17,7 @@ opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast,
 test run, `LFLY_CONNECT_PORT=<port>` serves LFly Connect on loopback only, `LFLY_CONNECT_FOLLOW=<host>:<port>`
 follows such a host at start, `LFLY_CONNECT_ID`/`NAME`/`SECRET` stand in for the identity, `LFLY_CONNECT_PLAY_HERE_AFTER=<s>` presses "Ascolta qui", `LFLY_CONNECT_FOLLOW_AFTER=<s>` delays the follow, `LFLY_CONNECT_ACCEPT=1` accepts a pairing (use a copied config: it trusts), `LFLY_MENU=sleep` opens the full player's menu with the sleep timer,
 `LFLY_SLEEP_AFTER=<s>` sets a short sleep timer, `LFLY_DOWNLOAD_PAGE=1` (with `LFLY_DOWNLOADS_DIR`) downloads the
-collection opened, `LFLY_LIBRARY_FILTER=playlists|downloads|youtube|recent` picks the library's filter,
+collection opened, `LFLY_LIBRARY_FILTER=playlists|downloads|youtube|recent` picks the library's filter, `LFLY_STANDBY=1` opens Modalità Ambient (not full screen) once a song plays, `LFLY_SPEED=1.5` plays at that speed, `LFLY_MENU=speed` shows the speeds, `LFLY_HOVER_SWEEP="x,y0,y1@start+secs"` moves the pointer, `LFLY_SHELF_NEXT=recent@6` turns a Home shelf's page (its ›) after 6 s (`all`: every shelf),
 `LFLY_SETTINGS=general|sound|lyrics|devices|account|storage|about` opens a Settings section, `LFLY_MUTE=1`,
 `LFLY_NO_GLASS=1` (no glass at all, to measure it), `LFLY_GLASS_BLEED=0|1`;
 `LFLY_GLASS_DEBUG`, `LFLY_GLASS_EMPTY`, `LFLY_GLASS_HIDE` for the glass check
@@ -50,7 +50,15 @@ the account's playlists in the sidebar and the library's "YouTube Music" filter,
 YouTube Music, Settings > Account with "Esci"; signing in still needs the Tauri app's web view;
 test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), the window's size and maximized state kept across launches (store key
 `native-window`; Tauri keeps none), the phone's sleep timer in the full player's menu (15 to 90 minutes or the end of the song;
-the Tauri app has none), LFly Connect (this computer as a speaker for
+the Tauri app has none), the phone's playback speed in the same menu (0.5 to 2×, the pitch kept:
+WSOLA in lfly-audio's `stretch.rs`, not kept between launches), its Modalità Ambient (standby.rs:
+full screen, the clock, the cover, the line being sung, controls on a click or a move, the burn-in
+walk; the pointer stays, GPUI cannot hide it), lyrics kept with the downloads (Settings > Spazio:
+"Scarica anche i testi", "Scarica mancanti", read before the network; lfly-core `lyrics_store`),
+hover backgrounds that fade (a GPUI patch, see vendor/PATCHES.md), covers that fade in, placeholders
+while pages load, page fades, Home shelves of whole cards with ‹ › pages, the full player's cover
+at 1200 px and video thumbnails whole in 16:9, the cover light drifting behind the full player and
+the playing bars moving (drawn by the window over the page: the page is not drawn again for them), LFly Connect (this computer as a speaker for
 phones and watches, with the pairing dialog; the devices on the network in the right panel, the
 full player's output menu and Settings > Dispositivi; controlling another device, with the
 "In riproduzione su" pill, "Ascolta qui" and the music moving between them; checked between two
@@ -65,8 +73,8 @@ yet).
 
 Known differences, from what GPUI can draw: the lyrics' soft edge sweeps letter by letter (no
 gradient text), their fog fades whole lines (no masks), held notes do not glow (no text shadow);
-the ambient light behind the full player stands still (Tauri drifts two copies of the cover);
-the queue's playing bars stand still; Copertina dinamica flows at a sixth of the window (Tauri: a
+the drifting cover light behind the full player moves and scales but does not turn (GPUI turns no
+images); Copertina dinamica flows at a sixth of the window (Tauri: a
 third) without the grain over it. The lyrics animate at most 60 frames a second, four when
 the window is behind another one (Tauri: the monitor's rate, 30 in the background).
 Songs played here go into history.json as in Tauri (not in test runs: `LFLY_MUTE` or

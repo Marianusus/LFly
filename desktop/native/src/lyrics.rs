@@ -133,15 +133,35 @@ pub struct LyricsData {
 }
 
 impl LyricsData {
+    /// Songs without lyrics are asked again once the downloads kept some (a "Scarica mancanti",
+    /// a download): what is cached as "none" may be there now.
+    pub fn forget_missing(&mut self, cx: &mut Context<Self>) {
+        let before = self.cache.len();
+        self.cache.retain(|_, v| v.is_some());
+        if self.cache.len() != before {
+            cx.notify();
+        }
+    }
+
     pub fn new(core: Arc<Core>) -> Self {
         let offsets = lfly_core::store::get(OFFSETS_KEY).ok().flatten().and_then(|v| v.as_object().cloned()).unwrap_or_default();
         Self { core, cache: HashMap::new(), loading: Default::default(), offsets }
     }
 
     /// The song's lyrics: `None` while they are being fetched (the fetch starts here).
-    fn get(&mut self, t: &lfly_connect::protocol::TrackRef, cx: &mut Context<Self>) -> Option<Option<Rc<pages::Lyrics>>> {
+    pub(crate) fn get(&mut self, t: &lfly_connect::protocol::TrackRef, cx: &mut Context<Self>) -> Option<Option<Rc<pages::Lyrics>>> {
         if let Some(l) = self.cache.get(&t.id) {
             return Some(l.clone());
+        }
+        // Kept with a download: read here, no connection needed (DownloadLyricsStore.kt).
+        if self.loading.contains(&t.id) {
+            return None;
+        }
+        if let Some(saved) = crate::downloads::DownloadsModel::entity(cx).read(cx).kept_lyrics(&t.id) {
+            log::info!("lyrics of {}: kept offline", t.id);
+            let l = saved.lyrics.map(Rc::new);
+            self.cache.insert(t.id.clone(), l.clone());
+            return Some(l);
         }
         if self.loading.insert(t.id.clone()) {
             let id = t.id.clone();
@@ -153,6 +173,13 @@ impl LyricsData {
             cx.spawn(async move |this, cx| {
                 let got = core.lyrics(track).await;
                 let _ = this.update(cx, |this, cx| {
+                    // A downloaded song keeps what was found, when the downloads bring lyrics.
+                    if let Ok(l) = &got {
+                        let dl = crate::downloads::DownloadsModel::entity(cx);
+                        if dl.read(cx).has(&id) && crate::prefs::Prefs::get(cx).download_lyrics {
+                            dl.update(cx, |m, cx| m.keep_lyrics(&id, l.as_ref(), cx));
+                        }
+                    }
                     let l = match got {
                         Ok(l) => l.map(Rc::new),
                         Err(e) => {
@@ -179,7 +206,7 @@ impl LyricsData {
         cx.notify();
     }
 
-    fn offset(&self, id: &str) -> f64 {
+    pub(crate) fn offset(&self, id: &str) -> f64 {
         self.offsets.get(id).and_then(Value::as_f64).unwrap_or(0.)
     }
 

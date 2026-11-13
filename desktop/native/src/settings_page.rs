@@ -862,7 +862,7 @@ impl SettingsPage {
                 .font_weight(FontWeight::SEMIBOLD)
                 .cursor_pointer()
                 .when(on, |d| d.bg(i.accent).text_color(i.on_accent))
-                .when(!on, |d| d.bg(i.s_text.opacity(0.08)).hover(|d| d.bg(i.s_text.opacity(0.14))))
+                .when(!on, |d| d.bg(i.s_text.opacity(0.08)).hover(|d| d.bg(i.s_text.opacity(0.14))).active(|d| d.bg(i.s_text.opacity(0.25))))
                 .on_click(move |_, _, cx| au.update(cx, |a, cx| a.use_preset(name, cx)))
                 .child(name)
         }))
@@ -981,7 +981,7 @@ impl SettingsPage {
                     .rounded(px(12.))
                     .cursor_pointer()
                     .when(on, |d| d.bg(i.s_text.opacity(0.08)))
-                    .hover(|d| d.bg(i.s_text.opacity(0.06)))
+                    .hover(|d| d.bg(i.s_text.opacity(0.06))).active(|d| d.bg(i.s_text.opacity(0.11)))
                     .on_click(move |_, _, cx| au.update(cx, |a, cx| a.set_device(id.clone(), cx)))
                     .child(div().flex_1().truncate().child(name))
                     .when(on, |d| d.child(icon("check", 16., i.accent)))
@@ -1074,6 +1074,51 @@ impl SettingsPage {
                                                 Toasts::say("Download eliminati", cx);
                                             } else {
                                                 this.confirm = Some(Confirm { what: "downloads", at: Instant::now() });
+                                            }
+                                            cx.notify();
+                                        });
+                                    })
+                                }))
+                                .into_any_element()
+                        },
+                        // OfflineLyricsScreen.kt, in short: lyrics kept with the downloads.
+                        {
+                            let on = p.download_lyrics;
+                            let prefs2 = prefs.clone();
+                            row()
+                                .child(label("Scarica anche i testi", Some("Con ogni brano scaricato, per leggerli senza connessione".into()), i))
+                                .child(switch("sw-dl-lyrics", on, false, i, move |cx| prefs2.update(cx, |p, cx| p.update(|d| d.download_lyrics = !on, cx))))
+                                .into_any_element()
+                        },
+                        {
+                            let dl = crate::downloads::DownloadsModel::entity(cx);
+                            let (n, missing, progress) = {
+                                let d = dl.read(cx);
+                                (d.list.tracks.len(), d.missing_lyrics, d.lyrics_progress)
+                            };
+                            let caption = match progress {
+                                Some((done, total)) => format!("Cerco i testi… {done} di {total}"),
+                                None if n == 0 => "Nessun brano scaricato".to_string(),
+                                None => format!("{} di {} con il testo salvato", n - missing, crate::ui::brani(n as u64)),
+                            };
+                            let ask = self.asking("lyrics");
+                            let (dl2, me4) = (dl.clone(), cx.entity().downgrade());
+                            row()
+                                .child(label("Testi offline", Some(caption), i))
+                                .child(
+                                    button("dl-lyrics", if missing > 0 { format!("Scarica mancanti ({missing})") } else { "Scarica mancanti".to_string() }, false, missing == 0 || progress.is_some(), i)
+                                        .when(missing > 0 && progress.is_none(), |b| b.on_click(move |_, _, cx| dl.update(cx, |m, cx| m.fetch_missing_lyrics(cx)))),
+                                )
+                                .child(button("rm-lyrics", if ask { "Sicuro? Elimina" } else { "Elimina testi" }, ask, n == missing || progress.is_some(), i).when(n > missing && progress.is_none(), |b| {
+                                    b.on_click(move |_, _, cx| {
+                                        let dl = dl2.clone();
+                                        let _ = me4.update(cx, |this, cx| {
+                                            if this.asking("lyrics") {
+                                                this.confirm = None;
+                                                dl.update(cx, |m, cx| m.remove_lyrics(cx));
+                                                Toasts::say("Testi offline eliminati", cx);
+                                            } else {
+                                                this.confirm = Some(Confirm { what: "lyrics", at: Instant::now() });
                                             }
                                             cx.notify();
                                         });

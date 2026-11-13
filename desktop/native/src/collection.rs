@@ -341,7 +341,7 @@ impl Collection {
                             .child(icon("download", art * 0.33, white()))
                     })
                     .when(!liked_art && !dl_art, |d| d.bg(s.text.opacity(0.08)))
-                    .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(12.)))),
+                    .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(12.))))),
             )
             .child(
                 div()
@@ -353,7 +353,7 @@ impl Collection {
                     .items_start()
                     .gap(px(6.))
                     .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(s.text2).child(h.kind.to_uppercase()))
-                    .child(div().text_size(px(title_size)).line_height(relative(1.04)).font_weight(FontWeight::EXTRA_BOLD).text_color(s.text).line_clamp(2).child(h.title.clone()))
+                    .child(div().text_size(px(title_size)).line_height(relative(1.04)).font_weight(FontWeight::EXTRA_BOLD).text_color(s.text).line_clamp(2).text_ellipsis().child(h.title.clone()))
                     .children(h.byline.clone().map(|(name, route)| {
                         div()
                             .id("byline")
@@ -364,7 +364,7 @@ impl Collection {
                             .child(name)
                     }))
                     .when(!h.meta.is_empty(), |d| d.child(div().text_size(px(13.)).text_color(s.text2).child(h.meta.clone())))
-                    .children(h.description.clone().map(|t| div().max_w(px(680.)).text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).line_clamp(2).child(t)))
+                    .children(h.description.clone().map(|t| div().max_w(px(680.)).text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).line_clamp(2).text_ellipsis().child(t)))
                     .child(
                         div()
                             .mt(px(14.))
@@ -382,7 +382,7 @@ impl Collection {
                                     .items_center()
                                     .justify_center()
                                     .gap(px(8.))
-                                    .bg(accent)
+                                    .bg(accent).active(|d| d.opacity(0.85))
                                     .text_color(s.on_accent.hsla(1.))
                                     .text_size(px(14.))
                                     .font_weight(FontWeight::SEMIBOLD)
@@ -410,7 +410,7 @@ impl Collection {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .when(!playable, |d| d.opacity(0.45))
                                     .when(playable, |d| {
-                                        d.cursor_pointer().hover(|d| d.bg(s.text.opacity(0.12))).on_click(move |_, _, _| {
+                                        d.cursor_pointer().hover(|d| d.bg(s.text.opacity(0.12))).active(|d| d.bg(s.text.opacity(0.22))).on_click(move |_, _, _| {
                                             // collection.ts `shuffle`: play from a random song with shuffle on.
                                             let start = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos()) as usize) % tracks2.len().max(1);
                                             core2.command(lfly_connect::protocol::CMD_SHUFFLE, 1);
@@ -440,7 +440,7 @@ impl Collection {
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .hover(|d| d.bg(s.glass_tint))
+                .hover(|d| d.bg(s.glass_tint)).active(|d| d.bg(s.text.opacity(0.12)))
                 .child(icon(name, if name == "plus" { 20. } else { 18. }, s.text2).group_hover(id, |d| d.text_color(s.text)))
         };
         let mut row = div().ml(px(4.)).flex().items_center().gap(px(6.));
@@ -551,6 +551,7 @@ impl Collection {
 
 impl Render for Collection {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::track_row::eq_begin();
         let me = cx.entity().downgrade();
         list(self.list.clone(), move |ix, _window, cx| {
             me.update(cx, |this, cx| {
@@ -617,7 +618,7 @@ impl Render for Collection {
                             this.nav.clone(),
                         ));
                     } else if this.loading {
-                        d = d.child(div().px(px(24.)).py(px(8.)).text_color(s.text2).child("Carico…"));
+                        d = d.child(crate::skeleton::rows(8, &s, cx));
                     } else {
                         d = d.child(columns(!matches!(this.source, Source::Album(_)), &s));
                     }
@@ -626,6 +627,7 @@ impl Render for Collection {
                 let i = ix - 1;
                 let Some(t) = this.tracks.get(i).cloned() else { return div().into_any_element() };
                 let current = this.model.read(cx).current().map(|c| c.id.clone());
+                let sounding = this.model.read(cx).playing();
                 let liked = this.library.read(cx).is_favorite(&t.id);
                 let cover = t.cover_url.as_ref().and_then(|u| this.covers.update(cx, |c, cx| c.get(u, cx)));
                 let show_album = !matches!(this.source, Source::Album(_));
@@ -639,6 +641,7 @@ impl Render for Collection {
                     duration_ms: t.duration_ms,
                     cover,
                     playing: current.as_deref() == Some(t.id.as_str()),
+                    live: current.as_deref() == Some(t.id.as_str()) && sounding,
                     liked,
                     downloaded: crate::downloads::DownloadsModel::entity(cx).read(cx).has(&t.id),
                     is_video: t.is_video,

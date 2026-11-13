@@ -150,7 +150,7 @@ fn round(id: &'static str, name: &'static str, color: Hsla) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .bg(white().opacity(0.12))
-        .hover(|s| s.bg(white().opacity(0.2)))
+        .hover(|s| s.bg(white().opacity(0.2))).active(|s| s.bg(white().opacity(0.30)))
         .cursor_pointer()
         .child(icon(name, 20., color))
 }
@@ -167,7 +167,7 @@ fn transport(id: &'static str, size: f32) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .hover(|s| s.bg(white().opacity(0.1)))
+        .hover(|s| s.bg(white().opacity(0.1))).active(|s| s.bg(white().opacity(0.18)))
 }
 
 impl Render for NowPlaying {
@@ -203,6 +203,7 @@ impl Render for NowPlaying {
         let url = track.as_ref().and_then(|t| t.cover_url.clone());
         let bg = scheme.bg;
         self.ambient.update(cx, |a, _| {
+            a.moving = playing;
             a.url = url;
             a.width = w;
             a.height = h;
@@ -361,8 +362,8 @@ impl Render for NowPlaying {
         let with_panel = self.panel.is_some();
         let short = h <= 640.;
         let player_w = match (with_panel, short) {
-            (false, false) => (0.54 * h).min(460.),
-            (true, false) => (0.50 * h).min(420.),
+            (false, false) => (0.58 * h).min(540.),
+            (true, false) => (0.52 * h).min(480.),
             (false, true) => (0.46 * h).min(360.),
             (true, true) => (0.42 * h).min(340.),
         };
@@ -375,21 +376,33 @@ impl Render for NowPlaying {
         let player_w = player_w.min(col1);
 
         let liked = self.library.read(cx).is_favorite(&t.id);
-        let cover = t.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
+        // The cover large (1200 px where YouTube has it, the 544 px one until it lands). A video's
+        // thumbnail is 16:9: shown whole in a 16:9 frame, never cropped to a square.
+        let wide = t.cover_url.as_deref().is_some_and(|u| u.contains("ytimg.com"));
+        // Both are asked for: the small one stays under the large one while that fades in.
+        let (cover, big) = t.cover_url.as_ref().map_or((None, None), |u| {
+            self.covers.update(cx, |c, cx| {
+                let big = u.contains("=w544-h544").then(|| u.replace("=w544-h544", "=w1200-h1200")).and_then(|b| c.get(&b, cx));
+                (c.get(u, cx), big)
+            })
+        });
+        let ratio = if wide { 9. / 16. } else { 1. };
         let scale = self.art.value(&SPRING);
         // The shadow follows the scale: 0 30 80 / .55 playing, 0 14 36 / .4 paused.
         let k = ((1. - scale) / 0.14).clamp(0., 1.);
         let lerp = |a: f32, b: f32| a + (b - a) * k;
         let art_w = player_w * scale;
         let art = div()
-            .size(px(player_w))
+            .w(px(player_w))
+            .h(px(player_w * ratio))
             .mb(px(10.))
             .flex()
             .items_center()
             .justify_center()
             .child(
                 div()
-                    .size(px(art_w))
+                    .w(px(art_w))
+                    .h(px(art_w * ratio))
                     .flex_none()
                     .rounded(px(14.))
                     .bg(white().opacity(0.08))
@@ -397,7 +410,14 @@ impl Render for NowPlaying {
                         BoxShadow { color: black().opacity(lerp(0.55, 0.4)), offset: point(px(0.), px(lerp(30., 14.))), blur_radius: px(lerp(80., 36.)), spread_radius: px(0.), inset: false },
                         BoxShadow { color: white().opacity(0.06 * (1. - k)), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false },
                     ])
-                    .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.)))),
+                    .relative()
+                    .children(cover.map(|i| {
+                        let el = img(i.clone()).size_full().object_fit(ObjectFit::Cover).rounded(px(14.));
+                        // Under a large one: simply there (it fades in over it).
+                        let el = if big.is_some() { el.into_any_element() } else { crate::covers::fade(i.id(), el) };
+                        div().absolute().inset_0().child(el)
+                    }))
+                    .children(big.map(|i| div().absolute().inset_0().child(crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(14.)))))),
             );
 
         let (nav1, nav2) = (self.nav.clone(), self.nav.clone());
@@ -501,6 +521,7 @@ impl Render for NowPlaying {
                     .justify_between()
                     .text_size(px(11.5))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .font_features(crate::ui::tnum())
                     .text_color(white().opacity(0.6))
                     .child(clock(position))
                     .child(format!("-{}", clock(duration.saturating_sub(position)))),
@@ -644,7 +665,7 @@ impl Render for NowPlaying {
                     .text_size(px(if quiet { 13. } else { 14. }))
                     .text_color(if quiet { white().opacity(0.65) } else { white() })
                     .when_some(act, |d, act| {
-                        d.cursor_pointer().hover(|d| d.bg(white().opacity(0.1))).on_click(move |_, _, cx| {
+                        d.cursor_pointer().hover(|d| d.bg(white().opacity(0.1))).active(|d| d.bg(white().opacity(0.18))).on_click(move |_, _, cx| {
                             act(cx);
                             close(cx);
                         })

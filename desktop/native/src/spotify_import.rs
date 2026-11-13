@@ -189,7 +189,7 @@ impl Render for SpotifyImport {
                             .items_center()
                             .justify_center()
                             .cursor_pointer()
-                            .hover(|d| d.bg(s.text.opacity(0.1)))
+                            .hover(|d| d.bg(s.text.opacity(0.1))).active(|d| d.bg(s.text.opacity(0.18)))
                             .on_click(move |_, _, cx| {
                                 let _ = me.update(cx, |_, cx| cx.emit(SpotifyEvent::Close));
                             })

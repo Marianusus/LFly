@@ -103,3 +103,8 @@ pub fn register_field(handle: &FocusHandle, cx: &mut App) {
 pub fn typing(window: &Window, cx: &App) -> bool {
     cx.try_global::<TextFields>().is_some_and(|f| f.0.iter().filter_map(WeakFocusHandle::upgrade).any(|h| h.is_focused(window)))
 }
+
+/// Tabular figures (Inter's `tnum`): a clock that ticks does not shuffle its digits sideways.
+pub fn tnum() -> FontFeatures {
+    FontFeatures(std::sync::Arc::new(vec![("tnum".into(), 1)]))
+}

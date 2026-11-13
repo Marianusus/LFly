@@ -40,6 +40,8 @@ mod settings_page;
 mod sleep;
 mod spotify_import;
 mod sidebar;
+mod skeleton;
+mod standby;
 mod slider;
 mod theme;
 mod toast;
@@ -127,6 +129,9 @@ fn content_origin(window: &Window) -> Point<Pixels> {
 struct Lfly {
     font: SharedString,
     core: Arc<Core>,
+    /// For Modalità Ambient (standby.rs), which reads the same lyrics and covers.
+    lyrics_data: Entity<LyricsData>,
+    covers_all: Entity<Covers>,
     model: Entity<PlayerModel>,
     look: Entity<Look>,
     nav: Entity<Nav>,
@@ -160,6 +165,10 @@ struct Lfly {
     panel_shown: bool,
     /// The full player sliding in (true) or out, since when (NowPlaying.svelte `fly`, 420 ms).
     np_motion: Option<(std::time::Instant, bool)>,
+    /// The page shown last, and when it changed: a new page fades in rising 8 px (220 ms).
+    page_at: Option<(Route, std::time::Instant)>,
+    /// A redraw for the live row bars is on its way.
+    eq_tick: bool,
     np_shown: bool,
     /// The song whose cover colours the look.
     colors_for: Option<String>,
@@ -191,7 +200,18 @@ impl Lfly {
         let search = cx.new(|cx| Search::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), window, cx));
         let library_page = cx.new(|cx| LibraryPage::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
         // One fetch per song, three views of it: the full player, the page, the panel.
-        let lyrics_data = cx.new(|_| LyricsData::new(core.clone()));
+        let lyrics_data = cx.new(|cx| {
+            // Only when the kept lyrics changed, not at each progress step of a download.
+            let mut kept = None;
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), move |d: &mut LyricsData, dl, cx| {
+                let now = { let m = dl.read(cx); m.list.tracks.len() - m.missing_lyrics };
+                if kept.replace(now).is_some_and(|k| k != now) {
+                    d.forget_missing(cx);
+                }
+            })
+            .detach();
+            LyricsData::new(core.clone())
+        });
         let lyrics_np = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Panel, cx));
         let lyrics_pg = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Page, cx));
         let lyrics_side = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), Some(nav.clone()), Variant::Side, cx));
@@ -205,6 +225,10 @@ impl Lfly {
             // The window's size, kept for next time (not by test runs), once it stops changing.
             cx.observe_window_bounds(window, |this, window, cx| {
                 if std::env::var_os("LFLY_MUTE").is_some() || std::env::var_os("LFLY_AUTOPLAY").is_some() || std::env::var_os("LFLY_SIZE").is_some() {
+                    return;
+                }
+                // Full screen for Modalità Ambient is not how the window should open next time.
+                if crate::standby::view(cx).is_some() {
                     return;
                 }
                 let (b, maximized) = match window.window_bounds() {
@@ -237,6 +261,7 @@ impl Lfly {
                 }
                 this.model.update(cx, |m, cx| {
                     m.active = active;
+                    cx.emit(PlayerEvent::Activity);
                     cx.notify();
                 });
             }),
@@ -245,6 +270,11 @@ impl Lfly {
                 PlayerEvent::StateChanged => {
                     this.refresh_colors(cx);
                     this.record_play(cx);
+                    // LFLY_STANDBY (tests): Modalità Ambient once a song is there (not full screen).
+                    if std::env::var_os("LFLY_STANDBY").is_some() && !this.menu_shown && this.model.read(cx).current().is_some() {
+                        this.menu_shown = true;
+                        crate::standby::request(cx);
+                    }
                     // LFLY_MENU: the song's menu and a toast, once, for screenshots.
                     if std::env::var_os("LFLY_MENU").is_some() && !this.menu_shown {
                         if let Some(t) = this.model.read(cx).current().cloned() {
@@ -253,6 +283,10 @@ impl Lfly {
                             if std::env::var("LFLY_MENU").as_deref() == Ok("sleep") {
                                 crate::menu::Menu::open_player_track(point(px(520.), px(160.)), t, cx);
                                 crate::menu::Menu::toggle_sleep(cx);
+                            } else if std::env::var("LFLY_MENU").as_deref() == Ok("speed") {
+                                // LFLY_MENU=speed: the full player's menu, its speeds open.
+                                crate::menu::Menu::open_player_track(point(px(520.), px(120.)), t, cx);
+                                crate::menu::Menu::toggle_speed(cx);
                             } else {
                                 crate::menu::Menu::open_track(point(px(520.), px(260.)), t, None, cx);
                             }
@@ -262,7 +296,7 @@ impl Lfly {
                     cx.notify();
                 }
                 PlayerEvent::Notice(text) => crate::toast::Toasts::say(text.clone(), cx),
-                PlayerEvent::Arrived => {}
+                PlayerEvent::Arrived | PlayerEvent::Activity => {}
             }),
             cx.observe(&covers, |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
@@ -281,13 +315,20 @@ impl Lfly {
             let key = k.key.as_str();
             let stop = |cx: &mut App| cx.stop_propagation();
             if key == "escape" {
-                // The menu first, then the full player.
+                // The menu first, then Modalità Ambient, then the full player.
                 if esc_menu.read(cx).is_open() {
                     crate::menu::Menu::close(cx);
+                } else if crate::standby::view(cx).is_some() {
+                    crate::standby::close(window, cx);
                 } else if esc_nav.read(cx).route == Route::NowPlaying {
                     NowPlaying::close(&esc_nav, cx);
                 }
                 return;
+            }
+            // Under Modalità Ambient the keys that move between pages do nothing (the window
+            // shows none of them; a hidden search field would take the typing).
+            if crate::standby::view(cx).is_some() && ((ctrl && matches!(key, "k" | "l" | "f")) || (m.alt && matches!(key, "left" | "right"))) {
+                return stop(cx);
             }
             if ctrl && matches!(key, "k" | "l" | "f") {
                 esc_nav.update(cx, |n, cx| n.go(Route::Search, cx));
@@ -338,6 +379,8 @@ impl Lfly {
         })
         .detach();
         let this = Self {
+            lyrics_data: lyrics_data.clone(),
+            covers_all: covers.clone(),
             font: ui_font(cx),
             core,
             model,
@@ -368,6 +411,8 @@ impl Lfly {
             panel_motion: None,
             panel_shown: false,
             np_motion: None,
+            page_at: None,
+            eq_tick: false,
             np_shown: false,
             colors_for: None,
             _subs: subs,
@@ -409,6 +454,31 @@ impl Lfly {
                 }
             })
             .detach();
+        }
+        // LFLY_SPEED=<speed> (tests): plays at that speed from the start.
+        if let Some(v) = std::env::var("LFLY_SPEED").ok().and_then(|v| v.parse::<f32>().ok()) {
+            this.core.player.set_speed(v);
+        }
+        // LFLY_HOVER_SWEEP="<x>,<y0>,<y1>@<start>[+<seconds>]" (tests, no pointer in a headless
+        // compositor): moves the mouse from (x, y0) to (x, y1) over the window, at 60 Hz.
+        if let Some((spec, at)) = std::env::var("LFLY_HOVER_SWEEP").ok().and_then(|v| v.rsplit_once('@').map(|(a, b)| (a.to_string(), b.to_string()))) {
+            let n: Vec<f32> = spec.split(',').filter_map(|v| v.parse().ok()).collect();
+            let (start, secs) = at.split_once('+').map_or((at.parse().unwrap_or(5.), 2.), |(a, b)| (a.parse().unwrap_or(5.), b.parse().unwrap_or(2.)));
+            if let [x, y0, y1] = n[..] {
+                cx.spawn_in(window, async move |_, cx| {
+                    cx.background_executor().timer(std::time::Duration::from_secs_f64(start)).await;
+                    let t0 = std::time::Instant::now();
+                    loop {
+                        let p = (t0.elapsed().as_secs_f64() / secs).min(1.) as f32;
+                        let ev = PlatformInput::MouseMove(MouseMoveEvent { position: point(px(x), px(y0 + (y1 - y0) * p)), pressed_button: None, modifiers: Modifiers::default() });
+                        if cx.update(|window, cx| window.dispatch_event(ev, cx)).is_err() || p >= 1. {
+                            break;
+                        }
+                        cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
+                    }
+                })
+                .detach();
+            }
         }
         this
     }
@@ -471,7 +541,7 @@ fn round(id: &'static str, name: &'static str, disabled: bool, text: Hsla) -> St
         .justify_center()
         .rounded_full()
         .when(disabled, |s| s.opacity(0.32))
-        .when(!disabled, |s| s.cursor_pointer().hover(|s| s.bg(text.opacity(0.12))))
+        .when(!disabled, |s| s.cursor_pointer().hover(|s| s.bg(text.opacity(0.12))).active(|s| s.bg(text.opacity(0.22))))
         .child(icon(name, 16., text))
 }
 
@@ -713,7 +783,7 @@ impl Lfly {
                 .font_weight(FontWeight::SEMIBOLD)
                 .cursor_pointer()
                 .when(primary, |d| d.bg(accent).text_color(on))
-                .when(!primary, |d| d.bg(s.text.opacity(0.08)).text_color(s.text).border_1().border_color(s.glass_border).hover(|d| d.bg(s.text.opacity(0.14))))
+                .when(!primary, |d| d.bg(s.text.opacity(0.08)).text_color(s.text).border_1().border_color(s.glass_border).hover(|d| d.bg(s.text.opacity(0.14))).active(|d| d.bg(s.text.opacity(0.25))))
                 .child(label)
         };
         let (c1, c2, c3) = (connect.clone(), connect.clone(), connect);
@@ -878,6 +948,18 @@ const FOLD: crate::motion::CubicBezier = crate::motion::CubicBezier::new(0.32, 0
 
 impl Render for Lfly {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Modalità Ambient: asked from the menu, opened here (it needs the window); while it is
+        // open it is all the window draws.
+        if crate::standby::take_request(cx) {
+            crate::standby::open(self.core.clone(), self.model.clone(), self.lyrics_data.clone(), self.covers_all.clone(), window, cx);
+        }
+        // (Nothing left to play: back to the window, as the phone leaves Ambient.)
+        if crate::standby::view(cx).is_some() && self.model.read(cx).current().is_none() {
+            crate::standby::close(window, cx);
+        }
+        if let Some(sb) = crate::standby::view(cx) {
+            return div().size_full().relative().font_family(self.font.clone()).bg(black()).child(sb).child(self.toasts.clone()).children(self.pair_dialog(cx)).into_any_element();
+        }
         let size = content_size(window);
         let scene_img = self.look.update(cx, |l, cx| l.scene(size, cx));
         let (bg, text) = {
@@ -972,7 +1054,7 @@ impl Render for Lfly {
             }
         });
         self.artist.update(cx, |a, cx| {
-            if put(&mut a.width, win_w) | put(&mut a.height, win_h) {
+            if put(&mut a.width, win_w) | put(&mut a.page_width, stage_w) | put(&mut a.height, win_h) {
                 cx.notify();
             }
         });
@@ -1006,7 +1088,42 @@ impl Render for Lfly {
             }
             None => None,
         };
-        if np_t.is_some() || panel_t.is_some() || folding {
+        let page_route = self.nav.read(cx).page_route();
+        let page_t = match &self.page_at {
+            Some((r, _)) if *r != page_route => {
+                // The live row's bars belonged to the page before.
+                crate::track_row::eq_begin();
+                self.page_at = Some((page_route, std::time::Instant::now()));
+                Some(0.)
+            }
+            Some((_, at)) => {
+                let p = (at.elapsed().as_secs_f64() / 0.22).min(1.);
+                (p < 1. && !reduce).then(|| crate::motion::CUBIC_OUT.at(p) as f32)
+            }
+            None => {
+                // The first page is simply there.
+                self.page_at = Some((page_route, std::time::Instant::now() - std::time::Duration::from_secs(1)));
+                None
+            }
+        };
+        let page_t = if reduce { None } else { page_t };
+        // The live row's bars (track_row::eq_overlay): this view redraws 30 times a second for
+        // them, the page under them is not drawn again.
+        let accent = self.look.read(cx).scheme.accent.hsla(1.);
+        let eq_moving = !reduce && { let m = self.model.read(cx); m.playing() && m.active };
+        // Not under the full player: the overlay is not drawn there.
+        if eq_moving && self.nav.read(cx).route != Route::NowPlaying && crate::track_row::eq_shown() && !self.eq_tick {
+            self.eq_tick = true;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(std::time::Duration::from_millis(33)).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.eq_tick = false;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        if np_t.is_some() || panel_t.is_some() || folding || page_t.is_some() {
             window.request_animation_frame();
         }
         let show_np = on_np || np_t.is_some();
@@ -1050,7 +1167,11 @@ impl Render for Lfly {
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        .child(page)
+                        .child(match page_t {
+                            Some(t) => div().size_full().relative().top(px(8. * (1. - t))).opacity(t).child(page).into_any_element(),
+                            None => page,
+                        })
+                        .child(crate::track_row::eq_overlay(accent, eq_moving))
                         .child(top)
                         // App.svelte `.bottom`: 12 px from the edges, at most 1180 px, centred.
                         .child(
@@ -1131,7 +1252,7 @@ impl Render for Lfly {
             m.size = size;
             m.origin = origin;
         });
-        root.child(self.toasts.clone()).child(self.menu.clone()).children(self.pair_dialog(cx))
+        root.child(self.toasts.clone()).child(self.menu.clone()).children(self.pair_dialog(cx)).into_any_element()
     }
 }
 

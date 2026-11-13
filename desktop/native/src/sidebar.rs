@@ -143,7 +143,7 @@ impl Render for Sidebar {
                 .cursor_pointer()
                 .when(on && own_fill, |s| s.bg(pill_bg(&c)).border_1().border_color(accent.opacity(0.22)))
                 .when(!own_fill, |s| s.child(tabs_marks.mark(k)))
-                .when(!on, |s| s.hover(|s| s.text_color(c.text).bg(c.text.opacity(0.06))))
+                .when(!on, |s| s.hover(|s| s.text_color(c.text).bg(c.text.opacity(0.06))).active(|s| s.bg(c.text.opacity(0.11))))
                 .on_click(go(route))
                 .child(
                     div().w(px(22.)).flex().justify_center().flex_none().child(
@@ -170,7 +170,7 @@ impl Render for Sidebar {
                 .gap(px(12.))
                 .rounded(px(16.))
                 .cursor_pointer()
-                .when(!on, |s| s.hover(|s| s.bg(c.text.opacity(0.06))))
+                .when(!on, |s| s.hover(|s| s.bg(c.text.opacity(0.06))).active(|s| s.bg(c.text.opacity(0.11))))
                 .on_click(go(route))
                 .child(art)
                 .when(wide, |d| {
@@ -234,7 +234,7 @@ impl Render for Sidebar {
                 .rounded(px(11.))
                 .overflow_hidden()
                 .bg(c.text.opacity(0.08))
-                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(11.))))
+                .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(11.)))))
                 .into_any_element();
             entries.push(entry(
                 format!("playlist:{}", p.id),
@@ -254,7 +254,7 @@ impl Render for Sidebar {
                 .rounded(px(11.))
                 .overflow_hidden()
                 .bg(c.text.opacity(0.08))
-                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(11.))))
+                .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(11.)))))
                 .into_any_element();
             entries.push(entry(
                 format!("playlist:{}", p.id),

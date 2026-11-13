@@ -125,7 +125,7 @@ impl RightPanel {
             ).child(div().text_center().line_height(px(20.)).child("La coda è vuota. Fai partire un brano o una playlist."));
         };
         let art = |image: Option<Arc<Image>>, size: f32, radius: f32| {
-            div().size(px(size)).flex_none().rounded(px(radius)).bg(s.text.opacity(0.08)).children(image.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(radius))))
+            div().size(px(size)).flex_none().rounded(px(radius)).bg(s.text.opacity(0.08)).children(image.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(radius)))))
         };
         let text_col = |title: String, artist: String, bold: bool| {
             div()
@@ -166,7 +166,7 @@ impl RightPanel {
                     .px(px(8.))
                     .py(px(6.))
                     .rounded(px(16.))
-                    .hover(|d| d.bg(s.text.opacity(0.07)))
+                    .hover(|d| d.bg(s.text.opacity(0.07))).active(|d| d.bg(s.text.opacity(0.13)))
                     // A double click plays it, as in Tauri; a click on the cover too.
                     .on_click(move |e, _, cx| {
                         if e.click_count() == 2 {
@@ -199,7 +199,7 @@ impl RightPanel {
                             ),
                     )
                     .child(text_col(t.title.clone(), t.artist.clone(), false))
-                    .child(div().flex_none().text_size(px(12.)).text_color(s.text3).child(if t.duration_ms > 0 { clock(t.duration_ms as u64) } else { SharedString::default() }))
+                    .child(div().flex_none().text_size(px(12.)).font_features(crate::ui::tnum()).text_color(s.text3).child(if t.duration_ms > 0 { clock(t.duration_ms as u64) } else { SharedString::default() }))
                     .child(
                         div()
                             .id(("rq-rm", i))
@@ -212,7 +212,7 @@ impl RightPanel {
                             .cursor_pointer()
                             .invisible()
                             .group_hover(group, |d| d.visible())
-                            .hover(|d| d.bg(s.text.opacity(0.12)))
+                            .hover(|d| d.bg(s.text.opacity(0.12))).active(|d| d.bg(s.text.opacity(0.22)))
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
                                 core.remove_from_queue(i);
@@ -331,7 +331,7 @@ impl RightPanel {
                         .p(px(10.))
                         .rounded(px(18.))
                         .cursor_pointer()
-                        .hover(|d| d.bg(s.text.opacity(0.07)))
+                        .hover(|d| d.bg(s.text.opacity(0.07))).active(|d| d.bg(s.text.opacity(0.13)))
                         .on_click(move |_, _, cx| c3.update(cx, |c, cx| if on { c.disconnect(cx) } else { c.follow(dev.clone(), cx) }))
                         .child(d_icon(crate::connect::kind_icon(&d.kind), on))
                         .child(text_col(d.name.clone(), sub))
@@ -456,7 +456,7 @@ impl Render for RightPanel {
                             .items_center()
                             .justify_center()
                             .bg(s.text.opacity(0.07))
-                            .hover(|d| d.bg(s.text.opacity(0.14)))
+                            .hover(|d| d.bg(s.text.opacity(0.14))).active(|d| d.bg(s.text.opacity(0.25)))
                             .cursor_pointer()
                             .group("rp-close")
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

@@ -49,7 +49,9 @@ impl Render for LyricsPage {
         let track = self.model.read(cx).current().cloned();
         let bg = self.look.read(cx).scheme.bg;
         let (w, h, pw) = (self.width, self.height, self.page_width);
+        let playing = self.model.read(cx).playing();
         self.ambient.update(cx, |a, _| {
+            a.moving = playing;
             a.url = track.as_ref().and_then(|t| t.cover_url.clone());
             a.width = pw;
             a.height = h;
@@ -88,7 +90,7 @@ impl Render for LyricsPage {
                         .bg(white().opacity(0.08))
                         .shadow(vec![BoxShadow { color: black().opacity(0.5), offset: point(px(0.), px(24.)), blur_radius: px(60.), spread_radius: px(0.), inset: false }])
                         .on_click(move |_, _, cx| nav.update(cx, |n, cx| n.go(Route::NowPlaying, cx)))
-                        .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(12.))))
+                        .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(12.)))))
                         .child(
                             div()
                                 .absolute()

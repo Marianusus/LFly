@@ -169,8 +169,9 @@ pub fn library_item(
         Art::Cover(img_) => div()
             .size(px(art_size))
             .rounded(px(radius))
+            .overflow_hidden()
             .bg(s.text.opacity(0.08))
-            .children(img_.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(radius)))),
+            .children(img_.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(radius))))),
     }
     .flex_none()
     .when(!list, |d| d.shadow(vec![BoxShadow { color: black().opacity(0.3), offset: point(px(0.), px(10.)), blur_radius: px(26.), spread_radius: px(0.), inset: false }]));
@@ -186,7 +187,7 @@ pub fn library_item(
             .items_center()
             .justify_center()
             .pl(px(2.))
-            .bg(accent)
+            .bg(accent).active(|d| d.opacity(0.85))
             .shadow(vec![BoxShadow { color: black().opacity(0.35), offset: point(px(0.), px(8.)), blur_radius: px(20.), spread_radius: px(0.), inset: false }])
             .cursor_pointer()
             .on_click(move |_, _, cx| {
@@ -209,7 +210,7 @@ pub fn library_item(
         .relative()
         .rounded(px(if list { 14. } else { 18. }))
         .cursor_pointer()
-        .hover(|d| d.bg(s.glass_tint))
+        .hover(|d| d.bg(s.glass_tint)).active(|d| d.bg(s.text.opacity(0.12)))
         .on_click(move |_, _, cx| on_open(cx));
     if list {
         item = item.w(px(width)).flex().items_center().gap(px(14.)).pl(px(6.)).pr(px(10.)).py(px(6.)).child(art_el).child(text);
@@ -249,6 +250,7 @@ impl LibraryPage {
 
 impl Render for LibraryPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::track_row::eq_begin();
         let (s, look) = {
             let l = self.look.read(cx);
             (l.scheme.clone(), l.glass())
@@ -260,6 +262,7 @@ impl Render for LibraryPage {
         let favorites = tracks_of(&lib.favorites);
         let history = tracks_of(&lib.history);
         let current = self.model.read(cx).current().map(|t| t.id.clone());
+        let sounding = self.model.read(cx).playing();
 
         // `.p-pill`: 34 px, 13px 600, the glass tint and border; `.accent` in the accent.
         let pill = |id: &'static str, name: &'static str, label: &'static str, primary: bool, on: bool| {
@@ -275,7 +278,7 @@ impl Render for LibraryPage {
                 .font_weight(FontWeight::SEMIBOLD)
                 .when(primary, |d| d.bg(accent).text_color(s.on_accent.hsla(1.)))
                 .when(!primary, |d| {
-                    d.bg(if on { s.text.opacity(0.16) } else { s.glass_tint }).border_1().border_color(s.glass_border).text_color(s.text).hover(|d| d.bg(s.text.opacity(0.14)))
+                    d.bg(if on { s.text.opacity(0.16) } else { s.glass_tint }).border_1().border_color(s.glass_border).text_color(s.text).hover(|d| d.bg(s.text.opacity(0.14))).active(|d| d.bg(s.text.opacity(0.25)))
                 })
                 .cursor_pointer()
                 .child(icon(name, 15., if primary { s.on_accent.hsla(1.) } else { s.text }))
@@ -406,7 +409,7 @@ impl Render for LibraryPage {
                     .font_weight(FontWeight::SEMIBOLD)
                     .cursor_pointer()
                     .when(accent, |d| d.bg(s.accent.hsla(1.)).text_color(s.on_accent.hsla(1.)))
-                    .when(!accent, |d| d.bg(s.glass_tint).border_1().border_color(s.glass_border).text_color(s.text).hover(|d| d.bg(s.text.opacity(0.12))))
+                    .when(!accent, |d| d.bg(s.glass_tint).border_1().border_color(s.glass_border).text_color(s.text).hover(|d| d.bg(s.text.opacity(0.12))).active(|d| d.bg(s.text.opacity(0.22))))
             };
             let play = play_tracks(downloaded.clone(), 0);
             let open = go(Route::Downloads);
@@ -437,6 +440,7 @@ impl Render for LibraryPage {
                     duration_ms: t.duration_ms,
                     cover,
                     playing: current.as_deref() == Some(t.id.as_str()),
+                    live: current.as_deref() == Some(t.id.as_str()) && sounding,
                     liked: liked[i],
                     downloaded: true,
                     is_video: t.is_video,

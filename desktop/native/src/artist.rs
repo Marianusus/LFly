@@ -33,6 +33,8 @@ pub struct Artist {
     /// Artist.svelte `about`: the whole description shown.
     about: bool,
     pub width: f32,
+    /// The width of the page itself (the window without the sidebar and the panel).
+    pub page_width: f32,
     pub height: f32,
     _subs: Vec<Subscription>,
 }
@@ -47,7 +49,7 @@ impl Artist {
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
-        Self { core, covers, look, nav, library, model, id: String::new(), name: String::new(), page: None, banner: None, all: false, about: false, width: 1100., height: 720., _subs: subs }
+        Self { core, covers, look, nav, library, model, id: String::new(), name: String::new(), page: None, banner: None, all: false, about: false, width: 1100., page_width: 800., height: 720., _subs: subs }
     }
 
     pub fn show(&mut self, id: String, name: String, cx: &mut Context<Self>) {
@@ -64,6 +66,7 @@ impl Artist {
         self.page = None;
         self.banner = None;
         self.all = false;
+        crate::home::reset_rails("a-");
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
             let c = core.clone();
@@ -96,7 +99,9 @@ impl Artist {
 
 impl Render for Artist {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::track_row::eq_begin();
         let s = self.look.read(cx).scheme.clone();
+        let view = cx.entity_id();
         let title: SharedString = match &self.page {
             Some(Ok(p)) => p.name.clone().into(),
             _ => self.name.clone().into(),
@@ -104,7 +109,6 @@ impl Render for Artist {
         let has_art = self.banner.is_some();
         let on_art = |c: Hsla| if has_art { white().opacity(0.78) } else { c };
         let accent = s.accent.hsla(1.);
-        let card_w = (self.width * 0.15).clamp(150., 196.);
         let songs = match &self.page {
             Some(Ok(p)) => p.songs.clone(),
             _ => Vec::new(),
@@ -165,6 +169,7 @@ impl Render for Artist {
                 };
                 if !p.songs.is_empty() {
                     let current = self.model.read(cx).current().map(|t| t.id.clone());
+                    let sounding = self.model.read(cx).playing();
                     let lib = self.library.read(cx);
                     let liked: Vec<bool> = p.songs.iter().map(|t| lib.is_favorite(&t.id)).collect();
                     let dl_model = crate::downloads::DownloadsModel::entity(cx);
@@ -189,6 +194,7 @@ impl Render for Artist {
                                     duration_ms: t.duration_ms,
                                     cover,
                                     playing: current.as_deref() == Some(t.id.as_str()),
+                                    live: current.as_deref() == Some(t.id.as_str()) && sounding,
                                     liked: liked[i],
                                     downloaded: dl_ids[i],
                                     is_video: t.is_video,
@@ -239,8 +245,8 @@ impl Render for Artist {
                     );
                 }
                 let nav = self.nav.clone();
-                for (key, label, items) in [("albums", "Album", &p.albums), ("singles", "Singoli ed EP", &p.singles), ("related", "Ai fan piacciono anche", &p.related)] {
-                    if let Some(shelf) = card_shelf(key, label, items, card_w, &self.covers, &s, &self.core, &nav, None, cx) {
+                for (key, label, items) in [("a-albums", "Album", &p.albums), ("a-singles", "Singoli ed EP", &p.singles), ("a-related", "Ai fan piacciono anche", &p.related)] {
+                    if let Some(shelf) = card_shelf(key, label, items, (self.page_width - 48.).max(crate::home::CARD_MIN), &self.covers, &s, &self.core, &nav, None, view, cx) {
                         body.push(shelf);
                     }
                 }
@@ -272,7 +278,7 @@ impl Render for Artist {
                                     .border_color(s.glass_border)
                                     .flex()
                                     .gap(px(18.))
-                                    .child(div().size(px(120.)).flex_none().rounded_full().overflow_hidden().bg(s.text.opacity(0.08)).children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded_full())))
+                                    .child(div().size(px(120.)).flex_none().rounded_full().overflow_hidden().bg(s.text.opacity(0.08)).children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded_full()))))
                                     .child(
                                         div()
                                             .min_w_0()
@@ -281,7 +287,7 @@ impl Render for Artist {
                                             .gap(px(4.))
                                             .child(div().font_weight(FontWeight::BOLD).child(p.name.clone()))
                                             .children(p.subscribers.clone().map(|x| div().text_size(px(13.)).text_color(s.text2).child(x)))
-                                            .child(div().text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).when(!self.about, |d| d.line_clamp(4)).child(desc))
+                                            .child(div().text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).when(!self.about, |d| d.line_clamp(4).text_ellipsis()).child(desc))
                                             .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(accent).child(if self.about { "Mostra meno" } else { "Altro" })),
                                     ),
                             )
@@ -343,7 +349,7 @@ impl Render for Artist {
                                                 .items_center()
                                                 .justify_center()
                                                 .pl(px(3.))
-                                                .bg(accent)
+                                                .bg(accent).active(|d| d.opacity(0.85))
                                                 .cursor_pointer()
                                                 .on_click(move |_, _, _| core.play(&s1, 0))
                                                 .child(icon("play", 22., s.on_accent.hsla(1.))),

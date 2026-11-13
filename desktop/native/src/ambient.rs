@@ -1,6 +1,6 @@
 //! The playing cover as light (Tauri: pages/parts/Ambient.svelte), painted once on the CPU: a
-//! still blurred copy filling the box, the two copies that drift over it in Tauri (here where
-//! their drift starts, so `still`), each blurred to soft edges and saturated, under the scrim.
+//! still blurred copy filling the box and the two copies that drift over it, each blurred to soft
+//! edges and saturated, under the scrim. The GPU moves the copies.
 //! Painted at an eighth of the window: a blur this wide hides the scale, the GPU stretches it.
 
 use std::sync::Arc;
@@ -118,25 +118,77 @@ fn premultiplied(img: &image::RgbaImage) -> Option<Pixmap> {
     Pixmap::from_vec(data, IntSize::from_wh(img.width(), img.height())?)
 }
 
+/// One of the two copies that drift (`.a`, `.b`): its picture with the blur's room around it,
+/// where it stands (logical px, the room included) and how far it moves.
+#[derive(Clone)]
+pub struct Blob {
+    image: Arc<RenderImage>,
+    x: f32,
+    y: f32,
+    size: f32,
+    /// The copy's own side (CSS translate percentages are of it).
+    side: f32,
+    /// drift-a/drift-b's `to`: translate (fractions of the side) and scale.
+    to: (f32, f32, f32),
+    /// Seconds one way (alternate: there and back).
+    secs: f32,
+}
+
+/// The ambient as layers: the still base (with `--lfly-bg`), the two drifting copies, the scrim.
+#[derive(Clone)]
+pub struct Painted {
+    base: Arc<RenderImage>,
+    blobs: [Blob; 2],
+    scrim: Arc<RenderImage>,
+}
+
+impl Painted {
+    /// Its textures, to give back to the GPU when it is not shown any more.
+    fn images(&self) -> Vec<Arc<RenderImage>> {
+        vec![self.base.clone(), self.blobs[0].image.clone(), self.blobs[1].image.clone(), self.scrim.clone()]
+    }
+}
+
+/// A part of [l] as the BGRA, straight-alpha frame GPUI draws (a decoded PNG is the same), no
+/// PNG on the way; given back with `drop_image` when it is replaced.
+fn to_image(l: &Layer, x0: usize, y0: usize, w: usize, h: usize) -> Option<Arc<RenderImage>> {
+    let mut data = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let v = l.px[(y + y0) * l.w + x + x0];
+            let a = v[3].clamp(0., 1.);
+            let q = |c: f32| if a > 0. { ((c / a).clamp(0., 1.) * 255.).round() as u8 } else { 0 };
+            data.extend_from_slice(&[q(v[2]), q(v[1]), q(v[0]), (a * 255.).round() as u8]);
+        }
+    }
+    let buf = image::RgbaImage::from_raw(w as u32, h as u32, data)?;
+    Some(Arc::new(RenderImage::new(vec![image::Frame::new(buf)])))
+}
+
+fn pixmap_image(pm: &Pixmap) -> Option<Arc<RenderImage>> {
+    let l = Layer::from_pixmap(pm);
+    to_image(&l, 0, 0, l.w, l.h)
+}
+
 /// The ambient for a box of [w] x [h] logical px over [bg], from the cover's bytes. `dim` and
 /// `blur` as Ambient.svelte takes them (the full player: 0.42 and 80).
-pub fn paint(cover: &[u8], w: f32, h: f32, bg: Rgb, dim: f32, blur: f32) -> Option<Arc<Image>> {
+pub fn paint(cover: &[u8], w: f32, h: f32, bg: Rgb, dim: f32, blur: f32) -> Option<Painted> {
     let src = image::load_from_memory(cover).ok()?.resize_to_fill(96, 96, image::imageops::FilterType::Triangle).to_rgba8();
     let src = premultiplied(&src)?;
     let (cw, ch) = ((w / STEP).ceil().max(8.), (h / STEP).ceil().max(8.));
     let sigma = blur / STEP;
-    // Room for the blur past the edges, cut off at the end.
+    // Room for the blur past the edges.
     let pad = (sigma * 3.).ceil();
-    let (pw, ph) = ((cw + 2. * pad) as u32, (ch + 2. * pad) as u32);
     let s = src.width() as f32;
 
-    // One copy of the cover in a box (x, y, size in painted px, object-fit cover), turned by `turn`.
-    let copy = |x: f32, y: f32, bw: f32, bh: f32, turn: f32| -> Option<Layer> {
+    // One copy of the cover in a box (x, y, size in painted px, object-fit cover) on a canvas of
+    // [pw] x [ph], turned by `turn`, blurred and saturated.
+    let copy = |pw: u32, ph: u32, x: f32, y: f32, bw: f32, bh: f32, turn: f32| -> Option<Layer> {
         let mut pm = Pixmap::new(pw, ph)?;
         let scale = bw.max(bh) / s;
-        let (cx, cy) = (pad + x + bw / 2., pad + y + bh / 2.);
+        let (cx, cy) = (x + bw / 2., y + bh / 2.);
         let t = Transform::from_translate(cx, cy).pre_rotate(turn).pre_scale(scale, scale).pre_translate(-s / 2., -s / 2.);
-        let clip = Rect::from_xywh(pad + x, pad + y, bw, bh)?;
+        let clip = Rect::from_xywh(x, y, bw, bh)?;
         let mut mask = tiny_skia::Mask::new(pw, ph)?;
         mask.fill_path(&tiny_skia::PathBuilder::from_rect(clip), tiny_skia::FillRule::Winding, false, Transform::identity());
         pm.draw_pixmap(0, 0, src.as_ref(), &PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() }, t, Some(&mask));
@@ -146,25 +198,31 @@ pub fn paint(cover: &[u8], w: f32, h: f32, bg: Rgb, dim: f32, blur: f32) -> Opti
         Some(l)
     };
 
-    // `--lfly-bg`, then the still base (inset -30%), then `.a` and `.b` at 0.9.
+    // `--lfly-bg` under the still base (inset -30%), the padding cut off.
+    let (pw, ph) = ((cw + 2. * pad) as u32, (ch + 2. * pad) as u32);
     let mut out = Layer { w: pw as usize, h: ph as usize, px: vec![[bg.0 as f32 / 255., bg.1 as f32 / 255., bg.2 as f32 / 255., 1.]; (pw * ph) as usize] };
-    copy(-0.3 * cw, -0.3 * ch, 1.6 * cw, 1.6 * ch, 0.)?.over(&mut out, 1.);
-    let side = 0.75 * cw;
-    copy(-0.12 * cw, -0.28 * ch, side, side, 0.)?.over(&mut out, 0.9);
-    copy(cw + 0.14 * cw - side, ch + 0.36 * ch - side, side, side, 180.)?.over(&mut out, 0.9);
+    copy(pw, ph, pad - 0.3 * cw, pad - 0.3 * ch, 1.6 * cw, 1.6 * ch, 0.)?.over(&mut out, 1.);
+    let base = to_image(&out, pad as usize, pad as usize, cw as usize, ch as usize)?;
 
-    // Back to a pixmap, the padding cut off.
-    let mut pm = Pixmap::new(cw as u32, ch as u32)?;
-    let pad = pad as usize;
-    for (i, p) in pm.pixels_mut().iter_mut().enumerate() {
-        let (x, y) = (i % cw as usize, i / cw as usize);
-        let v = out.px[(y + pad) * out.w + x + pad];
-        let a = v[3].clamp(0., 1.);
-        let q = |c: f32| (c.clamp(0., a) * 255.).round() as u8;
-        *p = tiny_skia::PremultipliedColorU8::from_rgba(q(v[0]), q(v[1]), q(v[2]), (a * 255.).round() as u8)?;
-    }
+    // `.a` (left -12%, top -28%) and `.b` (right -14%, bottom -36%, turned half way), each on its
+    // own canvas with room for the blur, at 0.9.
+    let side = 0.75 * cw;
+    let room = (side + 2. * pad).ceil() as u32;
+    let blob = |x: f32, y: f32, turn: f32, to: (f32, f32, f32), secs: f32| -> Option<Blob> {
+        let mut l = copy(room, room, pad, pad, side, side, turn)?;
+        for p in &mut l.px {
+            for c in p.iter_mut() {
+                *c *= 0.9;
+            }
+        }
+        let image = to_image(&l, 0, 0, room as usize, room as usize)?;
+        Some(Blob { image, x: (x - pad) * STEP, y: (y - pad) * STEP, size: room as f32 * STEP, side: side * STEP, to, secs })
+    };
+    let a = blob(-0.12 * cw, -0.28 * ch, 0., (0.14, 0.10, 1.15), 26.)?;
+    let b = blob(cw + 0.14 * cw - side, ch + 0.36 * ch - side, 180., (-0.12, -0.08, 1.2), 32.)?;
 
     // `.scrim`: radial-gradient(120% 90% at 50% 30%, dim*0.55 → dim+0.2), over rgba(0,0,0,dim*0.4).
+    let mut pm = Pixmap::new(cw as u32, ch as u32)?;
     let full = Rect::from_xywh(0., 0., cw, ch)?;
     let mut paint = Paint::default();
     paint.set_color(Color::from_rgba(0., 0., 0., (dim * 0.4).clamp(0., 1.))?);
@@ -177,28 +235,43 @@ pub fn paint(cover: &[u8], w: f32, h: f32, bg: Rgb, dim: f32, blur: f32) -> Opti
     let t = Transform::from_translate(cw * 0.5, ch * 0.3).pre_scale(1.2 * cw, 0.9 * ch);
     paint.shader = RadialGradient::new(Point::from_xy(0., 0.), Point::from_xy(0., 0.), 1., stops, SpreadMode::Pad, t)?;
     pm.fill_rect(full, &paint, Transform::identity(), None);
+    let scrim = pixmap_image(&pm)?;
 
-    let png = pm.encode_png().ok()?;
-    Some(Arc::new(Image::from_bytes(ImageFormat::Png, png)))
+    Some(Painted { base, blobs: [a, b], scrim })
 }
 
-/// The ambient behind a page: set [url] and the size before it draws. A new cover dissolves in
-/// over the old one (900 ms) instead of cutting; the picture is painted again on a resize.
+/// CSS `ease-in-out` (cubic-bezier(.42, 0, .58, 1)), close enough for a 26 s drift.
+fn ease_in_out(t: f32) -> f32 {
+    t * t * (3. - 2. * t)
+}
+
+/// The ambient behind a page: set [url], the size and whether it moves before it draws. A new
+/// cover dissolves in over the old one (900 ms) instead of cutting; the picture is painted again
+/// on a resize. The two copies drift as in Tauri (translate and scale; GPUI turns no images, so
+/// not their small rotation), 30 times a second, while the music plays and the window is in front.
 pub struct Ambient {
     core: Arc<crate::core::Core>,
     pub url: Option<String>,
     pub width: f32,
     pub height: f32,
     pub bg: Rgb,
+    /// Drifting (the music plays): set by the page with the rest.
+    pub moving: bool,
     dim: f32,
     blur: f32,
     shown_url: Option<String>,
     bytes: Option<Arc<Vec<u8>>>,
     painted: (f32, f32),
-    current: Option<Arc<gpui_kit::Image>>,
-    previous: Option<Arc<gpui_kit::Image>>,
+    current: Option<Painted>,
+    previous: Option<Painted>,
     since: Option<Instant>,
     busy: bool,
+    /// Seconds drifted so far (it holds still while paused, and goes on from there).
+    drift: f32,
+    last: Option<Instant>,
+    tick: bool,
+    /// Textures no longer shown, given back at the next draw (it has the window).
+    trash: Vec<Arc<RenderImage>>,
 }
 
 impl Ambient {
@@ -209,6 +282,7 @@ impl Ambient {
             width: 1100.,
             height: 720.,
             bg: Rgb(0., 0., 0.),
+            moving: false,
             dim,
             blur,
             shown_url: None,
@@ -218,6 +292,10 @@ impl Ambient {
             previous: None,
             since: None,
             busy: false,
+            drift: 0.,
+            last: None,
+            tick: false,
+            trash: Vec::new(),
         }
     }
 
@@ -234,8 +312,9 @@ impl Ambient {
             self.bytes = None;
         }
         let Some(url) = url else {
-            self.current = None;
-            self.previous = None;
+            let (c, p) = (self.current.take(), self.previous.take());
+            self.discard(c);
+            self.discard(p);
             return;
         };
         self.busy = true;
@@ -245,7 +324,7 @@ impl Ambient {
                 Some(b) => Some(b),
                 None => core.fetch(url.clone()).await.map(Arc::new),
             };
-            let image = match bytes.clone() {
+            let painted = match bytes.clone() {
                 Some(b) => cx.background_executor().spawn(async move { paint(&b, w, h, bg, dim, blur) }).await,
                 None => None,
             };
@@ -254,37 +333,111 @@ impl Ambient {
                 this.painted = (w, h);
                 if this.shown_url.as_deref() == Some(url.as_str()) {
                     if new_cover {
-                        this.previous = this.current.take();
+                        let old = std::mem::replace(&mut this.previous, this.current.take());
+                        this.discard(old);
                         this.since = Some(Instant::now());
                     }
                     this.bytes = bytes;
-                    if image.is_some() {
-                        this.current = image;
+                    if painted.is_some() {
+                        let old = std::mem::replace(&mut this.current, painted);
+                        this.discard(old);
                     }
+                } else {
+                    this.discard(painted);
                 }
                 cx.notify();
             });
         })
         .detach();
     }
+
+    /// Gives every texture back (the view is going away).
+    pub fn release(&mut self, window: &mut Window) {
+        let (c, p) = (self.current.take(), self.previous.take());
+        self.discard(c);
+        self.discard(p);
+        for t in self.trash.drain(..) {
+            let _ = window.drop_image(t);
+        }
+        self.shown_url = None;
+    }
+
+    fn discard(&mut self, p: Option<Painted>) {
+        if let Some(p) = p {
+            self.trash.extend(p.images());
+        }
+    }
+
+    /// The base and the drifting copies (the scrim goes once over all of them).
+    fn layers(&self, p: &Painted) -> Div {
+        let full = |i: Arc<RenderImage>| div().absolute().inset_0().child(img(i).size_full().object_fit(ObjectFit::Fill));
+        let mut d = div().absolute().inset_0().child(full(p.base.clone()));
+        for b in &p.blobs {
+            // alternate: there and back, eased each way.
+            let u = self.drift / b.secs;
+            let leg = u.rem_euclid(2.);
+            let e = ease_in_out(if leg <= 1. { leg } else { 2. - leg });
+            let (tx, ty, sc) = b.to;
+            let scale = 1. + (sc - 1.) * e;
+            let size = b.size * scale;
+            // Scaled about its centre, then moved.
+            let x = b.x + b.size / 2. - size / 2. + tx * b.side * e;
+            let y = b.y + b.size / 2. - size / 2. + ty * b.side * e;
+            d = d.child(div().absolute().left(px(x)).top(px(y)).size(px(size)).child(img(b.image.clone()).size_full().object_fit(ObjectFit::Fill)));
+        }
+        d
+    }
 }
 
 impl Render for Ambient {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure(cx);
-        let fade = if crate::prefs::Prefs::reduce_motion(cx) { 1. } else { self.since.map_or(1., |t| (t.elapsed().as_secs_f32() / 0.9).min(1.)) };
+        for t in self.trash.drain(..) {
+            let _ = window.drop_image(t);
+        }
+        let reduce = crate::prefs::Prefs::reduce_motion(cx);
+        let active = window.is_window_active() || std::env::var_os("LFLY_FORCE_ACTIVE").is_some();
+        let fade = if reduce { 1. } else { self.since.map_or(1., |t| (t.elapsed().as_secs_f32() / 0.9).min(1.)) };
         if fade >= 1. {
-            self.previous = None;
-        } else if window.is_window_active() {
+            if let Some(p) = self.previous.take() {
+                for t in p.images() {
+                    let _ = window.drop_image(t);
+                }
+            }
+        } else if active {
             window.request_animation_frame();
         }
-        let layer = |i: Arc<gpui_kit::Image>| div().absolute().inset_0().child(img(i).size_full().object_fit(ObjectFit::Fill));
+        // The drift: 30 frames a second, only while the music plays and the window is in front.
+        let now = Instant::now();
+        let drifting = self.moving && !reduce && active && self.current.is_some();
+        if drifting {
+            if let Some(l) = self.last {
+                self.drift += now.duration_since(l).as_secs_f32().min(0.1);
+            }
+            self.last = Some(now);
+            if !self.tick {
+                self.tick = true;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(std::time::Duration::from_millis(33)).await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.tick = false;
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+        } else {
+            self.last = None;
+        }
         div()
             .absolute()
             .inset_0()
+            .overflow_hidden()
             .bg(self.bg.hsla(1.))
-            .children(self.previous.clone().map(layer))
-            .children(self.current.clone().map(|i| layer(i).opacity(if self.previous.is_some() { fade } else { 1. })))
+            .children(self.previous.as_ref().map(|p| self.layers(p)))
+            .children(self.current.as_ref().map(|p| self.layers(p).opacity(if self.previous.is_some() { fade } else { 1. })))
+            // `.scrim`: one, over both while they dissolve.
+            .children(self.current.as_ref().or(self.previous.as_ref()).map(|p| div().absolute().inset_0().child(img(p.scrim.clone()).size_full().object_fit(ObjectFit::Fill))))
     }
 }
 
