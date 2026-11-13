@@ -51,6 +51,9 @@ enum Cat {
 /// The searches and results opened lately (recents.ts), kept by this window under its own key.
 const RECENTS: &str = "native-search-recents";
 
+struct SearchGlobal(WeakEntity<Search>);
+impl Global for SearchGlobal {}
+
 fn kind_static(k: &str) -> Option<&'static str> {
     ["song", "album", "playlist", "artist"].into_iter().find(|x| *x == k)
 }
@@ -149,6 +152,7 @@ impl Search {
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         let recents = lfly_core::store::get(RECENTS).ok().flatten().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+        cx.set_global(SearchGlobal(cx.entity().downgrade()));
         Self {
             core,
             covers,
@@ -170,6 +174,19 @@ impl Search {
             page_width: 800.,
             _subs: subs,
         }
+    }
+
+    /// Settings > Privacy: forgets the recent searches.
+    pub fn clear_recents(cx: &mut App) {
+        let Some(me) = cx.try_global::<SearchGlobal>().and_then(|g| g.0.upgrade()) else {
+            let _ = lfly_core::store::set(RECENTS, &serde_json::json!([]));
+            return;
+        };
+        me.update(cx, |this, cx| {
+            this.recents.clear();
+            this.save_recents();
+            cx.notify();
+        });
     }
 
     fn save_recents(&self) {
@@ -736,7 +753,13 @@ impl Render for Search {
                                 .iter()
                                 .map(|it| {
                                     let cover = it.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
-                                    crate::home::card(format!("g-{}-{}", it.kind, it.id).into(), it, card_w, cover, &s, &self.core, &self.nav).into_any_element()
+                                    let me = cx.entity().downgrade();
+                                    let item = it.clone_item();
+                                    crate::home::card(format!("g-{}-{}", it.kind, it.id).into(), it, card_w, cover, &s, &self.core, &self.nav)
+                                        .on_click(move |_, _, cx| {
+                                            let _ = me.update(cx, |this, _| this.remember_item(&item));
+                                        })
+                                        .into_any_element()
                                 })
                                 .collect();
                             body.push(div().px(px(24.)).pb(px(32.)).flex().flex_wrap().gap(px(8.)).children(cards).into_any_element());
@@ -876,9 +899,14 @@ impl Render for Search {
                     body.push(top_row.into_any_element());
                     let card_w = (w * 0.15).clamp(150., 196.);
                     let nav = self.nav.clone();
+                    // What is opened from the shelves joins the recents (as the top result does).
+                    let me = cx.entity().downgrade();
+                    let remember: std::rc::Rc<dyn Fn(&Item, &mut App)> = std::rc::Rc::new(move |it, cx| {
+                        let _ = me.update(cx, |this, _| this.remember_item(it));
+                    });
                     for (key, label, items) in [("s-artists", "Artisti", &r.artists), ("s-albums", "Album", &r.albums), ("s-playlists", "Playlist", &r.playlists)] {
                         let items: Vec<Item> = items.iter().map(|i| i.clone_item()).collect();
-                        if let Some(shelf) = card_shelf(key, label, &items, card_w, &self.covers, &s, &self.core, &nav, cx) {
+                        if let Some(shelf) = card_shelf(key, label, &items, card_w, &self.covers, &s, &self.core, &nav, Some(remember.clone()), cx) {
                             body.push(shelf);
                         }
                     }

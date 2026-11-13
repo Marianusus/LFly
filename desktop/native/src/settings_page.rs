@@ -1127,6 +1127,13 @@ impl SettingsPage {
                                 })
                             }))
                             .into_any_element(),
+                        row()
+                            .child(label("Ricerche recenti", None, i))
+                            .child(button("clear-recents", "Cancella", false, false, i).on_click(|_, _, cx| {
+                                crate::search::Search::clear_recents(cx);
+                                Toasts::say("Ricerche recenti cancellate", cx);
+                            }))
+                            .into_any_element(),
                     ],
                     i,
                 ))

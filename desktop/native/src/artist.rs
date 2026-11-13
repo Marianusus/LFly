@@ -240,7 +240,7 @@ impl Render for Artist {
                 }
                 let nav = self.nav.clone();
                 for (key, label, items) in [("albums", "Album", &p.albums), ("singles", "Singoli ed EP", &p.singles), ("related", "Ai fan piacciono anche", &p.related)] {
-                    if let Some(shelf) = card_shelf(key, label, items, card_w, &self.covers, &s, &self.core, &nav, cx) {
+                    if let Some(shelf) = card_shelf(key, label, items, card_w, &self.covers, &s, &self.core, &nav, None, cx) {
                         body.push(shelf);
                     }
                 }

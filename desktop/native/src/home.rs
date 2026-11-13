@@ -126,7 +126,7 @@ pub fn card(
     s: &Scheme,
     core: &Arc<Core>,
     nav: &Entity<Nav>,
-) -> impl IntoElement {
+) -> Stateful<Div> {
     let round = item.kind == "artist";
     let art = width - 16.;
     let group: SharedString = format!("card-{id}").into();
@@ -312,6 +312,8 @@ pub fn card_shelf(
     s: &Scheme,
     core: &Arc<Core>,
     nav: &Entity<Nav>,
+    // Called with the card opened (Search remembers it among the recents).
+    on_open: Option<std::rc::Rc<dyn Fn(&Item, &mut App)>>,
     cx: &mut App,
 ) -> Option<AnyElement> {
     if items.is_empty() {
@@ -322,7 +324,14 @@ pub fn card_shelf(
         .enumerate()
         .map(|(i, it)| {
             let cover = it.cover_url.as_deref().and_then(|u| covers.update(cx, |c, cx| c.get(u, cx)));
-            card(format!("{key}-{i}").into(), it, card_w, cover, s, core, nav).into_any_element()
+            let c = card(format!("{key}-{i}").into(), it, card_w, cover, s, core, nav);
+            match on_open.clone() {
+                Some(f) => {
+                    let it = it.clone_item();
+                    c.on_click(move |_, _, cx| f(&it, cx)).into_any_element()
+                }
+                None => c.into_any_element(),
+            }
         })
         .collect();
     Some(div().mb(px(36.)).child(shelf_header(title.to_string().into(), s)).child(rail(key.to_string().into(), children, false)).into_any_element())
