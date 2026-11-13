@@ -37,6 +37,7 @@ mod right_panel;
 mod scene;
 mod search;
 mod settings_page;
+mod sleep;
 mod spotify_import;
 mod sidebar;
 mod slider;
@@ -174,6 +175,7 @@ impl Lfly {
         crate::downloads::DownloadsModel::start(&core, cx);
         crate::account::AccountModel::start(core.clone(), cx);
         crate::connect::ConnectModel::start(core.clone(), model.clone(), cx);
+        crate::sleep::SleepTimer::start(model.clone(), cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
@@ -221,7 +223,13 @@ impl Lfly {
                     if std::env::var_os("LFLY_MENU").is_some() && !this.menu_shown {
                         if let Some(t) = this.model.read(cx).current().cloned() {
                             this.menu_shown = true;
-                            crate::menu::Menu::open_track(point(px(520.), px(260.)), t, None, cx);
+                            // LFLY_MENU=sleep: the full player's menu, its sleep timer open.
+                            if std::env::var("LFLY_MENU").as_deref() == Ok("sleep") {
+                                crate::menu::Menu::open_player_track(point(px(520.), px(160.)), t, cx);
+                                crate::menu::Menu::toggle_sleep(cx);
+                            } else {
+                                crate::menu::Menu::open_track(point(px(520.), px(260.)), t, None, cx);
+                            }
                             crate::toast::Toasts::say("Aggiunto alla coda", cx);
                         }
                     }

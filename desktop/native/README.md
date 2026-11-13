@@ -14,7 +14,8 @@ real ids), `LFLY_NP_PANEL=lyrics|queue|none` picks the full player's panel, `LFL
 opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast,
 `LFLY_NP_OUTPUT=1` opens the full player's output menu, `LFLY_SIZE=WxH` sizes the window, `LFLY_ROUTE_AFTER=<route>@<seconds>` opens a second page later, `LFLY_MEDIA_TEST=1` registers the system media controls in a
 test run, `LFLY_CONNECT_PORT=<port>` serves LFly Connect on loopback only, `LFLY_CONNECT_FOLLOW=<host>:<port>`
-follows such a host at start, `LFLY_CONNECT_ID`/`NAME`/`SECRET` stand in for the identity, `LFLY_CONNECT_PLAY_HERE_AFTER=<s>` presses "Ascolta qui",
+follows such a host at start, `LFLY_CONNECT_ID`/`NAME`/`SECRET` stand in for the identity, `LFLY_CONNECT_PLAY_HERE_AFTER=<s>` presses "Ascolta qui", `LFLY_MENU=sleep` opens the full player's menu with the sleep timer,
+`LFLY_SLEEP_AFTER=<s>` sets a short sleep timer,
 `LFLY_SETTINGS=general|sound|lyrics|devices|account|storage|about` opens a Settings section, `LFLY_MUTE=1`,
 `LFLY_NO_GLASS=1` (no glass at all, to measure it), `LFLY_GLASS_BLEED=0|1`;
 `LFLY_GLASS_DEBUG`, `LFLY_GLASS_EMPTY`, `LFLY_GLASS_HIDE` for the glass check
@@ -45,7 +46,8 @@ Linux, checked on a private bus; on Windows tied to the window's HWND, compile-c
 Discord's "listening to", the YouTube Music account the Tauri app signed in (personal Home,
 the account's playlists in the sidebar and the library's "YouTube Music" filter, likes sent to
 YouTube Music, Settings > Account with "Esci"; signing in still needs the Tauri app's web view;
-test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), LFly Connect (this computer as a speaker for
+test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), the phone's sleep timer in the full player's menu (15 to 90 minutes or the end of the song;
+the Tauri app has none), LFly Connect (this computer as a speaker for
 phones and watches, with the pairing dialog; the devices on the network in the right panel, the
 full player's output menu and Settings > Dispositivi; controlling another device, with the
 "In riproduzione su" pill, "Ascolta qui" and the music moving between them; checked between two

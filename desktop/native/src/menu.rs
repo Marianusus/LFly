@@ -29,6 +29,8 @@ struct Open {
     track: TrackRef,
     remove: Option<Remove>,
     since: Instant,
+    /// Opened from the full player: the sleep timer is offered too (TrackActionsSheet.kt).
+    player: bool,
 }
 
 pub struct Menu {
@@ -39,6 +41,8 @@ pub struct Menu {
     nav: Entity<Nav>,
     open: Option<Open>,
     sub: bool,
+    /// The sleep timer's choices are shown.
+    sleep_sub: bool,
     /// The view's size and where it starts in the window, set before it draws.
     pub size: Size<Pixels>,
     pub origin: Point<Pixels>,
@@ -52,7 +56,7 @@ impl Menu {
         let e = cx.new(|cx| {
             cx.observe(&covers, |_, _, cx| cx.notify()).detach();
             cx.observe(&library, |_, _, cx| cx.notify()).detach();
-            Self { core, look, covers, library, nav, open: None, sub: false, size: size(px(1100.), px(720.)), origin: Point::default() }
+            Self { core, look, covers, library, nav, open: None, sub: false, sleep_sub: false, size: size(px(1100.), px(720.)), origin: Point::default() }
         });
         cx.set_global(MenuGlobal(e.clone()));
         e
@@ -62,8 +66,29 @@ impl Menu {
     pub fn open_track(at: Point<Pixels>, track: TrackRef, remove: Option<Remove>, cx: &mut App) {
         let Some(e) = cx.try_global::<MenuGlobal>().map(|g| g.0.clone()) else { return };
         e.update(cx, |m, cx| {
-            m.open = Some(Open { at, track, remove, since: Instant::now() });
+            m.open = Some(Open { at, track, remove, since: Instant::now(), player: false });
             m.sub = false;
+            m.sleep_sub = false;
+            cx.notify();
+        });
+    }
+
+    /// Shows or hides the sleep timer's choices (LFLY_MENU=sleep).
+    pub fn toggle_sleep(cx: &mut App) {
+        let Some(e) = cx.try_global::<MenuGlobal>().map(|g| g.0.clone()) else { return };
+        e.update(cx, |m, cx| {
+            m.sleep_sub = !m.sleep_sub;
+            cx.notify();
+        });
+    }
+
+    /// The song menu of the full player, with the sleep timer.
+    pub fn open_player_track(at: Point<Pixels>, track: TrackRef, cx: &mut App) {
+        let Some(e) = cx.try_global::<MenuGlobal>().map(|g| g.0.clone()) else { return };
+        e.update(cx, |m, cx| {
+            m.open = Some(Open { at, track, remove: None, since: Instant::now(), player: true });
+            m.sub = false;
+            m.sleep_sub = false;
             cx.notify();
         });
     }
@@ -121,9 +146,11 @@ impl Render for Menu {
         let sep = crate::track_row::separator(&s);
 
         // Its height, for flipping up near the bottom: the head, the rules, the rows.
-        let rows = 7 + usize::from(remove.is_some());
+        let player = open.player;
+        let rows = 7 + usize::from(remove.is_some()) + usize::from(player);
         let sub_h = if self.sub { (32. * (playlists.len() + 1) as f32).min(220.) + 6. } else { 0. };
-        let height = 12. + 50. + 3. * 11. + 32. * rows as f32 + sub_h;
+        let sleep_h = if player && self.sleep_sub { 32. * (crate::sleep::PRESET_MINUTES.len() + 2) as f32 + 6. } else { 0. };
+        let height = 12. + 50. + (3 + usize::from(player)) as f32 * 11. + 32. * rows as f32 + sub_h + sleep_h;
         let (ww, wh) = (f32::from(self.size.width), f32::from(self.size.height));
         let (mx, my) = (f32::from(open.at.x - self.origin.x), f32::from(open.at.y - self.origin.y));
         let left = mx + WIDTH > ww - 8.;
@@ -310,6 +337,51 @@ impl Render for Menu {
         });
         if let Some(remove) = remove {
             menu = menu.child(item("cm-remove", "trash", 15., "Rimuovi da questa playlist".into(), true, true).on_click(run(remove)));
+        }
+        // TrackActionsSheet.kt: the sleep timer, in the full player's menu only.
+        if player {
+            let sleep = crate::sleep::SleepTimer::entity(cx);
+            let value = sleep.read(cx).label();
+            let me2 = me.clone();
+            menu = menu.child(hr()).child(
+                item("cm-sleep", "moon", 15., "Timer di spegnimento".into(), true, false)
+                    .when_some(value.clone(), |d, v| d.child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(accent).child(v)))
+                    .child(icon(if self.sleep_sub { "chevron-up" } else { "chevron-down" }, 13., s.text2))
+                    .on_click(move |_, _, cx| {
+                        let _ = me2.update(cx, |m, cx| {
+                            m.sleep_sub = !m.sleep_sub;
+                            cx.notify();
+                        });
+                    }),
+            );
+            if self.sleep_sub {
+                let mut sub = div().mt(px(2.)).mb(px(4.)).ml(px(18.)).pl(px(8.)).border_l_1().border_color(sep);
+                let choice = |k: usize, label: String, on: bool, f: Rc<dyn Fn(&mut App)>| {
+                    div()
+                        .id(("cm-sleep", k))
+                        .min_h(px(32.))
+                        .px(px(10.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(10.))
+                        .text_size(px(13.))
+                        .text_color(if on { accent } else { s.text })
+                        .when(on, |d| d.font_weight(FontWeight::SEMIBOLD))
+                        .cursor_pointer()
+                        .hover(move |d| d.bg(accent).text_color(on_accent))
+                        .on_click(run(f))
+                        .child(div().flex_1().child(label))
+                };
+                for (k, m) in crate::sleep::PRESET_MINUTES.iter().copied().enumerate() {
+                    let sl = sleep.clone();
+                    sub = sub.child(choice(k, format!("{m} minuti"), false, Rc::new(move |cx: &mut App| sl.update(cx, |t, cx| t.set_minutes(m, cx)))));
+                }
+                let (sl1, sl2) = (sleep.clone(), sleep.clone());
+                let end_on = matches!(sleep.read(cx).v, crate::sleep::Sleep::EndOfTrack(_));
+                sub = sub.child(choice(10, "Fine del brano".into(), end_on, Rc::new(move |cx: &mut App| sl1.update(cx, |t, cx| t.set_end_of_track(cx)))));
+                sub = sub.child(choice(11, "Disattivato".into(), value.is_none(), Rc::new(move |cx: &mut App| sl2.update(cx, |t, cx| t.cancel(cx)))));
+                menu = menu.child(sub);
+            }
         }
         let (nav3, nav4) = (nav.clone(), nav);
         let (artist_id, artist) = (t.artist_id.clone(), t.artist.clone());

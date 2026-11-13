@@ -1,7 +1,7 @@
 //! The full-window player (Tauri: pages/NowPlaying.svelte), after the phone's PlayerScreenV2: the
 //! cover large over its own blurred light, the song, the progress, the transport, then the lyrics
 //! or the queue beside it. It covers the whole window; the shell is not drawn under it.
-//! The output menu lists this computer's devices (LFly Connect's are not ported yet).
+//! The output menu lists this computer's outputs and the LFly Connect devices.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -460,7 +460,7 @@ impl Render for NowPlaying {
             )
             .child(round("np-more", "more", white().opacity(0.85)).on_click({
                 let t = t.clone();
-                move |e, _, cx| crate::menu::Menu::open_track(e.position(), t.clone(), None, cx)
+                move |e, _, cx| crate::menu::Menu::open_player_track(e.position(), t.clone(), cx)
             }));
 
         let me = cx.entity().downgrade();
