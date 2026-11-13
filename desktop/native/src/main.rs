@@ -147,6 +147,8 @@ struct Lfly {
     menu: Entity<crate::menu::Menu>,
     flow: Entity<crate::flow::Flow>,
     menu_shown: bool,
+    /// The window size being saved (the last change wins).
+    bounds_seq: u64,
     library: Entity<LibraryModel>,
     last_played: Option<String>,
     /// The sidebar's width (232..280, or 88 folded) and the panel's column, easing between
@@ -200,6 +202,30 @@ impl Lfly {
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
+            // The window's size, kept for next time (not by test runs), once it stops changing.
+            cx.observe_window_bounds(window, |this, window, cx| {
+                if std::env::var_os("LFLY_MUTE").is_some() || std::env::var_os("LFLY_AUTOPLAY").is_some() || std::env::var_os("LFLY_SIZE").is_some() {
+                    return;
+                }
+                let (b, maximized) = match window.window_bounds() {
+                    WindowBounds::Windowed(b) => (b, false),
+                    WindowBounds::Maximized(b) | WindowBounds::Fullscreen(b) => (b, true),
+                };
+                this.bounds_seq += 1;
+                let mine = this.bounds_seq;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(std::time::Duration::from_millis(600)).await;
+                    let _ = this.update(cx, |this, _| {
+                        if this.bounds_seq == mine {
+                            let v = serde_json::json!({ "width": f32::from(b.size.width), "height": f32::from(b.size.height), "maximized": maximized });
+                            if let Err(e) = lfly_core::store::set(WINDOW_KEY, &v) {
+                                log::warn!("{WINDOW_KEY}: {e}");
+                            }
+                        }
+                    });
+                })
+                .detach();
+            }),
             // The "where" pill above the bar follows LFly Connect.
             cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
@@ -316,6 +342,7 @@ impl Lfly {
             menu,
             flow: cx.new(|cx| crate::flow::Flow::new(look_for_flow, cx)),
             menu_shown: false,
+            bounds_seq: 0,
             library: library.clone(),
             last_played: None,
             side_w: None,
@@ -785,6 +812,16 @@ impl Lfly {
     }
 }
 
+/// The store key of the window's size (this window's own: Tauri does not keep one).
+const WINDOW_KEY: &str = "native-window";
+
+/// The window's last size and whether it was maximized.
+fn saved_window() -> Option<(f32, f32, bool)> {
+    let v = lfly_core::store::get(WINDOW_KEY).ok().flatten()?;
+    let n = |k: &str| v.get(k).and_then(|x| x.as_f64()).map(|x| x as f32);
+    Some((n("width")?, n("height")?, v.get("maximized").and_then(|m| m.as_bool()).unwrap_or(false)))
+}
+
 /// LFLY_ROUTE's pages (`examples/ids.rs` prints real ids).
 fn test_route(r: &str) -> Option<Route> {
     let (k, id) = r.split_once(':').unwrap_or((r, ""));
@@ -1095,14 +1132,13 @@ fn main() {
         }
         gpui_kit::init(cx);
         gpui_kit::component::Theme::change(gpui_kit::component::ThemeMode::Dark, None, cx);
-        // LFLY_SIZE=WxH (test runs): another window size.
-        let (w, h) = std::env::var("LFLY_SIZE")
-            .ok()
-            .and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))))
-            .unwrap_or((1100., 720.));
-        let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
+        // LFLY_SIZE=WxH (test runs): another window size; otherwise the size it had last time.
+        let test_size = std::env::var("LFLY_SIZE").ok().and_then(|v| v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))));
+        let saved = test_size.is_none().then(saved_window).flatten();
+        let (w, h) = test_size.or(saved.map(|s| (s.0, s.1))).unwrap_or((1100., 720.));
+        let bounds = Bounds::centered(None, size(px(w.max(720.)), px(h.max(480.))), cx);
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_bounds: Some(if saved.is_some_and(|s| s.2) { WindowBounds::Maximized(bounds) } else { WindowBounds::Windowed(bounds) }),
             window_min_size: Some(size(px(720.), px(480.))),
             // Not "lfly" while the Tauri app is the shipped one: the two windows stay apart (KWin rules).
             app_id: Some("lfly-native".into()),

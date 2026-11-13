@@ -47,7 +47,8 @@ Linux, checked on a private bus; on Windows tied to the window's HWND, compile-c
 Discord's "listening to", the YouTube Music account the Tauri app signed in (personal Home,
 the account's playlists in the sidebar and the library's "YouTube Music" filter, likes sent to
 YouTube Music, Settings > Account with "Esci"; signing in still needs the Tauri app's web view;
-test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), the phone's sleep timer in the full player's menu (15 to 90 minutes or the end of the song;
+test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), the window's size and maximized state kept across launches (store key
+`native-window`; Tauri keeps none), the phone's sleep timer in the full player's menu (15 to 90 minutes or the end of the song;
 the Tauri app has none), LFly Connect (this computer as a speaker for
 phones and watches, with the pairing dialog; the devices on the network in the right panel, the
 full player's output menu and Settings > Dispositivi; controlling another device, with the
