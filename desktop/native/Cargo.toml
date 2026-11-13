@@ -20,6 +20,7 @@ lfly-yt = { path = "../crates/lfly-yt" }
 lfly-core = { path = "../crates/lfly-core" }
 lfly-connect = { path = "../crates/lfly-connect" }
 lfly-audio = { path = "../crates/lfly-audio" }
+raw-window-handle = "0.6"
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }

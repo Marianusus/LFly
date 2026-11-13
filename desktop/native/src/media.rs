@@ -38,7 +38,15 @@ impl SystemMedia {
         let quiet = test_run();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MediaCommand>();
         // LFLY_MEDIA_TEST: the controls in a test run too (on a private bus), Discord still not.
-        let media = (!quiet || std::env::var_os("LFLY_MEDIA_TEST").is_some()).then(|| Arc::new(Media::start(None, move |c| {
+        // Windows ties the controls to a window (its HWND); elsewhere they stand alone.
+        #[cfg(target_os = "windows")]
+        let hwnd = match raw_window_handle::HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
+            Ok(raw_window_handle::RawWindowHandle::Win32(h)) => Some(h.hwnd.get() as *mut std::ffi::c_void),
+            _ => None,
+        };
+        #[cfg(not(target_os = "windows"))]
+        let hwnd = None;
+        let media = (!quiet || std::env::var_os("LFLY_MEDIA_TEST").is_some()).then(|| Arc::new(Media::start(hwnd, move |c| {
             let _ = tx.send(c);
         })));
         let discord_on = discord_saved();

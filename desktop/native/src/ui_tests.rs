@@ -162,3 +162,47 @@ fn a_library_rows_play_button_does_not_open_it(cx: &mut TestAppContext) {
     cx.simulate_click(at(120., 32.), Modifiers::default());
     assert_eq!((opened.get(), played.get()), (1, 1));
 }
+
+/// A slider 200 px wide at (50, 50), as the volume or a seek bar.
+struct Bar {
+    bounds: crate::slider::SliderBounds,
+    drags: Rc<std::cell::RefCell<Vec<f32>>>,
+    releases: Rc<std::cell::RefCell<Vec<f32>>>,
+}
+
+impl Render for Bar {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let (d, r) = (self.drags.clone(), self.releases.clone());
+        div().size(px(400.)).relative().child(
+            div().absolute().left(px(50.)).top(px(50.)).w(px(200.)).child(crate::slider::bar_slider(
+                "bar",
+                0.5,
+                false,
+                gpui::white(),
+                self.bounds.clone(),
+                move |f, _, _| d.borrow_mut().push(f),
+                move |f, _, _| r.borrow_mut().push(f),
+            )),
+        )
+    }
+}
+
+#[gpui::test]
+fn a_slider_drag_follows_the_pointer_off_the_bar(cx: &mut TestAppContext) {
+    use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent};
+    let (drags, releases) = (Rc::new(std::cell::RefCell::new(Vec::new())), Rc::new(std::cell::RefCell::new(Vec::new())));
+    let (d, r) = (drags.clone(), releases.clone());
+    let (_, cx) = cx.add_window_view(move |_, _| Bar { bounds: Default::default(), drags: d, releases: r });
+    let m = Modifiers::default();
+    cx.simulate_event(MouseDownEvent { position: at(100., 60.), modifiers: m, button: MouseButton::Left, click_count: 1, first_mouse: false });
+    // Far below and to the right of the bar, the button still held.
+    cx.simulate_event(MouseMoveEvent { position: at(390., 300.), modifiers: m, pressed_button: Some(MouseButton::Left) });
+    cx.simulate_event(MouseUpEvent { position: at(390., 300.), modifiers: m, button: MouseButton::Left, click_count: 1 });
+    // A later move without the button does nothing.
+    cx.simulate_event(MouseMoveEvent { position: at(60., 60.), modifiers: m, pressed_button: None });
+    let drags = drags.borrow().clone();
+    assert_eq!(drags.len(), 2, "{drags:?}");
+    assert!((drags[0] - 0.25).abs() < 0.01, "{drags:?}");
+    assert_eq!(drags[1], 1.);
+    assert_eq!(*releases.borrow(), vec![1.]);
+}

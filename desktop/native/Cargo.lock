@@ -3980,6 +3980,7 @@ dependencies = [
  "lfly-core",
  "lfly-yt",
  "log",
+ "raw-window-handle",
  "reqwest",
  "serde_json",
  "tiny-skia",

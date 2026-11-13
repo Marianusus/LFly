@@ -25,6 +25,10 @@ the desktop entry keep the two apart); it becomes `lfly` when this app replaces 
 GPUI is `gpui-kit` 0.9.1 (GPUI snapshot `gpui-pre` 0.3.12), patched in `vendor/` for Liquid
 Glass (see `vendor/PATCHES.md`). Windows check from Linux:
 `LFLY_CHECK_NO_RC=1 cargo check --target x86_64-pc-windows-gnu -p gpui-pre-windows`.
+The whole app checks too (debug profile; `ring`'s C needs a compiler and, without mingw, two
+stub headers, `assert.h` defining `assert(x)` away and `string.h` declaring `memcpy`, `memset`,
+`memcmp`, `memmove`, in some folder `<inc>`):
+`CC_x86_64_pc_windows_gnu=clang CFLAGS_x86_64_pc_windows_gnu="--target=x86_64-pc-windows-gnu -isystem <inc>" LFLY_CHECK_NO_RC=1 cargo check --target x86_64-pc-windows-gnu`.
 
 ## Port status
 
@@ -36,7 +40,7 @@ YouTube and library playlists, Liked songs, Artist, search, the library (grid), 
 (Now Playing) with its queue and lyrics panels, the lyrics page, Settings (look,
 general, playback with the equalizer, Automix crossfade and output, lyrics, space and privacy, about; the sections that need unported parts say
 so), the keyboard shortcuts and the mouse's back/forward buttons, the system's media controls (MPRIS on
-Linux, checked on a private bus; Windows needs the window handle passed in, not done yet) and
+Linux, checked on a private bus; on Windows tied to the window's HWND, compile-checked only) and
 Discord's "listening to", downloads (the Scaricati page, the hero's download ring, the menu's
 "Scarica", the sidebar entry, the library's filter, Settings > Spazio; `examples/downloads.rs`
 downloads a song end to end into `LFLY_DOWNLOADS_DIR`), the heart (saved to

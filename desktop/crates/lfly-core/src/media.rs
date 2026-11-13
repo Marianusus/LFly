@@ -54,6 +54,11 @@ impl Media {
     /// Starts the controls; the app works without them when the system has none. [hwnd] is the
     /// window's handle on Windows (its volume overlay belongs to a window), None elsewhere.
     pub fn start(hwnd: Option<*mut std::ffi::c_void>, on_command: impl Fn(MediaCommand) + Send + 'static) -> Self {
+        // souvlaki panics on Windows without a window: no controls instead.
+        if cfg!(target_os = "windows") && hwnd.is_none() {
+            log::warn!("No window handle: no system media controls");
+            return Media(Mutex::new(None));
+        }
         let config = PlatformConfig { dbus_name: "lfly", display_name: "LFly", hwnd };
         let controls = match MediaControls::new(config) {
             Ok(mut controls) => match controls.attach(move |event| {
