@@ -343,7 +343,11 @@ impl Element for Img {
 
                             let image_size = data.render_size(frame_index);
 
-                            if style.aspect_ratio.is_none() {
+                            // LFly patch: only when a side is left to the image. With both
+                            // sides given (size_full), the box wins as in CSS and object-fit
+                            // fills it; the intrinsic ratio made a portrait cover overflow.
+                            let both_given = !matches!(style.size.width, Length::Auto) && !matches!(style.size.height, Length::Auto);
+                            if style.aspect_ratio.is_none() && !both_given {
                                 style.aspect_ratio = Some(image_size.width / image_size.height);
                             }
 

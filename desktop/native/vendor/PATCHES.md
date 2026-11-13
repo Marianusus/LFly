@@ -38,3 +38,10 @@ Windows Tauri build looks, 0 = a clean blur). Checked against `chrome-headless-s
 rendering the Tauri CSS over the same backdrop: mean difference 0.7/255.
 
 macOS (`gpui-pre-macos`, Metal) is not patched: a macOS build fails on the new batch arm.
+
+## Images that fill their box
+
+`gpui-pre/src/elements/img.rs`: the image's own aspect ratio is applied only when one side is left
+to it (width or height `Auto`). Upstream applied it even with both sides given (`size_full()`),
+so a portrait cover in a square box grew past the box, over the text below it; with both sides
+given the box wins, as in CSS, and `object_fit` fills it.
