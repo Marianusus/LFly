@@ -17,6 +17,7 @@ use crate::look::Look;
 use crate::nav::{Nav, Route};
 use crate::player_model::PlayerModel;
 use crate::theme::{mix, Rgb, Scheme};
+use crate::home::CloneItem;
 use crate::toast::Toasts;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -24,6 +25,8 @@ enum Filter {
     All,
     Playlists,
     Downloads,
+    /// The account's playlists ("YouTube Music", when signed in).
+    YouTube,
     Recent,
 }
 
@@ -60,6 +63,7 @@ impl LibraryPage {
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
             cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::account::AccountModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         // LFLY_LIBRARY_VIEW=list|grid and LFLY_SPOTIFY=1, for screenshots (nothing saved).
@@ -287,7 +291,12 @@ impl Render for LibraryPage {
             .child(pill("new", "plus", "Nuova playlist", true, false).on_click(move |_, _, cx| new_playlist(&lib2, &nav1, cx)));
 
         // Chips.svelte on glass, and the grid/list switch beside it.
-        let mut filters = vec![(Filter::All, "Tutto"), (Filter::Playlists, "Playlist"), (Filter::Downloads, "Scaricati")];
+        let yt_items = crate::account::AccountModel::entity(cx).read(cx).shelf();
+        let mut filters = vec![(Filter::All, "Tutto"), (Filter::Playlists, "Playlist")];
+        if !yt_items.is_empty() {
+            filters.push((Filter::YouTube, "YouTube Music"));
+        }
+        filters.push((Filter::Downloads, "Scaricati"));
         if !history.is_empty() {
             filters.push((Filter::Recent, "Recenti"));
         }
@@ -521,6 +530,35 @@ impl Render for LibraryPage {
                         })
                         .into_any_element(),
                 );
+            }
+            // Library.svelte "Da YouTube Music": Mi piace, then the account's playlists.
+            if !yt_items.is_empty() && matches!(self.filter, Filter::All | Filter::Playlists | Filter::YouTube) {
+                let items: Vec<AnyElement> = yt_items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, it)| {
+                        let art = if it.id == "LM" {
+                            Art::Icon("heart-fill", Some((0x9b6bff, 0x3a1d7a)))
+                        } else {
+                            Art::Cover(it.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx))))
+                        };
+                        let (open, play) = (it.clone_item(), it.clone_item());
+                        let (core1, core2, nav) = (self.core.clone(), self.core.clone(), self.nav.clone());
+                        library_item(
+                            format!("lib-yt-{i}").into(),
+                            it.title.clone(),
+                            it.subtitle.clone().unwrap_or_else(|| "Playlist".into()),
+                            art,
+                            list,
+                            item_w,
+                            false,
+                            &s,
+                            move |cx| crate::home::open_item(&open, &core1, &nav, cx),
+                            Some(std::rc::Rc::new(move |cx: &mut App| crate::home::play_item(&play, &core2, cx))),
+                        )
+                    })
+                    .collect();
+                sections.push(div().px(px(24.)).pb(px(28.)).child(section_title("Da YouTube Music")).child(grid(items)).into_any_element());
             }
             if !history.is_empty() && matches!(self.filter, Filter::All | Filter::Recent) {
                 let n = if self.filter == Filter::Recent { 60 } else { 12 };

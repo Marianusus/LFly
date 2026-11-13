@@ -3,6 +3,7 @@
 //! The Tauri app (`app/src-tauri`) and the GPUI app (`native/`) both run on this, so the
 //! rewrite moves logic here a module at a time and the old window keeps working meanwhile.
 
+pub mod account;
 pub mod discord;
 pub mod downloads;
 pub mod identity;

@@ -42,6 +42,7 @@ impl Sidebar {
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
             cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::account::AccountModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&covers, |_, _, cx| cx.notify()),
         ];
@@ -241,6 +242,26 @@ impl Render for Sidebar {
                 p.name.clone().into(),
                 format!("Playlist · {}", crate::ui::brani(p.count as u64)).into(),
                 Route::Playlist { id: p.id, name: p.name, local: true },
+            ));
+        }
+        // Sidebar.svelte: the account's YouTube Music playlists after the library's.
+        let yt_playlists = crate::account::AccountModel::entity(cx).read(cx).playlists.iter().map(crate::home::CloneItem::clone_item).collect::<Vec<_>>();
+        for p in yt_playlists {
+            let cover = p.cover_url.as_ref().and_then(|u| self.covers.update(cx, |cv, cx| cv.get(u, cx)));
+            let art = div()
+                .size(px(40.))
+                .flex_none()
+                .rounded(px(11.))
+                .overflow_hidden()
+                .bg(c.text.opacity(0.08))
+                .children(cover.map(|i| img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(11.))))
+                .into_any_element();
+            entries.push(entry(
+                format!("playlist:{}", p.id),
+                art,
+                p.title.clone().into(),
+                p.subtitle.clone().unwrap_or_else(|| "Playlist".into()).into(),
+                Route::Playlist { id: p.id, name: p.title, local: false },
             ));
         }
 

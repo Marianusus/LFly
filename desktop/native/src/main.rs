@@ -4,6 +4,7 @@
 //! the Tauri app); this crate only draws. Test modes: `LFLY_AUTOPLAY="query"` plays the first
 //! result, `LFLY_MUTE=1`, and the glass comparison flags in player_bar.rs.
 
+mod account;
 mod ambient;
 mod art;
 mod audio;
@@ -170,6 +171,7 @@ impl Lfly {
         crate::audio::AudioModel::new(core.clone(), cx);
         crate::media::SystemMedia::start(model.clone(), window, cx);
         crate::downloads::DownloadsModel::start(&core, cx);
+        crate::account::AccountModel::start(core.clone(), cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);

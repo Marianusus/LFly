@@ -41,7 +41,10 @@ YouTube and library playlists, Liked songs, Artist, search, the library (grid), 
 general, playback with the equalizer, Automix crossfade and output, lyrics, space and privacy, about; the sections that need unported parts say
 so), the keyboard shortcuts and the mouse's back/forward buttons, the system's media controls (MPRIS on
 Linux, checked on a private bus; on Windows tied to the window's HWND, compile-checked only) and
-Discord's "listening to", downloads (the Scaricati page, the hero's download ring, the menu's
+Discord's "listening to", the YouTube Music account the Tauri app signed in (personal Home,
+the account's playlists in the sidebar and the library's "YouTube Music" filter, likes sent to
+YouTube Music, Settings > Account with "Esci"; signing in still needs the Tauri app's web view;
+test runs leave the account out unless `LFLY_ACCOUNT_TEST=1`), downloads (the Scaricati page, the hero's download ring, the menu's
 "Scarica", the sidebar entry, the library's filter, Settings > Spazio; `examples/downloads.rs`
 downloads a song end to end into `LFLY_DOWNLOADS_DIR`), the heart (saved to
 favorites.json as the Tauri app saves it, read again first; Drive backup and library sync are

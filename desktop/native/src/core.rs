@@ -74,6 +74,13 @@ impl Core {
     pub fn new() -> anyhow::Result<(Arc<Self>, mpsc::UnboundedReceiver<PlayerUpdate>)> {
         let yt = YtMusic::with_config(YtMusicConfig { preference: AudioPreference::AacFirst, ..Default::default() })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
+        // The YouTube Music account the Tauri app signed in (personal Home, playlists, likes).
+        // Not in test runs: what they play must not land in the listener's YouTube history
+        // (LFLY_ACCOUNT_TEST=1 lends it to a run that plays nothing).
+        let test_run = std::env::var_os("LFLY_MUTE").is_some() || std::env::var_os("LFLY_AUTOPLAY").is_some();
+        if !test_run || std::env::var_os("LFLY_ACCOUNT_TEST").is_some() {
+            yt.set_account(lfly_core::account::load().account);
+        }
         // Its own cache while the Tauri app lives next to it: two engines must not share one.
         let cache = dirs::cache_dir().ok_or_else(|| anyhow::anyhow!("no cache dir"))?.join("lfly").join("audio-native");
         // Settings → Riproduzione: the format and "play on", as saved (by either window).

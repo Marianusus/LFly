@@ -159,6 +159,7 @@ impl SettingsPage {
             cx.observe(&crate::audio::AudioModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::media::SystemMedia::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::account::AccountModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
         Self {
@@ -1153,8 +1154,53 @@ impl SettingsPage {
     fn account(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let media = crate::media::SystemMedia::entity(cx);
         let on = media.read(cx).discord_on();
+        let account = crate::account::AccountModel::entity(cx);
+        let info = account.read(cx).info.clone();
+        let yt = match info {
+            Some(who) => {
+                let avatar = who.avatar_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
+                let ask = self.asking("signout");
+                let me = cx.entity().downgrade();
+                group(
+                    "YouTube Music",
+                    Some("La Home e le playlist sono quelle del tuo account, e i \"mi piace\" arrivano anche su YouTube Music. Uscire vale anche per l'app LFly classica."),
+                    i,
+                )
+                .child(list(
+                    vec![row()
+                        .child(
+                            div()
+                                .size(px(48.))
+                                .flex_none()
+                                .rounded_full()
+                                .bg(i.fill)
+                                .children(avatar.map(|a| img(a).size_full().object_fit(ObjectFit::Cover).rounded_full())),
+                        )
+                        .child(label(&who.name, Some(if who.email.is_empty() { who.handle.clone() } else { who.email.clone() }), i))
+                        .child(button("signout", if ask { "Sicuro? Esci" } else { "Esci" }, ask, false, i).on_click(move |_, _, cx| {
+                            let account = account.clone();
+                            let _ = me.update(cx, |this, cx| {
+                                if this.asking("signout") {
+                                    this.confirm = None;
+                                    account.update(cx, |a, cx| a.sign_out(cx));
+                                } else {
+                                    this.confirm = Some(Confirm { what: "signout", at: Instant::now() });
+                                }
+                                cx.notify();
+                            });
+                        }))
+                        .into_any_element()],
+                    i,
+                ))
+            }
+            None => group(
+                "YouTube Music",
+                Some("Accedi con Google dall'app LFly classica (Impostazioni › Account): questa la ritrova da sola. Senza account, la Home e le playlist sono quelle pubbliche."),
+                i,
+            ),
+        };
         vec![
-            group("YouTube Music", Some("L'accesso con Google non è ancora nella versione nativa: la Home e le playlist sono quelle pubbliche."), i).into_any_element(),
+            yt.into_any_element(),
             group("Discord", None, i)
                 .child(list(
                     vec![row()
