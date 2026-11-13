@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 use lfly_core::downloads::{self, DownloadEvent};
 
 fn main() {
+    // A test run: the shared player stays off the listener's YouTube Music account (core.rs).
+    std::env::set_var("LFLY_MUTE", "1");
     let dir = std::env::var_os("LFLY_DOWNLOADS_DIR").expect("set LFLY_DOWNLOADS_DIR to a scratch folder");
     let (core, _rx) = core::Core::new().expect("core");
     let tracks = core::runtime().block_on(core.clone().search("Daft Punk Get Lucky".into())).expect("search");

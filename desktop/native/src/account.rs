@@ -61,6 +61,10 @@ impl AccountModel {
         self.core.yt.set_account(None);
         self.info = None;
         self.playlists.clear();
+        // LFly Connect stops proving the account: devices of it pair with a code again.
+        if let Some(c) = crate::connect::ConnectModel::try_entity(cx) {
+            c.update(cx, |c, cx| c.set_account(None, cx));
+        }
         crate::toast::Toasts::say("Sei uscito dall'account YouTube Music", cx);
         cx.notify();
     }

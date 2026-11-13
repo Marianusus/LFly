@@ -39,6 +39,8 @@ fn index_is(i: i32) -> impl FnMut(&PlayerUpdate) -> bool {
 }
 
 fn main() {
+    // A test run: the shared player stays off the listener's YouTube Music account (core.rs).
+    std::env::set_var("LFLY_MUTE", "1");
     let (core, mut rx) = core::Core::new().expect("core");
     core.command(protocol::CMD_VOLUME, 0);
     let tracks = core::runtime().block_on(core.clone().search("Daft Punk Random Access Memories".into())).expect("search");

@@ -377,7 +377,7 @@ impl Render for Menu {
                     sub = sub.child(choice(k, format!("{m} minuti"), false, Rc::new(move |cx: &mut App| sl.update(cx, |t, cx| t.set_minutes(m, cx)))));
                 }
                 let (sl1, sl2) = (sleep.clone(), sleep.clone());
-                let end_on = matches!(sleep.read(cx).v, crate::sleep::Sleep::EndOfTrack(_));
+                let end_on = matches!(sleep.read(cx).v, crate::sleep::Sleep::EndOfTrack(..));
                 sub = sub.child(choice(10, "Fine del brano".into(), end_on, Rc::new(move |cx: &mut App| sl1.update(cx, |t, cx| t.set_end_of_track(cx)))));
                 sub = sub.child(choice(11, "Disattivato".into(), value.is_none(), Rc::new(move |cx: &mut App| sl2.update(cx, |t, cx| t.cancel(cx)))));
                 menu = menu.child(sub);

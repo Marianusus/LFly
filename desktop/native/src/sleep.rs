@@ -17,8 +17,9 @@ pub const PRESET_MINUTES: [u64; 5] = [15, 30, 45, 60, 90];
 pub enum Sleep {
     Off,
     At(Instant),
-    /// Pauses when the song with this id stops being the one playing.
-    EndOfTrack(String),
+    /// Pauses when the song with this id stops being the one playing, where it plays (here, or
+    /// the device this computer controlled when it was set).
+    EndOfTrack(String, Option<String>),
 }
 
 pub struct SleepTimer {
@@ -38,10 +39,16 @@ impl SleepTimer {
                 if !matches!(ev, PlayerEvent::StateChanged) {
                     return;
                 }
-                if let Sleep::EndOfTrack(id) = &this.v {
-                    let now = model.read(cx).current().map(|t| t.id.clone());
-                    if now.as_deref() != Some(id.as_str()) {
-                        this.fire(cx);
+                if let Sleep::EndOfTrack(id, place) = &this.v {
+                    let m = model.read(cx);
+                    // The music moved (here, there): another song is not the end of this one.
+                    if &m.remote != place {
+                        this.cancel(cx);
+                        return;
+                    }
+                    match m.current().map(|t| t.id.clone()) {
+                        Some(now) if &now != id => this.fire(cx),
+                        _ => {}
                     }
                 }
             });
@@ -92,9 +99,11 @@ impl SleepTimer {
     }
 
     pub fn set_end_of_track(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self.model.read(cx).current().map(|t| t.id.clone()) else { return };
+        let m = self.model.read(cx);
+        let Some(id) = m.current().map(|t| t.id.clone()) else { return };
+        let place = m.remote.clone();
         self.seq += 1;
-        self.v = Sleep::EndOfTrack(id);
+        self.v = Sleep::EndOfTrack(id, place);
         Toasts::say("Si ferma alla fine di questo brano", cx);
         cx.notify();
     }
@@ -109,7 +118,7 @@ impl SleepTimer {
     pub fn label(&self) -> Option<String> {
         match &self.v {
             Sleep::Off => None,
-            Sleep::EndOfTrack(_) => Some("Fine del brano".into()),
+            Sleep::EndOfTrack(..) => Some("Fine del brano".into()),
             Sleep::At(t) => Some(countdown(t.saturating_duration_since(Instant::now()))),
         }
     }

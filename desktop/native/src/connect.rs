@@ -373,6 +373,25 @@ impl ConnectModel {
         cx.notify();
     }
 
+    /// The YouTube Music account changed (signed out: None): links prove the new one, and the
+    /// network hears the new owner (Tauri: apply_account).
+    pub fn set_account(&mut self, secret: Option<String>, cx: &mut Context<Self>) {
+        self.me.owner = secret.as_deref().map(protocol::owner_tag);
+        self.controller.set_identity(self.me.clone(), secret.as_deref());
+        if let Some(host) = self.core.player.host() {
+            host.set_identity(self.me.clone(), secret.as_deref());
+            if let (Some(d), true) = (&self.discovery, self.announced) {
+                if let Err(e) = d.announce(&self.me, host.port()) {
+                    log::warn!("Cannot announce this computer again: {e}");
+                }
+            }
+        }
+        if let Some(d) = &self.discovery {
+            d.set_owner(self.me.owner.clone());
+        }
+        cx.notify();
+    }
+
     /// Forgets the devices of other accounts paired with a code.
     pub fn forget_paired(&mut self, cx: &mut Context<Self>) {
         lfly_core::identity::forget_trusted();
