@@ -39,7 +39,7 @@ CC_x86_64_pc_windows_gnu=clang CFLAGS_x86_64_pc_windows_gnu="--target=x86_64-pc-
 Notes on these checks:
 
 - **Windows check:** it builds without the beat model, because ONNX Runtime ships no windows-gnu build. The real Windows CI uses MSVC, where it does.
-- **CI:** `.github/workflows/native.yml` builds Linux on ubuntu-24.04 (the prebuilt ONNX Runtime needs glibc 2.38, so ubuntu-22.04 failed to link), Windows, and macOS on macos-14 (Apple Silicon: `tools/macos-bundle.sh` makes LFly.app and a .dmg, signed ad hoc only).
+- **CI:** `.github/workflows/native.yml` builds Linux on ubuntu-24.04 (the prebuilt ONNX Runtime needs glibc 2.38, so ubuntu-22.04 failed to link), Windows, and macOS on macos-latest (Apple Silicon: `tools/macos-bundle.sh` makes LFly.app and a .dmg, signed ad hoc only).
 
 ## What was done on 2026-11-13 (all committed)
 
@@ -269,7 +269,7 @@ Notes on these checks:
     - `vendor/gpui-pre-apple` (the Metal renderer) gets an empty glass arm. `look.rs`
       `GLASS_RENDERER` is false on macOS, so surfaces are solid and the glass switch is disabled.
       Porting `glass.wgsl` to Metal is the next step.
-    - CI job macos-14 builds and bundles (`macos/Info.plist`: local network and Bonjour for LFly
+    - CI job macos-latest (macos-14 is retired on GitHub) builds and bundles (`macos/Info.plist`: local network and Bonjour for LFly
       Connect). Compiling for macOS from Linux is not possible (the audio -sys crates need
       Apple's SDK), so CI is the only check.
     - On first open the user must allow the unsigned app: System Settings → Privacy & Security →

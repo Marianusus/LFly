@@ -21,7 +21,7 @@ jobs:
             bin: desktop/native/target/release/lfly
           - os: windows-latest
             bin: desktop/native/target/release/lfly.exe
-          - os: macos-14
+          - os: macos-latest
             bin: desktop/native/target/release/macos/*.dmg
     runs-on: ${{ matrix.os }}
     steps:
