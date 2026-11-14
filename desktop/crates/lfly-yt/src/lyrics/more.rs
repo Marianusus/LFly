@@ -158,11 +158,18 @@ pub(crate) fn genius_pick(root: &Value, title: &str, artist: &str) -> Option<Str
             if path.contains("türkçe") || path.contains("tlumaczenie") {
                 score -= 40;
             }
+            // Genius' own translation accounts ("Genius Türkçe Çeviriler", "Genius Traducciones al
+            // Español"): their paths are plain ASCII, so the words above miss them.
+            if a.starts_with("genius ") && !want_a.starts_with("genius") {
+                score -= 40;
+            }
             if path.contains("tracklist") || path.contains("album-art") {
                 score -= 50;
             }
             Some((r.get("url")?.as_str()?.to_string(), score))
         })
+        // The first of equal scores, in Genius' order (Kotlin's maxByOrNull; max_by_key keeps the last).
+        .rev()
         .max_by_key(|(_, s)| *s)
         .filter(|(_, s)| *s > 0)
         .map(|(u, _)| u)
@@ -328,6 +335,16 @@ mod tests {
         assert_eq!(genius_pick(&root, "get lucky", "daft punk").as_deref(), Some("https://genius.com/Daft-punk-get-lucky-lyrics"));
         assert_eq!(genius_pick(&root, "unknown", "someone"), None);
         assert_eq!(genius_clean("Get Lucky (Official Video) | Daft Punk"), "Get Lucky");
+    }
+
+    #[test]
+    fn genius_skips_its_translation_accounts_for_an_upload_title() {
+        // Genius' real answer for an upload named "Coldplay - The Scientist" by "OmgMati".
+        let root = json!({"response": {"sections": [{"type": "song", "hits": [
+            {"result": {"title": "The Scientist", "artist_names": "Coldplay", "path": "/Coldplay-the-scientist-lyrics", "url": "https://genius.com/Coldplay-the-scientist-lyrics"}},
+            {"result": {"title": "Coldplay - The Scientist (Traducción al Español)", "artist_names": "Genius Traducciones al Español", "path": "/Genius-traducciones-al-espanol-coldplay-the-scientist-traduccion-al-espanol-lyrics", "url": "https://genius.com/es"}},
+            {"result": {"title": "Coldplay - The Scientist (Türkçe Çeviri)", "artist_names": "Genius Türkçe Çeviriler", "path": "/Genius-turkce-ceviriler-coldplay-the-scientist-turkce-ceviri-lyrics", "url": "https://genius.com/tr"}}]}]}});
+        assert_eq!(genius_pick(&root, "coldplay - the scientist", "omgmati").as_deref(), Some("https://genius.com/Coldplay-the-scientist-lyrics"));
     }
 
     #[test]
