@@ -12,6 +12,10 @@ use crate::theme::{accent_color, build_scheme, Mode, Rgb, Scheme};
 /// The store key Tauri keeps the look under (theme.svelte.ts SavedLook).
 const KEY: &str = "appearance";
 
+/// The renderer can draw Liquid Glass: wgpu (Linux) and DirectX (Windows) carry the glass pass,
+/// Metal (macOS) not yet, so there the surfaces are solid, as with glass turned off.
+pub const GLASS_RENDERER: bool = !cfg!(target_os = "macos");
+
 pub struct Look {
     pub mode: Mode,
     /// palette.ts ACCENTS id.
@@ -123,12 +127,13 @@ impl Look {
     pub fn glass(&self) -> GlassLook {
         let mut g = GlassLook::dark(self.strength);
         let k = self.strength;
+        let enabled = self.glass_enabled && GLASS_RENDERER;
         g.light = self.scheme.light;
         g.border = self.scheme.glass_border;
-        g.lens = self.lens && self.glass_enabled;
-        g.on = self.glass_enabled;
+        g.lens = self.lens && enabled;
+        g.on = enabled;
         // apply.ts --lfly-glass-tint: #fafafa or #121214; nearly opaque without glass.
-        let alpha = if !self.glass_enabled { 0.97 } else if g.light { 0.5 + (1. - k) * 0.35 } else { 0.4 + (1. - k) * 0.4 };
+        let alpha = if !enabled { 0.97 } else if g.light { 0.5 + (1. - k) * 0.35 } else { 0.4 + (1. - k) * 0.4 };
         g.tint = if g.light { Rgb::hex(0xfafafa).hsla(alpha) } else { Rgb::hex(0x121214).hsla(alpha) };
         // apply.ts --lfly-glass-highlight / --lfly-glass-shade for the light schemes.
         if g.light {

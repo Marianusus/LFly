@@ -511,7 +511,8 @@ fn mode_card(mode: Mode, title: &str, sub: &str, active: bool, w: f32, accent: R
 impl SettingsPage {
     fn appearance(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let l = self.look.read(cx);
-        let (mode, accent_id, glass_on, lens, strength) = (l.mode, l.accent.clone(), l.glass_enabled, l.lens, l.strength);
+        // On macOS the renderer has no glass yet: the switch shows it off and cannot turn it on.
+        let (mode, accent_id, glass_on, lens, strength) = (l.mode, l.accent.clone(), l.glass_enabled && crate::look::GLASS_RENDERER, l.lens, l.strength);
         let cover = l.cover_colors();
         let glass_look = l.glass();
         let accent = accent_color(&accent_id);
@@ -648,8 +649,12 @@ impl SettingsPage {
             vec![
                 row()
                     .child(tile("expand", 0x4d8dff, 0x2f6bf0))
-                    .child(label("Liquid Glass", Some("Vetro traslucido sulle superfici che galleggiano sopra i contenuti.".into()), i))
-                    .child(switch("sw-glass", glass_on, false, i, move |cx| l1.update(cx, |l, cx| l.set_glass(Some(!glass_on), None, None, cx))))
+                    .child(label(
+                        "Liquid Glass",
+                        Some(if crate::look::GLASS_RENDERER { "Vetro traslucido sulle superfici che galleggiano sopra i contenuti." } else { "Su Mac arriva più avanti: per ora le superfici sono piene." }.into()),
+                        i,
+                    ))
+                    .child(switch("sw-glass", glass_on, !crate::look::GLASS_RENDERER, i, move |cx| l1.update(cx, |l, cx| l.set_glass(Some(!glass_on), None, None, cx))))
                     .into_any_element(),
                 row()
                     .child(tile("lyrics", 0xa173ff, 0x7c4dff))

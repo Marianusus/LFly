@@ -37,7 +37,9 @@ box, so `blur()` after it fades toward the edges and the sharp backdrop shows th
 Windows Tauri build looks, 0 = a clean blur). Checked against `chrome-headless-shell` 157
 rendering the Tauri CSS over the same backdrop: mean difference 0.7/255.
 
-macOS (`gpui-pre-macos`, Metal) is not patched: a macOS build fails on the new batch arm.
+macOS: the Metal renderer lives in `gpui-pre-apple` (vendored). Its batch loop gets an empty
+`PrimitiveBatch::Glass` arm, so it builds; there is no Metal glass pass yet, and LFly paints solid
+surfaces on macOS (`src/look.rs` `GLASS_RENDERER`). Porting `glass.wgsl` to Metal is the next step.
 
 ## Images that fill their box
 
