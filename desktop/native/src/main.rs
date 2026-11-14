@@ -467,8 +467,23 @@ impl Lfly {
             cx.spawn(async move |_, cx| {
                 cx.background_executor().timer(std::time::Duration::from_secs_f64(after)).await;
                 model.update(cx, |m, _| {
+                    // Negative: that long before the song's end.
+                    let to = if to < 0 { (m.duration_ms() as i64 + to).max(0) } else { to };
                     log::info!("LFLY_SEEK: to {to} ms");
                     m.command(lfly_connect::protocol::CMD_SEEK, to);
+                });
+            })
+            .detach();
+        }
+        // LFLY_SKIP_LAST=<seconds> (tests): skips to the queue's last song then (the DJ's next block).
+        if let Some(after) = std::env::var("LFLY_SKIP_LAST").ok().and_then(|v| v.parse::<f64>().ok()) {
+            let model = this.model.clone();
+            cx.spawn(async move |_, cx| {
+                cx.background_executor().timer(std::time::Duration::from_secs_f64(after)).await;
+                model.update(cx, |m, _| {
+                    let last = m.state.as_ref().map_or(0, |s| s.queue.len() as i64 - 1);
+                    log::info!("LFLY_SKIP_LAST: to #{last}");
+                    m.command(lfly_connect::protocol::CMD_SKIP_TO, last);
                 });
             })
             .detach();

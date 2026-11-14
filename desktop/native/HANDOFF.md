@@ -138,7 +138,7 @@ Notes on these checks:
       installed, and the download was deleted.
     - The user chose the phone's voice DJ (step 4) as the "real DJ".
 12. **The voice DJ (step 4)**: `lfly-core/src/dj/` (pure half committed as `0944045`).
-    - **The caption-only session (2026-11-14, uncommitted):**
+    - **The caption-only session (`6a43a49`):**
       - `dj/session.rs`: one task owns the session and takes start, stop, the local player's
         states and position ticks (from `NativeHost`) as messages, so it never calls the player
         while the player is calling it.
@@ -160,9 +160,17 @@ Notes on these checks:
       - Under shuffle the flow order is lost (not handled).
       - Checked headless with `LFLY_DJ=3` and a seeded favourites list: a FLOW block from Norah
         Jones, its line once the song played, the caption and the card; over a playing song
-        (`LFLY_AUTOPLAY` + `LFLY_DJ=20`) the line came after the new song started. The
-        next-block build, the stops and a caption during an Automix never ran live (the first
-        two are unit-tested).
+        (`LFLY_AUTOPLAY` + `LFLY_DJ=20`) the line came after the new song started.
+      - Also checked live, from the log (uncommitted test hooks `LFLY_SKIP_LAST`, and `LFLY_SEEK`
+        with a negative value):
+        - the next block is built at the last song;
+        - an Automix (ReverbFade) mixes into the second block's first song, entering at 3.05 s;
+        - its line comes 2 s after the mix starts.
+        This differs from the phone, which waits for the transition to end.
+      - The stops are unit-tested only.
+    - **Voice:** on 2026-11-14 the user handed the choice over ("finisci te"). Captions stay the
+      default; the three options above remain open for the user. The probe cache in
+      `~/.cache/lfly-rea` was deleted; versions and hashes are above.
     - **Pure half, done.** Ported from the phone's `playback/dj`, with its tests (37 pass):
       - `blocks.rs`: kinds, rotation, usable songs, blocks of 4–6, artist and mix blocks;
       - `flow.rs`: the flow where each song grows out of the one before, by tempo, key and variety;
