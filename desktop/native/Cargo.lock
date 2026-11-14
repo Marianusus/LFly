@@ -4005,6 +4005,7 @@ dependencies = [
  "lfly-yt",
  "log",
  "rand 0.8.8",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

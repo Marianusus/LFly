@@ -6,6 +6,7 @@
 pub mod account;
 pub mod automix;
 pub mod discord;
+pub mod dj;
 pub mod downloads;
 pub mod drive;
 pub mod identity;

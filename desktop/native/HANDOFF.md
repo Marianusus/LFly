@@ -31,7 +31,7 @@ work here without hurting the user's setup.
 ```sh
 cd desktop && cargo test --workspace --release && cargo clippy --workspace --release   # 1 old warning (stretch.rs)
 cargo build --release -p lfly-desktop                                                   # the Tauri app still builds
-cd native && cargo build --release && cargo test --release && cargo clippy --release    # 28 tests, 28 warnings (baseline)
+cd native && cargo build --release && cargo test --release && cargo clippy --release    # 28 tests, 27 warnings (baseline)
 CC_x86_64_pc_windows_gnu=clang CFLAGS_x86_64_pc_windows_gnu="--target=x86_64-pc-windows-gnu -isystem $PWD/tools/wininc" \
   LFLY_CHECK_NO_RC=1 cargo check --target x86_64-pc-windows-gnu                       # debug only: release fails on shaders
 ```
@@ -137,6 +137,46 @@ Notes on these checks:
     - REA was not run on the binary: the EULA forbids reverse engineering, VirtualDJ was never
       installed, and the download was deleted.
     - The user chose the phone's voice DJ (step 4) as the "real DJ".
+12. **The voice DJ (step 4), started on 2026-11-14 (uncommitted)**: `lfly-core/src/dj/`.
+    - **Pure half, done.** Ported from the phone's `playback/dj`, with its tests (37 pass):
+      - `blocks.rs`: kinds, rotation, usable songs, blocks of 4–6, artist and mix blocks;
+      - `flow.rs`: the flow where each song grows out of the one before, by tempo, key and variety;
+      - `script.rs`: the lines in it/en/ro, title clean-up, never the same intro twice per session.
+      It works on `TrackRef`, so the tempo comes through a groove function. The Android
+      voice-choice tests are left out.
+    - **What the session will need, and the gaps found:**
+      - The desktop has favourites and history; "top played" must be counted from the history.
+      - It has no followed artists, genre mixes or local dislikes, so the FOLLOWED_ARTIST and MIX
+        blocks have no material.
+      - Recommendations would be `yt.up_next` (the phone has its own engine).
+      - `Analysis` has no key.
+      - The player has no hook to supply the next block (only `play_on_with_similar`).
+      - The engine has no command to play a voice clip or duck the music.
+      - The phone shows the line as a caption when no voice speaks, so a caption-only session
+        can ship first.
+    - **The voice, measured on this PC** (probe outside the repo in `~/.cache/lfly-rea`):
+      - There is no system voice on this PC: no speech-dispatcher, no espeak.
+      - The `sherpa-onnx` crate 2.0.1 (the phone's version, Apache-2.0) builds next to `ort`
+        when both link statically, their defaults. The binary then holds sherpa's ONNX Runtime
+        1.28.2, and `ort` panics at start ("API version 31 not available"), which would break
+        the Automix beat model. Untested: sherpa's `shared` feature, or `ort` on a lower `api-*`
+        feature or with `load-dynamic`. The phone runs both as separate shared libraries.
+      - sherpa-onnx ≥ 2.0.0 ignores `espeak-ng-data` and wants phonemes from outside (e.g.
+        piper_phonemize, which is eSpeak NG, GPL-3.0). A Piper voice therefore cannot speak
+        plain text with it.
+      - The phone's `app/libs/sherpa-onnx-2.0.1-static.aar` says the same in its arm64 library
+        ("--vits-data-dir is deprecated and ignored", "espeak-ng is no longer used"). The phone
+        passes `dataDir`, so its Piper voice most likely never speaks and the system voice takes
+        over. This was read from the binary's text, not seen on a device: look for "Piper could
+        not speak" in logcat.
+      - Options for the user: a separate voice helper process (an older sherpa-onnx with eSpeak
+        inside, or Piper with eSpeak NG, both GPL for the phonemizer); system voices where they
+        exist (`tts` crate: SAPI on Windows, speech-dispatcher on Linux); or captions first.
+      - The Italian voice `it_IT-miro-high` is a 67 MB download, 79 MB unpacked.
+      - Its README says CC BY-NC-SA 4.0: no commercial use, and the licence must travel with
+        it. The other voices' licences and eSpeak NG's were not checked here: confirm them
+        before choosing.
+      - No synthesis ever ran on the desktop, so no time to the first line was measured.
 
 ## Where to look
 
