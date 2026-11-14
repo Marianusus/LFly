@@ -10,6 +10,7 @@ mod art;
 mod audio;
 mod artist;
 mod core;
+mod dj;
 mod downloads;
 mod collection;
 mod connect;
@@ -150,6 +151,7 @@ struct Lfly {
     settings: Entity<crate::settings_page::SettingsPage>,
     settings_shown: bool,
     toasts: Entity<crate::toast::Toasts>,
+    dj_island: Entity<crate::dj::DjIsland>,
     menu: Entity<crate::menu::Menu>,
     flow: Entity<crate::flow::Flow>,
     menu_shown: bool,
@@ -196,6 +198,10 @@ impl Lfly {
         let _ = crate::core::LIBRARY_ANSWER.set(crate::sync::answer);
         let bar = cx.new(|cx| PlayerBar::new(model.clone(), nav.clone(), ui.clone(), library.clone(), covers.clone(), look.clone(), cx));
         let toasts = crate::toast::Toasts::new(look.clone(), cx);
+        let dj_island = {
+            let dj = crate::dj::DjModel::entity(cx).expect("made before the window");
+            cx.new(|cx| crate::dj::DjIsland::new(look.clone(), dj, cx))
+        };
         let menu = crate::menu::Menu::new(core.clone(), look.clone(), covers.clone(), library.clone(), nav.clone(), cx);
         let sidebar = cx.new(|cx| Sidebar::new(nav.clone(), ui.clone(), library.clone(), look.clone(), covers.clone(), cx));
         let home = cx.new(|cx| Home::new(core.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), model.clone(), cx));
@@ -427,6 +433,7 @@ impl Lfly {
             settings,
             settings_shown: false,
             toasts,
+            dj_island,
             menu,
             flow: cx.new(|cx| crate::flow::Flow::new(look_for_flow, cx)),
             menu_shown: false,
@@ -1291,7 +1298,7 @@ impl Render for Lfly {
             m.size = size;
             m.origin = origin;
         });
-        root.child(self.toasts.clone()).child(self.menu.clone()).children(self.pair_dialog(cx)).into_any_element()
+        root.child(self.dj_island.clone()).child(self.toasts.clone()).child(self.menu.clone()).children(self.pair_dialog(cx)).into_any_element()
     }
 }
 
@@ -1325,6 +1332,7 @@ fn main() {
             ..gpui_kit::component::TitleBar::window_options()
         };
         let model = cx.new(|cx| PlayerModel::new(core.clone(), updates, cx));
+        crate::dj::DjModel::new(core.clone(), cx);
         gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Lfly::new(core, model, window, cx)))
             .expect("window");
         cx.activate(true);

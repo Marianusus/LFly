@@ -137,7 +137,32 @@ Notes on these checks:
     - REA was not run on the binary: the EULA forbids reverse engineering, VirtualDJ was never
       installed, and the download was deleted.
     - The user chose the phone's voice DJ (step 4) as the "real DJ".
-12. **The voice DJ (step 4), started on 2026-11-14 (uncommitted)**: `lfly-core/src/dj/`.
+12. **The voice DJ (step 4)**: `lfly-core/src/dj/` (pure half committed as `0944045`).
+    - **The caption-only session (2026-11-14, uncommitted):**
+      - `dj/session.rs`: one task owns the session and takes start, stop, the local player's
+        states and position ticks (from `NativeHost`) as messages, so it never calls the player
+        while the player is calling it.
+      - A block is built in its own task and dropped if the session changed meanwhile. It is
+        queued with `play_queue` (the first) or `EDIT_ADD` when one song is left.
+      - The line comes once the block's first song has played 0.6 s (a tick must first show
+        the position going back or under 0.6 s, since the old song ticks while the new one
+        loads), and is shown as a caption
+        (`native/src/dj.rs`: `DjModel`, the island at the top). The Home card starts and stops
+        the DJ; it is dimmed while another device is controlled.
+      - It stops when the listener starts a queue (`Core::play`) or music arrives from another
+        device. As a fallback it also stops on a state whose queue holds none of its songs, once
+        its own queue was seen.
+      - The DJ's songs always mix, Automix switch on or off (`LocalPlayer::set_dj_mixing`, the
+        phone's `automixActive`).
+      - When no first block can be built it says so in a toast.
+      - "Top played" is favourites first, then history (no play counts on the desktop).
+      - No tempo or key probing yet, so the flow goes by YouTube Music's order and variety.
+      - Under shuffle the flow order is lost (not handled).
+      - Checked headless with `LFLY_DJ=3` and a seeded favourites list: a FLOW block from Norah
+        Jones, its line once the song played, the caption and the card; over a playing song
+        (`LFLY_AUTOPLAY` + `LFLY_DJ=20`) the line came after the new song started. The
+        next-block build, the stops and a caption during an Automix never ran live (the first
+        two are unit-tested).
     - **Pure half, done.** Ported from the phone's `playback/dj`, with its tests (37 pass):
       - `blocks.rs`: kinds, rotation, usable songs, blocks of 4–6, artist and mix blocks;
       - `flow.rs`: the flow where each song grows out of the one before, by tempo, key and variety;

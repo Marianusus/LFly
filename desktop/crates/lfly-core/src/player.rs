@@ -133,6 +133,8 @@ pub struct LocalPlayer {
     automix: Arc<Mutex<crate::automix::Automix>>,
     /// The mix point last told to the sink.
     mix_point: Mutex<Option<MixPoint>>,
+    /// The DJ plays: its songs always mix (Automix on whatever the switch says).
+    dj_mixing: std::sync::atomic::AtomicBool,
     /// The mixed playlists' pairs, and the playing pair with its transition (None: not mixed).
     mix_index: Mutex<crate::playlist_mix::Index>,
     pair: Mutex<Option<PlayingPair>>,
@@ -160,6 +162,7 @@ impl LocalPlayer {
             urls: Mutex::default(),
             automix: Arc::default(),
             mix_point: Mutex::default(),
+            dj_mixing: Default::default(),
             mix_index: Mutex::new(crate::playlist_mix::Index::new(None)),
             pair: Mutex::default(),
             host: OnceLock::new(),
@@ -327,11 +330,22 @@ impl LocalPlayer {
 
     /// The listener's crossfade; with Automix on (and beats tracked in this build) a change that
     /// cannot be mixed on the beat still fades, over five seconds, when the crossfade is off.
+    /// The DJ's songs mix as with Automix on, whatever the switch says (the phone's `automixActive`).
+    pub fn set_dj_mixing(&self, on: bool) {
+        self.dj_mixing.store(on, std::sync::atomic::Ordering::Relaxed);
+        self.apply_crossfade();
+    }
+
+    /// Automix runs: the switch, a mixed playlist's pair, or the DJ.
+    fn automix_wanted(&self, pair: Option<&MixTransition>) -> bool {
+        (self.automix.lock().unwrap().on || pair.is_some() || self.dj_mixing.load(std::sync::atomic::Ordering::Relaxed)) && crate::automix::available()
+    }
+
     /// A mixed playlist's pair runs Automix whatever the switch says, and "Nessuna" does not fade.
     fn apply_crossfade(&self) {
         let set = self.now.lock().unwrap().crossfade;
         let pair = self.pair_transition();
-        let automix = (self.automix.lock().unwrap().on || pair.is_some()) && crate::automix::available();
+        let automix = self.automix_wanted(pair.as_ref());
         let seconds = if pair.is_some_and(|t| t.is_none()) {
             0
         } else if set == 0 && automix {
@@ -786,7 +800,7 @@ impl LocalPlayer {
     /// plan (or none) goes to the engine, once per pair.
     fn automix_tick(&self, position_ms: i64) {
         let pair = self.pair_transition();
-        if !crate::automix::available() || !(self.automix.lock().unwrap().on || pair.is_some()) {
+        if !self.automix_wanted(pair.as_ref()) {
             return;
         }
         if pair.is_some_and(|t| t.is_none()) {
@@ -861,9 +875,8 @@ impl LocalPlayer {
         };
         let point = pair.and_then(|(cur, next)| {
             let plan = {
-                let mixed = self.pair_transition().is_some();
+                let on = self.automix_wanted(self.pair_transition().as_ref());
                 let a = self.automix.lock().unwrap();
-                let on = (a.on || mixed) && crate::automix::available();
                 a.planned.filter(|_| on && a.sent.as_ref().is_some_and(|(o, i)| *o == cur && *i == next))
             };
             mix_span(duration, position, plan, fade_ms).map(|(start_ms, end_ms, beat_matched)| MixPoint { track_id: cur, start_ms, end_ms, beat_matched })

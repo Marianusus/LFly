@@ -48,6 +48,11 @@ impl Home {
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.observe(&library, |_, _, cx| cx.notify()),
         ];
+        let mut subs = subs;
+        // The DJ card follows the DJ (cached view).
+        if let Some(dj) = crate::dj::DjModel::entity(cx) {
+            subs.push(cx.observe(&dj, |_, _, cx| cx.notify()));
+        }
         let mut this = Self { core, covers, look, nav, library, model, shelves: None, width: 1100., page_width: 800., _subs: subs };
         this.load(cx);
         // LFLY_SHELF_NEXT=<shelf id>@<seconds> (tests): turns that shelf's page, as its › does.
@@ -669,10 +674,84 @@ impl Render for Home {
                     .child(div().text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(s.text3).child(now.date.to_uppercase()))
                     .child(div().text_size(px((w * 0.036).clamp(30., 44.))).font_weight(FontWeight::EXTRA_BOLD).line_height(relative(1.05)).child(greeting)),
             )
+            .children(self.dj_card(&s, cx))
             .when(!quick_tiles.is_empty(), |d| {
                 d.child(div().px(px(24.)).mb(px(36.)).flex().flex_wrap().gap(px(10.)).children(quick_tiles))
             })
             .children(sections)
+    }
+}
+
+impl Home {
+    /// The phone's HomeDj card: what the DJ does, and the button that starts or stops it.
+    fn dj_card(&self, s: &crate::theme::Scheme, cx: &mut Context<Self>) -> Option<Div> {
+        let dj = crate::dj::DjModel::entity(cx)?;
+        let state = dj.read(cx).state.clone();
+        // It plays on this computer: not while another device is controlled.
+        let remote = self.model.read(cx).remote.is_some();
+        let accent = s.accent.hsla(1.);
+        let subtitle = if state.loading {
+            "Il DJ sta preparando la selezione…".to_string()
+        } else if let Some(b) = state.block.as_ref().filter(|_| state.active) {
+            crate::dj::block_label(b)
+        } else {
+            "La tua musica, scelta e presentata per te".to_string()
+        };
+        let label = if state.active { "Ferma il DJ" } else { "Avvia il DJ" };
+        let button = div()
+            .id("dj-toggle")
+            .h(px(36.))
+            .px(px(18.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.))
+            .rounded_full()
+            .text_size(px(13.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .when(!state.active, |d| d.bg(accent).text_color(s.on_accent.hsla(1.)))
+            .when(state.active, |d| d.bg(s.glass_tint).border_1().border_color(s.glass_border).text_color(s.text))
+            .when(remote || state.loading, |d| d.opacity(0.45))
+            .when(!remote && !state.loading, |d| {
+                d.cursor_pointer().active(|d| d.opacity(0.85)).on_click(move |_, _, cx| dj.read(cx).toggle())
+            })
+            .child(crate::icons::icon(if state.active { "pause" } else { "play" }, 14., if state.active { s.text } else { s.on_accent.hsla(1.) }))
+            .child(label);
+        Some(
+            div().px(px(24.)).mb(px(28.)).child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(14.))
+                    .p(px(14.))
+                    .rounded(px(16.))
+                    .bg(s.glass_tint)
+                    .border_1()
+                    .border_color(s.glass_border)
+                    .child(
+                        div()
+                            .size(px(44.))
+                            .flex_none()
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(accent.opacity(0.18))
+                            .child(crate::icons::icon("sparkles", 20., accent)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).text_color(s.text).child("DJ"))
+                            .child(div().text_size(px(13.)).text_color(s.text2).text_ellipsis().child(subtitle)),
+                    )
+                    .child(button),
+            ),
+        )
     }
 }
 

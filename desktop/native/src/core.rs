@@ -8,6 +8,7 @@
 use std::sync::{Arc, OnceLock};
 
 use lfly_connect::protocol::{State, TrackRef};
+use lfly_core::dj::session::{DjSession, DjState};
 use lfly_core::player::{LocalPlayer, PlayerHost};
 use lfly_yt::{AudioPreference, Track, YtMusic, YtMusicConfig};
 use tokio::runtime::Runtime;
@@ -37,7 +38,8 @@ pub enum PlayerUpdate {
     MixPoint(Option<lfly_core::player::MixPoint>),
 }
 
-struct NativeHost(mpsc::UnboundedSender<PlayerUpdate>);
+/// The window's side of the shared player; the DJ hears every local state (bound once it exists).
+struct NativeHost(mpsc::UnboundedSender<PlayerUpdate>, Arc<OnceLock<Arc<DjSession>>>);
 
 /// Who answers a phone's library offer: the window installs sync.rs's (the examples, which
 /// share this file, have none and decline).
@@ -45,15 +47,25 @@ pub static LIBRARY_ANSWER: OnceLock<fn(&str, serde_json::Value) -> Option<serde_
 
 impl PlayerHost for NativeHost {
     fn state(&self, state: &State, _received_at: i64) {
+        if let Some(dj) = self.1.get() {
+            dj.player_state(state);
+        }
         let _ = self.0.send(PlayerUpdate::State(Box::new(state.clone())));
     }
     fn position(&self, position_ms: i64, received_at: i64) {
+        if let Some(dj) = self.1.get() {
+            dj.player_position(position_ms);
+        }
         let _ = (received_at, self.0.send(PlayerUpdate::Position { ms: position_ms }));
     }
     fn notice(&self, text: &str) {
         let _ = self.0.send(PlayerUpdate::Notice(text.to_string()));
     }
     fn arrived(&self, _from_device_id: String) {
+        // Another device's music now plays here: the DJ steps aside.
+        if let Some(dj) = self.1.get() {
+            dj.stop();
+        }
         let _ = self.0.send(PlayerUpdate::Arrived);
     }
     fn mix_point(&self, point: Option<&lfly_core::player::MixPoint>) {
@@ -82,6 +94,9 @@ pub struct Core {
     /// The device this computer controls on LFly Connect: play, commands and queue changes go
     /// to it instead of the local player.
     remote: std::sync::RwLock<Option<Remote>>,
+    /// The DJ (captions only for now), and its updates until the window takes them.
+    pub dj: Arc<DjSession>,
+    pub dj_updates: std::sync::Mutex<Option<mpsc::UnboundedReceiver<DjState>>>,
 }
 
 #[derive(Clone)]
@@ -116,8 +131,9 @@ impl Core {
         // Settings → Riproduzione: the format and "play on", as saved (by either window).
         lfly_core::settings::load(&yt);
         let (tx, rx) = mpsc::unbounded_channel();
+        let dj_slot = Arc::new(OnceLock::new());
         let player = LocalPlayer::new(
-            Arc::new(NativeHost(tx)),
+            Arc::new(NativeHost(tx, dj_slot.clone())),
             runtime().handle().clone(),
             yt.clone(),
             "lfly-native".into(),
@@ -127,7 +143,14 @@ impl Core {
         // The saved sound (equalizer, crossfade, output), as the Tauri window applies it.
         lfly_core::settings::apply_audio(&player, &lfly_core::settings::audio());
         let http = reqwest::Client::builder().user_agent("Mozilla/5.0").build()?;
-        Ok((Arc::new(Self { yt, player, http, remote: Default::default() }), rx))
+        let (dj_tx, dj_rx) = mpsc::unbounded_channel();
+        let sink: lfly_core::dj::session::DjSink = Arc::new(move |state| {
+            let _ = dj_tx.send(state);
+        });
+        // The window speaks Italian, so does the DJ.
+        let dj = DjSession::spawn(runtime().handle(), Arc::downgrade(&player), yt.clone(), None, "it", sink);
+        let _ = dj_slot.set(dj.clone());
+        Ok((Arc::new(Self { yt, player, http, remote: Default::default(), dj, dj_updates: std::sync::Mutex::new(Some(dj_rx)) }), rx))
     }
 
     #[allow(dead_code)] // examples/smoke.rs
@@ -152,7 +175,11 @@ impl Core {
                 from_device_id: r.me_id,
             }))
             }
-            None => self.player.play_queue(queue, index as i32, 0, true),
+            None => {
+                // The listener chose something else: the DJ steps aside.
+                self.dj.stop();
+                self.player.play_queue(queue, index as i32, 0, true)
+            }
         }
     }
 

@@ -9,6 +9,7 @@
 pub mod blocks;
 pub mod flow;
 pub mod script;
+pub mod session;
 
 use lfly_connect::protocol::TrackRef;
 use lfly_yt::credits;
