@@ -38,6 +38,9 @@ jobs:
           workspaces: desktop/native
       - name: Build
         working-directory: desktop/native
+        # macOS: ONNX Runtime's prebuilt library targets macOS 13.4, so the app does too.
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.4"
         run: cargo build --release --locked
       - name: LFly.app and the .dmg
         if: runner.os == 'macOS'

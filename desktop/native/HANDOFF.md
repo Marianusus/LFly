@@ -271,6 +271,7 @@ Notes on these checks:
       Porting `glass.wgsl` to Metal is the next step.
     - CI job macos-latest (macos-14 is retired on GitHub) builds and bundles (`macos/Info.plist`: local network and Bonjour for LFly
       Connect). Compiling for macOS from Linux is not possible (the audio -sys crates need
-      Apple's SDK), so CI is the only check.
+      Apple's SDK), so CI is the only check. `build.rs` links clang's runtime (`clang_rt.osx`) for
+      ONNX Runtime's `@available` checks; the app targets macOS 13.4, as the prebuilt ORT does.
     - On first open the user must allow the unsigned app: System Settings → Privacy & Security →
       "Open Anyway", or `xattr -dr com.apple.quarantine /Applications/LFly.app`.
