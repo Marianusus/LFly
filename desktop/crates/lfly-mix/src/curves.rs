@@ -68,7 +68,7 @@ pub struct MixRecipe {
 }
 
 impl MixRecipe {
-    const fn new(volume: VolumeCurve, eq: EqCurve, filter_in: FilterCurve, filter_out: FilterCurve) -> Self {
+    pub(crate) const fn new(volume: VolumeCurve, eq: EqCurve, filter_in: FilterCurve, filter_out: FilterCurve) -> Self {
         MixRecipe { volume, eq, filter_in, filter_out, riser: false, effect: EffectCurve::None, looping: LoopCurve::None }
     }
 

@@ -78,8 +78,15 @@ Notes on these checks:
 4. **Automix, not ported:**
    - the jogwheel and the noise riser (only Playlist Mix uses them; `DeckHistory` not ported);
    - Playlist Mix and DJ (phone `ui/mix`, `playback/dj`);
-   - key detection and reorder (`MusicalKey.kt`, `MixOrder.kt`).
-   - Done on 2026-11-14 (uncommitted): the mix point on both seek bars (lfly-core `MixPoint`,
+   - Playlist Mix, pure half done on 2026-11-14 in `lfly-mix`: `key.rs` (MusicalKey, detector,
+     Waveform), `order.rs` (Smart Reorder), `playlist.rs` (presets, transitions, pair keys) and
+     the editor's fixes in the planner (`plan_fixed`, `exit_choices`, `entry_choices`), with the
+     phone's PlaylistMixTest except the saved-JSON case, which waits for the storage. Not done:
+     storing it (the phone keeps `playlist_mixes.json` on the device; Drive and Connect sync carry
+     only favorites, playlists and history, and only the phone's local backup file, which takes
+     every `files/*.json`, holds it; lfly-mix has no serde, so the JSON goes in lfly-core), the
+     analysis of a whole playlist, playing a mixed playlist, the editor UI, jogwheel and riser.
+   - Done on 2026-11-14 (3cd03b4): the mix point on both seek bars (lfly-core `MixPoint`,
      `PlayerHost::mix_point`, never sent to devices). A ReverbFade ran through the engine headless
      (Coldplay "The Scientist" → its radio): mix 26.2 s, "mixed" logged about 29 s after it began,
      so the reverb tail lived on about 3 s. Read from the log of a muted run, not heard.

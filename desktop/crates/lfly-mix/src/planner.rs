@@ -32,6 +32,18 @@ const END_MARGIN_BEATS: f64 = 1.0;
 const SNAP_TOLERANCE_BEATS: f64 = 0.5;
 /// The incoming grid may stop a beat short of the mix end: its phase keeps counting with the tempo.
 const TRACKED_TOLERANCE_BEATS: f64 = 1.0;
+/// The longest mix the listener can choose in the transition editor.
+const MAX_FIXED_BARS: u32 = 32;
+
+/// What the listener fixed in the transition editor; the rest Automix chooses.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PlanFixes {
+    pub bars: Option<u32>,
+    /// Where the outgoing song should hand over; moved to its nearest bar line that leaves room.
+    pub exit_seconds: Option<f64>,
+    /// Where the incoming song should start; moved to its nearest bar line.
+    pub entry_seconds: Option<f64>,
+}
 
 /// A beat-matched transition between two songs.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -65,6 +77,20 @@ pub fn plan(
     outgoing_energy: Option<&EnergyProfile>,
     incoming_energy: Option<&EnergyProfile>,
 ) -> Option<AutomixPlan> {
+    plan_fixed(outgoing, outgoing_duration_ms, incoming, outgoing_energy, incoming_energy, None)
+}
+
+/// [`plan`] with what the listener fixed in a mixed playlist's transition editor: a chosen length
+/// is kept even past the caps (it only has to fit the analysed music), a chosen exit or entry
+/// moves to the nearest bar line that works.
+pub fn plan_fixed(
+    outgoing: &BeatGrid,
+    outgoing_duration_ms: u64,
+    incoming: &BeatGrid,
+    outgoing_energy: Option<&EnergyProfile>,
+    incoming_energy: Option<&EnergyProfile>,
+    fixes: Option<&PlanFixes>,
+) -> Option<AutomixPlan> {
     if outgoing_duration_ms < MIN_SONG_MS {
         return None;
     }
@@ -79,22 +105,35 @@ pub fn plan(
         return None;
     }
     let bar_ms = BAR_BEATS as f64 * 60_000.0 / outgoing.bpm();
-    let lengths: Vec<u32> = MIX_BARS.iter().copied().filter(|&b| b as f64 * bar_ms <= MAX_MIX_MS && b as f64 * bar_ms <= MAX_MIX_SHARE * outgoing_duration_ms as f64).collect();
+    let lengths: Vec<u32> = match fixes.and_then(|f| f.bars) {
+        Some(bars) => vec![bars.clamp(1, MAX_FIXED_BARS)],
+        None => MIX_BARS.iter().copied().filter(|&b| b as f64 * bar_ms <= MAX_MIX_MS && b as f64 * bar_ms <= MAX_MIX_SHARE * outgoing_duration_ms as f64).collect(),
+    };
     let duration_s = outgoing_duration_ms as f64 / 1_000.0;
     let music_end = duration_s.min(outgoing.beats().last().copied().unwrap_or(0.0) + END_MARGIN_BEATS * outgoing.beat_seconds());
     let outro = outgoing_energy.and_then(|e| e.outro_start);
     let rise = incoming_energy.and_then(|e| e.first_rise);
 
+    let fixed_entry = fixes.and_then(|f| f.entry_seconds);
+    let fixed_exit = fixes.and_then(|f| f.exit_seconds);
     let mut candidates: Vec<(u32, Option<f64>)> = Vec::new();
-    if let Some(r) = rise {
+    if let Some(r) = rise.filter(|_| fixed_entry.is_none()) {
         candidates.extend(lengths.iter().filter(|&&b| b >= MIN_LANDING_BARS).map(|&b| (b, Some(r))));
     }
     candidates.extend(lengths.iter().map(|&b| (b, None)));
     for (bars, target) in candidates {
         let mix_beats = bars * BAR_BEATS;
         let mix_seconds = bars as f64 * bar_ms / 1_000.0;
-        let Some(exit) = exit_point(outgoing, music_end, mix_seconds, outro) else { continue };
-        let Some(entry) = entry_point(incoming, mix_beats, target) else { continue };
+        let exit = fixed_exit.and_then(|w| nearest_exit(outgoing, music_end, mix_seconds, w)).or_else(|| exit_point(outgoing, music_end, mix_seconds, outro));
+        let Some(exit) = exit else { continue };
+        let entry = match fixed_entry {
+            Some(w) => fitted_entry(incoming, mix_beats, w),
+            None => entry_point(incoming, mix_beats, target),
+        };
+        let Some(entry) = entry else { continue };
+        let lands = target.is_some()
+            || (fixed_entry.is_some()
+                && rise.is_some_and(|r| (incoming.beat_position(entry) + mix_beats as f64 - incoming.beat_position(r)).abs() <= SNAP_TOLERANCE_BEATS * 2.0));
         // Bars come from the tracked downbeats; where the two songs meet comes from each grid's
         // fitted line. The phone corrects the phase while it mixes; here both decks start on the
         // sample, so the starting points themselves must be free of the model's jitter.
@@ -105,10 +144,41 @@ pub fn plan(
             incoming_rate: rate,
             mix_ms: jround(mix_seconds * 1_000.0) as u64,
             mix_bars: bars,
-            lands_rise: target.is_some(),
+            lands_rise: lands,
         });
     }
     None
+}
+
+/// Bar lines of the outgoing song where a mix of `mix_seconds` fits, for the editor to snap a drag to.
+pub fn exit_choices(grid: &BeatGrid, outgoing_duration_ms: u64, mix_seconds: f64) -> Vec<f64> {
+    let Some(&last) = grid.beats().last() else { return Vec::new() };
+    let music_end = (outgoing_duration_ms as f64 / 1_000.0).min(last + END_MARGIN_BEATS * grid.beat_seconds());
+    let earliest = grid.beats()[0].max(0.0);
+    bar_lines(grid).into_iter().filter(|&b| b >= earliest && b + mix_seconds <= music_end).collect()
+}
+
+/// Bar lines of the incoming song a mix of `mix_beats` can start on.
+pub fn entry_choices(grid: &BeatGrid, mix_beats: u32) -> Vec<f64> {
+    if grid.beats().is_empty() {
+        return Vec::new();
+    }
+    bar_lines(grid)
+        .into_iter()
+        .filter(|&b| grid.beat_position(b) + mix_beats as f64 <= grid.last_beat_number() + TRACKED_TOLERANCE_BEATS)
+        .map(|b| b.max(0.0))
+        .collect()
+}
+
+/// The outgoing bar line nearest `wanted` that leaves room for the mix.
+fn nearest_exit(grid: &BeatGrid, music_end: f64, mix_seconds: f64, wanted: f64) -> Option<f64> {
+    let earliest = grid.beats()[0].max(0.0);
+    crate::util::first_min_by(bar_lines(grid).into_iter().filter(|&b| b >= earliest && b + mix_seconds <= music_end), |b| (b - wanted).abs())
+}
+
+/// The incoming bar line nearest `wanted` from which the mix stays inside the tracked beats.
+fn fitted_entry(grid: &BeatGrid, mix_beats: u32, wanted: f64) -> Option<f64> {
+    crate::util::first_min_by(entry_choices(grid, mix_beats), |b| (b - wanted).abs())
 }
 
 /// Bar lines of `grid`: its downbeats, or every fourth beat when the model found none.
@@ -288,5 +358,35 @@ mod tests {
         assert!(plan(&tail(), 180_000, &grid(140.0, 0.5, 59.0), Some(&outro), Some(&rise)).is_none());
         assert!(plan(&tail(), 180_000, &grid_c(121.0, 0.5, 59.0, 0.4), Some(&outro), Some(&rise)).is_none());
         assert!(plan(&grid(120.0, 20.0, 29.0), 50_000, &head(), Some(&outro), Some(&rise)).is_none());
+    }
+
+    // The editor's fixes, from the phone's PlaylistMixTest.
+
+    #[test]
+    fn the_editors_bars_exit_and_entry_are_kept_on_bar_lines() {
+        let (tail, head) = (tail(), head());
+        let fixes = PlanFixes { bars: Some(8), exit_seconds: Some(150.9), entry_seconds: Some(9.0) };
+        let plan = plan_fixed(&tail, 180_000, &head, None, None, Some(&fixes)).expect("a plan");
+        assert_eq!(plan.mix_bars, 8);
+        // 150.5 is the bar line nearest 150.9; bars on the incoming song fall every four beats from 0.8 s.
+        assert_eq!(plan.exit_ms, 150_500);
+        assert!(head.downbeats().iter().any(|d| (d * 1_000.0 - plan.entry_ms as f64).abs() < 1.0));
+        assert!((plan.entry_ms as f64 / 1_000.0 - 9.0).abs() <= 2.0 * head.beat_seconds());
+    }
+
+    #[test]
+    fn a_fixed_exit_too_late_for_the_mix_moves_to_the_last_bar_that_fits() {
+        let fixes = PlanFixes { bars: Some(16), exit_seconds: Some(175.0), ..Default::default() };
+        let plan = plan_fixed(&tail(), 180_000, &head(), None, None, Some(&fixes)).expect("a plan");
+        assert_eq!(plan.exit_ms, 146_500);
+    }
+
+    #[test]
+    fn the_editors_choices_leave_room_for_the_mix() {
+        let exits = exit_choices(&tail(), 180_000, 16.0);
+        assert_eq!(exits.first().copied(), Some(120.5));
+        assert!(exits.iter().all(|e| e + 16.0 <= 179.5 + 1e-9));
+        let entries = entry_choices(&head(), 32);
+        assert!(!entries.is_empty() && entries.iter().all(|e| head().beat_position(*e) + 32.0 <= head().last_beat_number() + 1.0));
     }
 }
