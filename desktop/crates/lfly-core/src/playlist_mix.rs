@@ -169,6 +169,14 @@ pub fn set_enabled(dir: &Path, playlist_id: &str, on: bool) -> Result<(), String
     })
 }
 
+/// Forgets a playlist's Mix (the playlist was deleted).
+pub fn remove(dir: &Path, playlist_id: &str) -> Result<(), String> {
+    if !read_raw(dir).contains_key(playlist_id) {
+        return Ok(());
+    }
+    edit(dir, playlist_id, Map::clear)
+}
+
 /// Sets the transition from `from` to `to`; `None` (or AUTO with nothing changed) goes back to
 /// Automix's own.
 pub fn set_transition(dir: &Path, playlist_id: &str, from: &str, to: &str, t: Option<&MixTransition>) -> Result<(), String> {
@@ -340,6 +348,9 @@ mod tests {
         set_enabled(&dir, "p1", false).unwrap();
         assert!(!load(&dir).contains_key("p1"));
         assert!(load(&dir)["p2"].enabled);
+        remove(&dir, "p2").unwrap();
+        assert!(load(&dir).is_empty());
+        remove(&dir, "gone").unwrap();
     }
 
     #[test]

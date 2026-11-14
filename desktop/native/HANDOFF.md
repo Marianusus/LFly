@@ -100,8 +100,17 @@ Notes on these checks:
      pairs in. Remove the files and restore `audio.json` afterwards.
    - Differences from the phone: when the beats cannot be matched the desktop plays its plain
      crossfade, not the playlist's ingredients off the beat; a beats-off change waits for both
-     analyses; the jogwheel is kept in the file, not played. Not done: any UI (no switch, no
-     editor), the analysis of a whole playlist (keys, Smart Reorder), the riser.
+     analyses; the jogwheel is kept in the file, not played. Not done: the editor, the analysis
+     of a whole playlist (keys, Smart Reorder), the riser.
+   - The switch (2026-11-14): a "Mixa"/"Mixata" pill in your playlist's hero row
+     (`collection.rs` `mix_button`, the phone's PlaylistMixButton; dimmed under two songs);
+     deleting a playlist forgets its Mix. The hero column now takes `flex_1` and its buttons
+     wrap, so the row no longer runs out of the page with the right panel open; a page opened
+     before the library was read no longer keeps "Questa playlist non c'è più". Shot headless
+     on your playlist (off/on) and Liked at 1100 and 1500 px; not shot on an album page; the
+     click itself never ran headless. On an album page with the panel open the four buttons now
+     wrap to a second row; before, they overflowed the column by about 12 px into the page's
+     margin.
    - Done on 2026-11-14 (3cd03b4): the mix point on both seek bars (lfly-core `MixPoint`,
      `PlayerHost::mix_point`, never sent to devices). A ReverbFade ran through the engine headless
      (Coldplay "The Scientist" → its radio): mix 26.2 s, "mixed" logged about 29 s after it began,
@@ -123,6 +132,11 @@ Notes on these checks:
    - The Party one is empty, and the sync one was merged earlier.
    - Ask the user before removing them.
 10. **Party** (play together with the phone) and the **DJ voice** are not started on the desktop.
+11. **VirtualDJ** (asked on 2026-11-14 for a "real DJ"): see `VIRTUALDJ_NOTES.md`.
+    - It is built from the public manual only.
+    - REA was not run on the binary: the EULA forbids reverse engineering, VirtualDJ was never
+      installed, and the download was deleted.
+    - The user chose the phone's voice DJ (step 4) as the "real DJ".
 
 ## Where to look
 

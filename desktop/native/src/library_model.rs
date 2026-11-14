@@ -178,6 +178,10 @@ impl LibraryModel {
 
     /// `deletePlaylist`. Only ever from a confirmed click.
     pub fn delete_playlist(&mut self, id: String, cx: &mut Context<Self>) {
+        // Its Mix goes with it (the phone's deletePlaylist).
+        if let Err(e) = lfly_core::library::dir().and_then(|d| lfly_core::playlist_mix::remove(&d, &id)) {
+            log::warn!("Playlist Mix of {id}: {e}");
+        }
         self.edit_playlists(move |list| list.retain(|p| p.get("id").and_then(Value::as_str) != Some(id.as_str())), |_, _| {}, cx);
     }
 

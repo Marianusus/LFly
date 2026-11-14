@@ -60,6 +60,8 @@ pub struct Collection {
     rename: Option<(Entity<InputState>, Subscription)>,
     /// The delete button asked once (a second click within four seconds deletes).
     confirm_delete: Option<std::time::Instant>,
+    /// Your playlist's Mix is on (DJ transitions between its songs).
+    mixed: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -124,6 +126,7 @@ impl Collection {
             width: 1100.,
             rename: None,
             confirm_delete: None,
+            mixed: false,
             _subs: subs,
         }
     }
@@ -177,9 +180,12 @@ impl Collection {
             }
             Source::Local(id) => {
                 let id = id.clone();
+                self.mixed = lfly_core::library::dir().is_ok_and(|d| lfly_core::playlist_mix::load(&d).get(&id).is_some_and(|m| m.enabled));
                 let found = lib.raw_playlist(&id);
                 match found {
                     Some(p) => {
+                        // Opened before the library was read (a page restored at start): found now.
+                        self.error = None;
                         let tracks = tracks_of(p.get("tracks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]));
                         let str_of = |k: &str| p.get(k).and_then(Value::as_str).map(str::to_string);
                         self.header = Header {
@@ -346,6 +352,7 @@ impl Collection {
             .child(
                 div()
                     .relative()
+                    .flex_1()
                     .min_w_0()
                     .pb(px(4.))
                     .flex()
@@ -366,9 +373,11 @@ impl Collection {
                     .when(!h.meta.is_empty(), |d| d.child(div().text_size(px(13.)).text_color(s.text2).child(h.meta.clone())))
                     .children(h.description.clone().map(|t| div().max_w(px(680.)).text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).line_clamp(2).text_ellipsis().child(t)))
                     .child(
+                        // Wraps on a narrow page (the right panel open) instead of running out of it.
                         div()
                             .mt(px(14.))
                             .flex()
+                            .flex_wrap()
                             .items_center()
                             .gap(px(10.))
                             .child(
@@ -443,7 +452,7 @@ impl Collection {
                 .hover(|d| d.bg(s.glass_tint)).active(|d| d.bg(s.text.opacity(0.12)))
                 .child(icon(name, if name == "plus" { 20. } else { 18. }, s.text2).group_hover(id, |d| d.text_color(s.text)))
         };
-        let mut row = div().ml(px(4.)).flex().items_center().gap(px(6.));
+        let mut row = div().ml(px(4.)).flex().flex_wrap().items_center().gap(px(6.));
         // DownloadButton.svelte, on every page but the downloads themselves.
         if self.source != Source::Downloads {
             let refs: Vec<_> = self.tracks.iter().filter_map(crate::core::track_ref).collect();
@@ -451,6 +460,7 @@ impl Collection {
         }
         match self.source.clone() {
             Source::Local(id) => {
+                row = row.child(self.mix_button(&id, s, cx));
                 if let Some((input, _)) = &self.rename {
                     row = row.child(
                         div()
@@ -526,6 +536,48 @@ impl Collection {
             _ => {}
         }
         row
+    }
+
+    /// The phone's PlaylistMixButton: "Mixa" turns DJ transitions on between the playlist's songs
+    /// (two at least), "Mixata" turns them off again. The player reads the file on its next tick.
+    fn mix_button(&self, id: &str, s: &crate::theme::Scheme, cx: &mut Context<Self>) -> Stateful<Div> {
+        let on = self.mixed;
+        let can = on || self.tracks.len() >= 2;
+        let accent = s.accent.hsla(1.);
+        let fg = if on { accent } else { s.text };
+        let (id, me) = (id.to_string(), cx.entity().downgrade());
+        div()
+            .id("hero-mix")
+            .h(px(36.))
+            .px(px(14.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded_full()
+            .border_1()
+            .when(on, |d| d.bg(accent.opacity(0.16)).border_color(accent.opacity(0.6)))
+            .when(!on, |d| d.bg(s.glass_tint).border_color(s.glass_border))
+            .text_color(fg)
+            .text_size(px(13.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .when(!can, |d| d.opacity(0.45))
+            .when(can, |d| {
+                d.cursor_pointer().hover(|d| d.bg(s.text.opacity(0.12))).active(|d| d.opacity(0.8)).on_click(move |_, _, cx| {
+                    let (id, want) = (id.clone(), !on);
+                    match lfly_core::library::dir().and_then(|d| lfly_core::playlist_mix::set_enabled(&d, &id, want)) {
+                        Ok(()) => {
+                            let _ = me.update(cx, |this, cx| {
+                                this.mixed = want;
+                                cx.notify();
+                            });
+                            crate::toast::Toasts::say(if want { "Playlist mixata: transizioni da DJ tra i brani" } else { "Mix tolto" }.to_string(), cx);
+                        }
+                        Err(e) => crate::toast::Toasts::say(format!("Impossibile salvare il mix: {e}"), cx),
+                    }
+                })
+            })
+            .child(icon("sparkles", 15., fg))
+            .child(if on { "Mixata" } else { "Mixa" })
     }
 
     fn start_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
