@@ -136,7 +136,8 @@ Notes on these checks:
     - It is built from the public manual only.
     - REA was not run on the binary: the EULA forbids reverse engineering, VirtualDJ was never
       installed, and the download was deleted.
-    - The user chose the phone's voice DJ (step 4) as the "real DJ".
+    - Correction (2026-11-14, later): "real DJ" meant playing LFly from the user's own hardware
+      DJ console. See item 13. The voice DJ (item 12) was a misreading, but it is kept.
 12. **The voice DJ (step 4)**: `lfly-core/src/dj/` (pure half committed as `0944045`).
     - **The caption-only session (`6a43a49`):**
       - `dj/session.rs`: one task owns the session and takes start, stop, the local player's
@@ -219,3 +220,48 @@ Notes on these checks:
   - `api/lyrics/sources/*`;
   - `api/StreamResolver.kt` and `api/MonochromeApiClient.kt`.
 - **Test hooks:** `LFLY_AUTOPLAY`, `LFLY_ROUTE`, `LFLY_SETTINGS`, `LFLY_SEEK="s@ms;s@ms"`, `LFLY_SPEED`, `LFLY_PANEL` and others, listed in README.md.
+13. **DJ console (the user's real aim, 2026-11-14), slice 1 uncommitted.**
+    - **Done:**
+      - `midir` 0.11.1, which shares `alsa-sys` 0.4 with cpal (0.10 clashed).
+      - `native/src/midi_map.rs`, pure with tests: MIDI bytes to a control, actions that know
+        nothing about MIDI, a learned mapping in the store key `midi`, soft takeover for faders.
+      - `native/src/midi.rs`: a thread opens the first port that is not Midi Through, PipeWire or
+        LFly, and looks again every 2 s for plug-in and plug-out.
+      - Actions: play/pause, cue (CDJ style), next, previous, volume, tempo (±8%, applied once
+        the fader rests 250 ms, because `set_speed` re-seeks; local only), Automix on/off.
+      - Settings > Dispositivi > Console DJ: the connected console, and "Impara"/"Togli" per
+        action.
+    - **Test path, no root, never a real device:**
+      - `examples/midi_send.rs` plugs in a pretend console (a virtual output port), sends, and
+        unplugs.
+      - With `LFLY_MIDI_TEST=<name>` a test run takes only a port whose name contains it, through
+        the same scan a real console goes through. `LFLY_MIDI_LEARN=<action>@<s>` starts learning.
+    - **Proven headless, from the log:**
+      - learning bound note 11;
+      - a saved mapping of all seven actions loaded, and each action arrived;
+      - cue marked 4058 ms after play/pause had really paused (the cue took the paused branch);
+      - tempo applied 1.020;
+      - unplugging showed "none", and replugging found the console again;
+      - an unmapped control did nothing.
+      The Settings section was shot with and without a console.
+    - **Known limits:** tempo faders that send a 14-bit CC pair or pitch bend are not read (pitch
+      bend is not parsed; learning may bind the fine byte), so tempo is unproven on real
+      hardware. Nothing has run with a real console.
+    - **Not done, waiting for the console model:**
+      - the jog wheel (relative encodings vary, and each seek drops the Automix plan);
+      - browse/load, LEDs, presets, HID (`hidapi` may break the windows-gnu check).
+    - **Fable 5.2's plan for what follows (read, not run):**
+      - Slice 2, small core changes, each needing the user's approval:
+        - a smooth tempo with `Stretch::glide_to`;
+        - "mix now" over N beats;
+        - a 3-band DJ EQ and filter in the output callback, reusing `DjFilterSettings`.
+        Mapping knobs to the saved `set_equalizer` would overwrite the user's EQ.
+      - Two real decks: weeks of work, effectively a second engine mode.
+        - It needs two decode, stretch and DSP chains, a short ring (the engine keeps 2 s, so
+          upstream changes are heard up to 2 s late), a manual crossfader, sync from
+          `beat_grid.rs`, hot cues and loops (`LoopBuffer`).
+        - Headphone cue needs a second cpal stream or the console's own channels 3-4.
+        - Scratch needs a varispeed path: WSOLA cannot run backwards.
+      - The question for the user: the console's make and model. Plugging it in once lets
+        `aconnect -l` show it.
+    - Two LFly instances with MIDI would both act on the console (ALSA lets both read it).

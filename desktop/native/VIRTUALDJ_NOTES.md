@@ -123,7 +123,9 @@ The desktop app only; the phone already has the club Automix this one ports.
 
 ## Open questions for the user
 
-1. What does "real DJ" mean?
+1. Answered on 2026-11-14: driving LFly from the user's own DJ console (HANDOFF item 13). The
+   options below are kept for the record.
+   What does "real DJ" mean?
    - The phone's DJ (`playback/dj`, read on 2026-11-14), which the HANDOFF lists as step 4.
      It plays your music in themed blocks of a few songs and opens each block with a spoken
      line, like a radio host. The lines come from templates (`DjScript`, pure, no AI service and

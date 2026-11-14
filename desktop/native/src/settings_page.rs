@@ -164,6 +164,7 @@ impl SettingsPage {
             cx.observe(&crate::media::SystemMedia::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::downloads::DownloadsModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::sync::SyncModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&crate::midi::MidiModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::account::AccountModel::entity(cx), |_, _, cx| cx.notify()),
             cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
@@ -1393,6 +1394,47 @@ impl SettingsPage {
         ]
     }
 
+    /// A DJ console: which one is connected, and the control learned for each action.
+    fn console(&mut self, i: &Ink, cx: &mut Context<Self>) -> AnyElement {
+        use crate::midi_map::Action;
+        let midi = crate::midi::MidiModel::entity(cx);
+        let (device, learning, mapping) = {
+            let m = midi.read(cx);
+            (m.device.clone(), m.learning, m.mapping.clone())
+        };
+        let mut rows = vec![row()
+            .child(label("Console", Some(device.as_deref().map(crate::midi::display_name).unwrap_or_else(|| "Nessuna console collegata. Collegala con l'USB: LFly la trova da solo.".into())), i))
+            .into_any_element()];
+        for action in Action::ALL {
+            let bound = mapping.control_for(action);
+            let listening = learning == Some(action);
+            let caption = if listening {
+                if action.is_fader() { "Muovi il fader o la manopola sulla console…".to_string() } else { "Premi il tasto sulla console…".to_string() }
+            } else {
+                bound.map_or("Non assegnato".to_string(), |c| c.describe())
+            };
+            let (m1, m2) = (midi.clone(), midi.clone());
+            rows.push(
+                row()
+                    .child(label(action.label(), Some(caption), i))
+                    .when(bound.is_some() && !listening, |r| {
+                        r.child(button(SharedString::from(format!("midi-forget-{action:?}")), "Togli", false, false, i).on_click(move |_, _, cx| m1.update(cx, |m, cx| m.forget(action, cx))))
+                    })
+                    .child(
+                        button(SharedString::from(format!("midi-learn-{action:?}")), if listening { "Annulla" } else { "Impara" }, false, device.is_none() && !listening, i).when(
+                            device.is_some() || listening,
+                            |b| b.on_click(move |_, _, cx| m2.update(cx, |m, cx| m.learn(if listening { None } else { Some(action) }, cx))),
+                        ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        group("Console DJ", None, i)
+            .child(list(rows, i))
+            .child(foot("Premi Impara accanto a un'azione, poi il tasto o il fader della console. Il volume e il tempo prendono il comando quando il fader raggiunge il valore attuale, così la musica non salta.", i))
+            .into_any_element()
+    }
+
     fn devices(&mut self, i: &Ink, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use gpui_kit::component::input::{Input, InputState};
         let connect = crate::connect::ConnectModel::entity(cx);
@@ -1463,6 +1505,7 @@ impl SettingsPage {
                 ))
                 .child(foot("Se il telefono non trova questo computer o non riesce a comandarlo, il firewall potrebbe bloccarlo: LFly Connect usa la porta TCP 45780 e mDNS (UDP 5353) sulla rete locale.", i))
                 .into_any_element(),
+            self.console(i, cx),
             self.sync_local(i, cx),
             self.sync_drive(i, cx),
             group("Libreria", None, i).child(list(vec![row().child(div().flex_1().child(counts)).into_any_element()], i)).into_any_element(),

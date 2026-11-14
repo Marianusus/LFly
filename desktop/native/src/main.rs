@@ -23,6 +23,8 @@ mod library_model;
 mod library_page;
 mod look;
 mod menu;
+mod midi;
+mod midi_map;
 mod lyrics;
 mod lyrics_page;
 mod media;
@@ -190,6 +192,7 @@ impl Lfly {
         crate::account::AccountModel::start(core.clone(), cx);
         crate::connect::ConnectModel::start(core.clone(), model.clone(), cx);
         crate::sleep::SleepTimer::start(model.clone(), cx);
+        crate::midi::MidiModel::start(core.clone(), model.clone(), cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
