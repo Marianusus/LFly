@@ -5,6 +5,9 @@
 //! [HostPlayer]; the window through the `player_*` commands.
 
 use std::collections::HashMap;
+
+use crate::playlist_mix::Change;
+use lfly_mix::playlist::MixTransition;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -42,6 +45,9 @@ pub trait PlayerHost: Send + Sync + 'static {
     fn mix_point(&self, _point: Option<&MixPoint>) {}
 }
 
+/// The playing song and the next one (ids), with their transition in a mixed playlist.
+type PlayingPair = ((String, String), Option<MixTransition>);
+
 /// Where the next change is planned on the playing song's timeline, so the seek bar can show it
 /// (the phone's `MixPoint`). [beat_matched]: an Automix on the beat, else a plain crossfade.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,9 +61,9 @@ pub struct MixPoint {
 /// The change's span (start, end, on the beat): the Automix plan until the song reaches its exit
 /// (past it the engine fades instead), else the crossfade the engine plays (never more than a
 /// third of the song, and at least a second), else none.
-fn mix_span(duration_ms: i64, position_ms: i64, plan: Option<(i64, i64)>, crossfade_ms: i64) -> Option<(i64, i64, bool)> {
-    if let Some((exit, end)) = plan.filter(|(exit, _)| position_ms < *exit) {
-        return Some((exit, end, true));
+fn mix_span(duration_ms: i64, position_ms: i64, plan: Option<(i64, i64, bool)>, crossfade_ms: i64) -> Option<(i64, i64, bool)> {
+    if let Some(span) = plan.filter(|(exit, _, _)| position_ms < *exit) {
+        return Some(span);
     }
     let fade = crossfade_ms.min(duration_ms / 3);
     (duration_ms > 0 && fade >= 1_000).then_some((duration_ms - fade, duration_ms, false))
@@ -98,8 +104,9 @@ struct Now {
     next_source: Option<(String, Source)>,
     /// The listener's crossfade, in seconds (Automix may fade longer when it is off).
     crossfade: u32,
-    /// The crossfade the engine plays, in ms.
+    /// The crossfade the engine plays, in ms, and whether it was sent.
     fade_ms: i64,
+    fade_sent: bool,
 }
 
 impl Now {
@@ -126,6 +133,9 @@ pub struct LocalPlayer {
     automix: Arc<Mutex<crate::automix::Automix>>,
     /// The mix point last told to the sink.
     mix_point: Mutex<Option<MixPoint>>,
+    /// The mixed playlists' pairs, and the playing pair with its transition (None: not mixed).
+    mix_index: Mutex<crate::playlist_mix::Index>,
+    pair: Mutex<Option<PlayingPair>>,
     host: OnceLock<Host>,
     device_id: String,
 }
@@ -150,6 +160,8 @@ impl LocalPlayer {
             urls: Mutex::default(),
             automix: Arc::default(),
             mix_point: Mutex::default(),
+            mix_index: Mutex::new(crate::playlist_mix::Index::new(None)),
+            pair: Mutex::default(),
             host: OnceLock::new(),
             device_id,
         });
@@ -315,13 +327,71 @@ impl LocalPlayer {
 
     /// The listener's crossfade; with Automix on (and beats tracked in this build) a change that
     /// cannot be mixed on the beat still fades, over five seconds, when the crossfade is off.
+    /// A mixed playlist's pair runs Automix whatever the switch says, and "Nessuna" does not fade.
     fn apply_crossfade(&self) {
         let set = self.now.lock().unwrap().crossfade;
-        let automix = self.automix.lock().unwrap().on && crate::automix::available();
-        let seconds = if set == 0 && automix { crate::automix::FALLBACK_SECONDS } else { set };
-        self.now.lock().unwrap().fade_ms = seconds as i64 * 1000;
-        self.audio.set_crossfade(seconds as u64 * 1000);
+        let pair = self.pair_transition();
+        let automix = (self.automix.lock().unwrap().on || pair.is_some()) && crate::automix::available();
+        let seconds = if pair.is_some_and(|t| t.is_none()) {
+            0
+        } else if set == 0 && automix {
+            crate::automix::FALLBACK_SECONDS
+        } else {
+            set
+        };
+        let ms = seconds as i64 * 1000;
+        let changed = {
+            let mut now = self.now.lock().unwrap();
+            let changed = now.fade_ms != ms || !now.fade_sent;
+            now.fade_ms = ms;
+            now.fade_sent = true;
+            changed
+        };
+        if changed {
+            self.audio.set_crossfade(ms as u64);
+        }
         self.update_mix_point();
+    }
+
+    /// The playing pair's transition in a mixed playlist (None: not mixed).
+    fn pair_transition(&self) -> Option<MixTransition> {
+        self.pair.lock().unwrap().as_ref().and_then(|(_, t)| *t)
+    }
+
+    /// Which pair plays and whether a mixed playlist has it, from the song's start: when a mixed
+    /// pair or its transition comes, goes or changes, the plan sent goes and the crossfade
+    /// follows. Reads the files only when they changed on disk; without mixed pairs nothing moves.
+    fn update_pair(&self) {
+        let ids = {
+            let now = self.now.lock().unwrap();
+            let cur = now.queue.current().map(|t| t.id.clone());
+            let next = now.queue.after_end().filter(|i| *i != now.queue.index).and_then(|i| now.queue.tracks.get(i as usize).map(|t| t.id.clone()));
+            cur.zip(next)
+        };
+        let transition = {
+            let mut index = self.mix_index.lock().unwrap();
+            index.refresh();
+            ids.as_ref().and_then(|(a, b)| index.get(a, b))
+        };
+        let act = {
+            let mut pair = self.pair.lock().unwrap();
+            let value = ids.map(|ids| (ids, transition));
+            let was_mixed = pair.as_ref().is_some_and(|(_, t)| t.is_some());
+            // Only a different pair or transition: an unrelated save of the playlists must not
+            // drop a plan armed near its exit.
+            let changed = *pair != value;
+            *pair = value;
+            changed && (was_mixed || transition.is_some())
+        };
+        if act {
+            {
+                let mut a = self.automix.lock().unwrap();
+                a.sent = None;
+                a.planned = None;
+            }
+            self.audio.set_automix(None);
+            self.apply_crossfade();
+        }
     }
 
     /// Automix: songs mixed on the beat when their beats and tempos allow it, in `style`.
@@ -614,6 +684,7 @@ impl LocalPlayer {
                 // Four times a second: only the position, never the whole queue. A full state here
                 // made every listener in the window (and the system media controls) run again.
                 self.sink.position(position_ms, lfly_connect::controller::now_ms());
+                self.update_pair();
                 self.automix_tick(position_ms);
                 self.update_mix_point();
             }
@@ -714,7 +785,11 @@ impl LocalPlayer {
     /// the next song's head are analysed (from the sources playback uses); once both are in, the
     /// plan (or none) goes to the engine, once per pair.
     fn automix_tick(&self, position_ms: i64) {
-        if !crate::automix::available() || !self.automix.lock().unwrap().on {
+        let pair = self.pair_transition();
+        if !crate::automix::available() || !(self.automix.lock().unwrap().on || pair.is_some()) {
+            return;
+        }
+        if pair.is_some_and(|t| t.is_none()) {
             return;
         }
         let (cur, next, duration, cur_src, next_src) = {
@@ -727,11 +802,11 @@ impl LocalPlayer {
         if duration < lfly_mix::planner::MIN_SONG_MS as i64 || position_ms < duration - crate::automix::ANALYSIS_LEAD_MS {
             return;
         }
-        let pair = (cur.id.clone(), next.id.clone());
+        let pair_ids = (cur.id.clone(), next.id.clone());
         let cache = self.audio.cache().clone();
         let (tail, head) = {
             let mut a = self.automix.lock().unwrap();
-            if a.sent.as_ref() == Some(&pair) {
+            if a.sent.as_ref() == Some(&pair_ids) {
                 return;
             }
             let (cl, nl) = (crate::automix::source_len(&cur_src, &cache), crate::automix::source_len(&next_src, &cache));
@@ -745,11 +820,21 @@ impl LocalPlayer {
             Automix::request(&self.automix, next.id.clone(), Part::Head, next_src.clone(), cache, next.duration_ms, || {});
         }
         let (Some(tail), Some(head)) = (tail, head) else { return };
+        let fade_ms = self.now.lock().unwrap().fade_ms;
+        let tail_beat = tail.grid.as_ref().map(|g| g.beat_seconds());
         let plan = {
             let mut a = self.automix.lock().unwrap();
-            a.sent = Some(pair);
-            let plan = a.plan((&cur.id, &tail, duration), (&next.id, &head));
-            a.planned = plan.as_ref().map(|p| (p.exit_ms as i64, (p.exit_ms + p.mix_ms) as i64));
+            a.sent = Some(pair_ids);
+            let plan = match crate::playlist_mix::change(pair.as_ref(), duration, tail_beat, fade_ms) {
+                Change::Plain => a.plan((&cur.id, &tail, duration), (&next.id, &head)),
+                Change::Beat { fixes, recipe } => a.plan_with((&cur.id, &tail, duration), (&next.id, &head), fixes.as_ref(), recipe),
+                Change::Unmatched { exit_ms, entry_ms, mix_ms, recipe } => {
+                    Some(a.unmatched((&cur.id, Some(&tail)), (&next.id, Some(&head)), exit_ms, entry_ms, mix_ms, recipe))
+                }
+                Change::NoFade => None,
+            };
+            let beat = pair.is_none_or(|t| t.beatmatch);
+            a.planned = plan.as_ref().map(|p| (p.exit_ms as i64, (p.exit_ms + p.mix_ms) as i64, beat));
             plan
         };
         match plan {
@@ -776,8 +861,9 @@ impl LocalPlayer {
         };
         let point = pair.and_then(|(cur, next)| {
             let plan = {
+                let mixed = self.pair_transition().is_some();
                 let a = self.automix.lock().unwrap();
-                let on = a.on && crate::automix::available();
+                let on = (a.on || mixed) && crate::automix::available();
                 a.planned.filter(|_| on && a.sent.as_ref().is_some_and(|(o, i)| *o == cur && *i == next))
             };
             mix_span(duration, position, plan, fade_ms).map(|(start_ms, end_ms, beat_matched)| MixPoint { track_id: cur, start_ms, end_ms, beat_matched })
@@ -884,9 +970,11 @@ mod tests {
     #[test]
     fn mix_span_is_the_plan_then_the_engine_fade() {
         // A plan holds until the song reaches its exit.
-        assert_eq!(mix_span(300_000, 100_000, Some((272_000, 298_000)), 5_000), Some((272_000, 298_000, true)));
+        assert_eq!(mix_span(300_000, 100_000, Some((272_000, 298_000, true)), 5_000), Some((272_000, 298_000, true)));
+        // A playlist's change off the beat says so.
+        assert_eq!(mix_span(300_000, 100_000, Some((250_000, 260_000, false)), 5_000), Some((250_000, 260_000, false)));
         // Past it the engine fades: the crossfade's span at the end.
-        assert_eq!(mix_span(300_000, 280_000, Some((272_000, 298_000)), 5_000), Some((295_000, 300_000, false)));
+        assert_eq!(mix_span(300_000, 280_000, Some((272_000, 298_000, true)), 5_000), Some((295_000, 300_000, false)));
         // No plan: the fade, never more than a third of the song.
         assert_eq!(mix_span(300_000, 0, None, 12_000), Some((288_000, 300_000, false)));
         assert_eq!(mix_span(9_000, 0, None, 12_000), Some((6_000, 9_000, false)));

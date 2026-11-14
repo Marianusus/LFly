@@ -16,6 +16,7 @@ pub mod lyrics_store;
 pub mod media;
 pub mod pages;
 pub mod player;
+pub mod playlist_mix;
 pub mod queue;
 pub mod settings;
 pub mod spotify;

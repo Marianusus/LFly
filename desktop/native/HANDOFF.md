@@ -78,14 +78,30 @@ Notes on these checks:
 4. **Automix, not ported:**
    - the jogwheel and the noise riser (only Playlist Mix uses them; `DeckHistory` not ported);
    - Playlist Mix and DJ (phone `ui/mix`, `playback/dj`);
-   - Playlist Mix, pure half done on 2026-11-14 in `lfly-mix`: `key.rs` (MusicalKey, detector,
-     Waveform), `order.rs` (Smart Reorder), `playlist.rs` (presets, transitions, pair keys) and
-     the editor's fixes in the planner (`plan_fixed`, `exit_choices`, `entry_choices`), with the
-     phone's PlaylistMixTest except the saved-JSON case, which waits for the storage. Not done:
-     storing it (the phone keeps `playlist_mixes.json` on the device; Drive and Connect sync carry
-     only favorites, playlists and history, and only the phone's local backup file, which takes
-     every `files/*.json`, holds it; lfly-mix has no serde, so the JSON goes in lfly-core), the
-     analysis of a whole playlist, playing a mixed playlist, the editor UI, jogwheel and riser.
+   - Playlist Mix, pure half (6abd389) in `lfly-mix`: `key.rs`, `order.rs`, `playlist.rs`,
+     `plan_fixed`/`exit_choices`/`entry_choices`, with the phone's PlaylistMixTest.
+   - Playlist Mix, kept and played (2026-11-14, uncommitted): `lfly-core/src/playlist_mix.rs`
+     reads and writes `<data>/lfly/library/playlist_mixes.json` in the phone's Gson JSON
+     (unknown fields such as a phone's jogwheel survive a write; the saved-JSON test is ported).
+     The phone keeps that file on the device: Drive and Connect sync carry only favorites,
+     playlists and history; only the phone's local backup holds it (`import_backup` does not read
+     it yet). The player resolves the playing pair from the song's start (`update_pair`): a pair
+     of an enabled mixed playlist runs Automix even with the switch off; NONE plays no fade (beats
+     the 5 s fallback); beats on: `plan_with` (fixes, preset/custom recipe); beats off: a plan at
+     rate 1 from the chosen exit/entry, its length the chosen bars at the ending's tempo.
+   - Checked headless, muted, from the logs: BLEND with Automix off; BLEND 4 bars, exit 260 s
+     (planned 4 bars, exit 259.0 s, the playlist's recipe); NONE with Automix on and off (no plan,
+     no fade); beats off (exit 250 s, entry 9 s, rate 1, 26.2 s); no pair (unchanged). How to
+     repeat it: in `tools/.headless`, write `data/lfly/library/playlists.json` with the pair, the
+     mix file next to it, `config/lfly/state/playback.json` with `"source":"MONOCHROME"` (the same
+     id gives another recording on YouTube), set `"automix"` in `audio.json` as needed, then
+     `LFLY_AUTOPLAY="Coldplay The Scientist" LFLY_SEEK="15@205000"`. The search results change
+     order between runs (the next song is `yt_mUB3yGWEa2s` or `yt_bllKLAiLo6g`): put both
+     pairs in. Remove the files and restore `audio.json` afterwards.
+   - Differences from the phone: when the beats cannot be matched the desktop plays its plain
+     crossfade, not the playlist's ingredients off the beat; a beats-off change waits for both
+     analyses; the jogwheel is kept in the file, not played. Not done: any UI (no switch, no
+     editor), the analysis of a whole playlist (keys, Smart Reorder), the riser.
    - Done on 2026-11-14 (3cd03b4): the mix point on both seek bars (lfly-core `MixPoint`,
      `PlayerHost::mix_point`, never sent to devices). A ReverbFade ran through the engine headless
      (Coldplay "The Scientist" → its radio): mix 26.2 s, "mixed" logged about 29 s after it began,

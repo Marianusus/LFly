@@ -69,9 +69,9 @@ pub struct Automix {
     readers: Vec<Arc<ReaderCtl>>,
     /// The pair whose plan the engine has (outgoing id, incoming id).
     pub sent: Option<(String, String)>,
-    /// That plan's span on the outgoing song (exit, end of the mix), for the seek bar: it holds
-    /// only while [sent] does.
-    pub planned: Option<(i64, i64)>,
+    /// That plan's span on the outgoing song (exit, end of the mix, on the beat), for the seek
+    /// bar: it holds only while [sent] does.
+    pub planned: Option<(i64, i64, bool)>,
 }
 
 /// One analysis at a time across the app: decoding and the model take seconds of CPU.
@@ -236,15 +236,27 @@ impl Automix {
 
     /// The plan for the pair, when both edges are analysed and they can be mixed on the beat.
     pub fn plan(&self, outgoing: (&str, &Analysis, i64), incoming: (&str, &Analysis)) -> Option<MixPlan> {
+        self.plan_with(outgoing, incoming, None, None)
+    }
+
+    /// [plan] for a mixed playlist's pair: the listener's bars, exit and entry ([fixes]) and
+    /// ingredients ([recipe]; None: Automix's).
+    pub fn plan_with(
+        &self,
+        outgoing: (&str, &Analysis, i64),
+        incoming: (&str, &Analysis),
+        fixes: Option<&planner::PlanFixes>,
+        recipe: Option<curves::MixRecipe>,
+    ) -> Option<MixPlan> {
         let (out_id, out, duration_ms) = outgoing;
         let (in_id, inc) = incoming;
         let (og, ig) = (out.grid.as_ref()?, inc.grid.as_ref()?);
-        let p = planner::plan(og, duration_ms.max(0) as u64, ig, out.energy.as_ref(), inc.energy.as_ref())?;
-        let calm = out.energy.as_ref().is_some_and(|e| e.is_calm) || inc.energy.as_ref().is_some_and(|e| e.is_calm);
-        let style = curves::resolve(self.style, true, calm, p.lands_rise, curves::pair_seed(out_id, in_id));
+        let p = planner::plan_fixed(og, duration_ms.max(0) as u64, ig, out.energy.as_ref(), inc.energy.as_ref(), fixes)?;
+        let style = curves::resolve(self.style, true, calm_pair(out, inc), p.lands_rise, curves::pair_seed(out_id, in_id));
         let gain_db = loudness::match_gain_db(out.lufs, inc.lufs);
+        let chosen = if recipe.is_some() { "the playlist's own ingredients".to_string() } else { format!("{style:?}") };
         log::info!(
-            "Automix plan {out_id} -> {in_id}: exit {} ms, entry {} ms, rate {:.4}, {} bars ({} ms), {style:?}, level {gain_db:+.1} dB, grids off their lines by {:.0}/{:.0} ms at worst",
+            "Automix plan {out_id} -> {in_id}: exit {} ms, entry {} ms, rate {:.4}, {} bars ({} ms), {chosen}, level {gain_db:+.1} dB, grids off their lines by {:.0}/{:.0} ms at worst",
             p.exit_ms,
             p.entry_ms,
             p.incoming_rate,
@@ -260,12 +272,51 @@ impl Automix {
             entry_ms: p.entry_ms,
             rate: p.incoming_rate,
             mix_ms: p.mix_ms,
-            recipe: style.recipe(),
+            recipe: recipe.unwrap_or(style.recipe()),
             outgoing_gain: loudness::gain(gain_db),
             // One beat of the mix, as a share of it.
             swap_width: 1.0 / p.mix_beats().max(1) as f32,
         })
     }
+
+    /// A mixed playlist's change with the beats off: each song at its own tempo, from [exit_ms]
+    /// for [mix_ms], the next song from [entry_ms], with the listener's ingredients or Automix's
+    /// choice off the beat. Either analysis may be missing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn unmatched(
+        &self,
+        outgoing: (&str, Option<&Analysis>),
+        incoming: (&str, Option<&Analysis>),
+        exit_ms: i64,
+        entry_ms: i64,
+        mix_ms: i64,
+        recipe: Option<curves::MixRecipe>,
+    ) -> MixPlan {
+        let ((out_id, out), (in_id, inc)) = (outgoing, incoming);
+        let calm = out.zip(inc).is_some_and(|(o, i)| calm_pair(o, i));
+        let style = curves::resolve(self.style, false, calm, false, curves::pair_seed(out_id, in_id));
+        let gain_db = loudness::match_gain_db(out.and_then(|a| a.lufs), inc.and_then(|a| a.lufs));
+        // The phone's DEFAULT_BEAT_MS when the ending's beat is not known.
+        let beat_ms = out.and_then(|a| a.grid.as_ref()).map_or(500.0, |g| g.beat_seconds() * 1_000.0);
+        let chosen = if recipe.is_some() { "the playlist's own ingredients".to_string() } else { format!("{style:?}") };
+        log::info!("Playlist Mix {out_id} -> {in_id} off the beat: exit {exit_ms} ms, entry {entry_ms} ms, {mix_ms} ms, {chosen}, level {gain_db:+.1} dB");
+        MixPlan {
+            outgoing_key: String::new(),
+            incoming_key: String::new(),
+            exit_ms: exit_ms.max(0) as u64,
+            entry_ms: entry_ms.max(0) as u64,
+            rate: 1.0,
+            mix_ms: mix_ms.max(1) as u64,
+            recipe: recipe.unwrap_or(style.recipe()),
+            outgoing_gain: loudness::gain(gain_db),
+            swap_width: (beat_ms / mix_ms.max(1) as f64).clamp(0.0, 1.0) as f32,
+        }
+    }
+}
+
+/// A calm edge on either side keeps AUTO on a fade.
+fn calm_pair(out: &Analysis, inc: &Analysis) -> bool {
+    out.energy.as_ref().is_some_and(|e| e.is_calm) || inc.energy.as_ref().is_some_and(|e| e.is_calm)
 }
 
 /// Decodes the edge (mono at the model's rate) and measures it; `None` when nothing could be read.
