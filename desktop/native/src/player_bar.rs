@@ -135,6 +135,7 @@ impl Render for PlayerBar {
             )
         };
         let m = self.model.read(cx);
+        let mix = m.mix_span();
         let track = m.current().cloned();
         let has = track.is_some();
         let playing = m.playing();
@@ -161,7 +162,7 @@ impl Render for PlayerBar {
             _ => protocol::REPEAT_OFF,
         };
         let seek_frac = if duration_ms > 0 { position_ms as f32 / duration_ms as f32 } else { 0. };
-        let style = || SliderStyle { text: c.text, accent: c.accent };
+        let style = || SliderStyle { text: c.text, accent: c.accent, mix: None };
         let me = cx.entity().downgrade();
         let (me1, me2, me3, me4) = (me.clone(), me.clone(), me.clone(), me.clone());
         let mute_to = if volume > 0 { 0 } else { self.last_volume.max(1) };
@@ -340,7 +341,7 @@ impl Render for PlayerBar {
                         "seek",
                         seek_frac,
                         !has || duration_ms == 0,
-                        style(),
+                        SliderStyle { mix, ..style() },
                         self.seek_bounds.clone(),
                         move |f, _, cx| {
                             let _ = me1.update(cx, |this, cx| {

@@ -179,6 +179,7 @@ impl Render for Bar {
                 0.5,
                 false,
                 gpui::white(),
+                None,
                 self.bounds.clone(),
                 move |f, _, _| d.borrow_mut().push(f),
                 move |f, _, _| r.borrow_mut().push(f),

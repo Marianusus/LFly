@@ -664,7 +664,7 @@ impl SettingsPage {
                         "glass-strength",
                         k,
                         !glass_on,
-                        SliderStyle { text: i.s_text, accent: i.accent },
+                        SliderStyle { text: i.s_text, accent: i.accent, mix: None },
                         self.glass_bounds.clone(),
                         move |f, _, cx| {
                             let f = (f * 20.).round() / 20.;

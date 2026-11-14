@@ -38,6 +38,29 @@ pub trait PlayerHost: Send + Sync + 'static {
     fn library(&self, _peer_id: &str, _offered: serde_json::Value) -> Option<serde_json::Value> {
         None
     }
+    /// Where the coming change sits on the playing song, when it moved (not sent to devices).
+    fn mix_point(&self, _point: Option<&MixPoint>) {}
+}
+
+/// Where the next change is planned on the playing song's timeline, so the seek bar can show it
+/// (the phone's `MixPoint`). [beat_matched]: an Automix on the beat, else a plain crossfade.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MixPoint {
+    pub track_id: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub beat_matched: bool,
+}
+
+/// The change's span (start, end, on the beat): the Automix plan until the song reaches its exit
+/// (past it the engine fades instead), else the crossfade the engine plays (never more than a
+/// third of the song, and at least a second), else none.
+fn mix_span(duration_ms: i64, position_ms: i64, plan: Option<(i64, i64)>, crossfade_ms: i64) -> Option<(i64, i64, bool)> {
+    if let Some((exit, end)) = plan.filter(|(exit, _)| position_ms < *exit) {
+        return Some((exit, end, true));
+    }
+    let fade = crossfade_ms.min(duration_ms / 3);
+    (duration_ms > 0 && fade >= 1_000).then_some((duration_ms - fade, duration_ms, false))
 }
 
 /// How long a resolved stream URL is trusted when YouTube does not say (they last ~6 h).
@@ -75,6 +98,8 @@ struct Now {
     next_source: Option<(String, Source)>,
     /// The listener's crossfade, in seconds (Automix may fade longer when it is off).
     crossfade: u32,
+    /// The crossfade the engine plays, in ms.
+    fade_ms: i64,
 }
 
 impl Now {
@@ -99,6 +124,8 @@ pub struct LocalPlayer {
     now: Mutex<Now>,
     urls: Mutex<HashMap<String, Resolved>>,
     automix: Arc<Mutex<crate::automix::Automix>>,
+    /// The mix point last told to the sink.
+    mix_point: Mutex<Option<MixPoint>>,
     host: OnceLock<Host>,
     device_id: String,
 }
@@ -122,6 +149,7 @@ impl LocalPlayer {
             now: Mutex::new(Now { volume: 80, ..Default::default() }),
             urls: Mutex::default(),
             automix: Arc::default(),
+            mix_point: Mutex::default(),
             host: OnceLock::new(),
             device_id,
         });
@@ -291,7 +319,9 @@ impl LocalPlayer {
         let set = self.now.lock().unwrap().crossfade;
         let automix = self.automix.lock().unwrap().on && crate::automix::available();
         let seconds = if set == 0 && automix { crate::automix::FALLBACK_SECONDS } else { set };
+        self.now.lock().unwrap().fade_ms = seconds as i64 * 1000;
         self.audio.set_crossfade(seconds as u64 * 1000);
+        self.update_mix_point();
     }
 
     /// Automix: songs mixed on the beat when their beats and tempos allow it, in `style`.
@@ -585,6 +615,7 @@ impl LocalPlayer {
                 // made every listener in the window (and the system media controls) run again.
                 self.sink.position(position_ms, lfly_connect::controller::now_ms());
                 self.automix_tick(position_ms);
+                self.update_mix_point();
             }
             PlayerEvent::Duration { ms } => {
                 if ms > 0 {
@@ -717,7 +748,9 @@ impl LocalPlayer {
         let plan = {
             let mut a = self.automix.lock().unwrap();
             a.sent = Some(pair);
-            a.plan((&cur.id, &tail, duration), (&next.id, &head))
+            let plan = a.plan((&cur.id, &tail, duration), (&next.id, &head));
+            a.planned = plan.as_ref().map(|p| (p.exit_ms as i64, (p.exit_ms + p.mix_ms) as i64));
+            plan
         };
         match plan {
             Some(mut p) => {
@@ -729,8 +762,39 @@ impl LocalPlayer {
         }
     }
 
+    /// Where the coming change sits on the playing song (the phone's `updateMixPoint`): the
+    /// Automix plan once both edges are analysed, else the crossfade; told to the sink when it
+    /// moved. Locks one thing at a time.
+    fn update_mix_point(&self) {
+        let (pair, duration, position, fade_ms) = {
+            let mut now = self.now.lock().unwrap();
+            let position = now.position(self.audio.position_ms());
+            let cur = now.queue.current().cloned();
+            let next = now.queue.after_end().filter(|i| *i != now.queue.index).and_then(|i| now.queue.tracks.get(i as usize).map(|t| t.id.clone()));
+            let duration = if now.duration_ms > 0 { now.duration_ms } else { cur.as_ref().map_or(0, |t| t.duration_ms) };
+            (cur.map(|c| c.id).zip(next), duration, position, now.fade_ms)
+        };
+        let point = pair.and_then(|(cur, next)| {
+            let plan = {
+                let a = self.automix.lock().unwrap();
+                let on = a.on && crate::automix::available();
+                a.planned.filter(|_| on && a.sent.as_ref().is_some_and(|(o, i)| *o == cur && *i == next))
+            };
+            mix_span(duration, position, plan, fade_ms).map(|(start_ms, end_ms, beat_matched)| MixPoint { track_id: cur, start_ms, end_ms, beat_matched })
+        });
+        {
+            let mut last = self.mix_point.lock().unwrap();
+            if *last == point {
+                return;
+            }
+            last.clone_from(&point);
+        }
+        self.sink.mix_point(point.as_ref());
+    }
+
     /// Tells the window, and the controlling devices too when [important] (not every tick).
     fn changed(&self, important: bool) {
+        self.update_mix_point();
         let state = self.state();
         self.sink.state(&state, lfly_connect::controller::now_ms());
         if important {
@@ -811,4 +875,24 @@ fn perceptual(v: i32) -> f32 {
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mix_span;
+
+    #[test]
+    fn mix_span_is_the_plan_then_the_engine_fade() {
+        // A plan holds until the song reaches its exit.
+        assert_eq!(mix_span(300_000, 100_000, Some((272_000, 298_000)), 5_000), Some((272_000, 298_000, true)));
+        // Past it the engine fades: the crossfade's span at the end.
+        assert_eq!(mix_span(300_000, 280_000, Some((272_000, 298_000)), 5_000), Some((295_000, 300_000, false)));
+        // No plan: the fade, never more than a third of the song.
+        assert_eq!(mix_span(300_000, 0, None, 12_000), Some((288_000, 300_000, false)));
+        assert_eq!(mix_span(9_000, 0, None, 12_000), Some((6_000, 9_000, false)));
+        // Under a second (or no crossfade, or no length) the engine just changes song.
+        assert_eq!(mix_span(2_400, 0, None, 12_000), None);
+        assert_eq!(mix_span(300_000, 0, None, 0), None);
+        assert_eq!(mix_span(0, 0, None, 5_000), None);
+    }
 }

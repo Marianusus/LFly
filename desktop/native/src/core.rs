@@ -33,6 +33,8 @@ pub enum PlayerUpdate {
     Notice(String),
     /// Another device handed its music to this computer.
     Arrived,
+    /// Where the coming change sits on the playing song.
+    MixPoint(Option<lfly_core::player::MixPoint>),
 }
 
 struct NativeHost(mpsc::UnboundedSender<PlayerUpdate>);
@@ -53,6 +55,9 @@ impl PlayerHost for NativeHost {
     }
     fn arrived(&self, _from_device_id: String) {
         let _ = self.0.send(PlayerUpdate::Arrived);
+    }
+    fn mix_point(&self, point: Option<&lfly_core::player::MixPoint>) {
+        let _ = self.0.send(PlayerUpdate::MixPoint(point.cloned()));
     }
     /// A downloaded song plays from its file.
     fn downloaded(&self, id: &str) -> Option<std::path::PathBuf> {

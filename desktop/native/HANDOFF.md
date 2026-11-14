@@ -78,8 +78,11 @@ Notes on these checks:
 4. **Automix, not ported:**
    - the jogwheel and the noise riser (only Playlist Mix uses them; `DeckHistory` not ported);
    - Playlist Mix and DJ (phone `ui/mix`, `playback/dj`);
-   - key detection and reorder (`MusicalKey.kt`, `MixOrder.kt`);
-   - the mix point on the seek bar.
+   - key detection and reorder (`MusicalKey.kt`, `MixOrder.kt`).
+   - Done on 2026-11-14 (uncommitted): the mix point on both seek bars (lfly-core `MixPoint`,
+     `PlayerHost::mix_point`, never sent to devices). A ReverbFade ran through the engine headless
+     (Coldplay "The Scientist" → its radio): mix 26.2 s, "mixed" logged about 29 s after it began,
+     so the reverb tail lived on about 3 s. Read from the log of a muted run, not heard.
 5. **Automix, phase corrector:** the phone corrects the phase during the mix; here the decks start on the sample with no correction.
    - Exit and entry are snapped to each grid's fitted line: on click tracks the decks stay within 9 ms.
    - Live recordings can have bad grids: one had a beat 523 ms off its line. The plan log prints each grid's worst residual. Port the corrector if mixes of live drummers drift.
@@ -87,7 +90,9 @@ Notes on these checks:
    - only `tracks.monochrome.st` answers;
    - it is slow (about 370 KB/s, about 0.9 s to the first byte) and returns 429;
    - its FLACs have no SEEKTABLE, so a seek in them takes 10–15 s;
-   - Automix on Monochrome sources is untested.
+   - Automix on Monochrome sources ran once (the ReverbFade above);
+   - it matched the video "Coldplay - The Scientist in the Live Lounge" to what sounds like the
+     studio recording (−12.1 LUFS, 73 BPM; YouTube's audio of the same id: −17.8 LUFS, 124 BPM).
 7. **YouTube captions** as a lyrics source get HTTP 400 for the phone's request, so it finds nothing for now.
 8. **The beat model makes the binary large:** 54 → 102 MB.
 9. **Fable's old worktrees** in `.claude/worktrees/agent-*` have nothing left to take.

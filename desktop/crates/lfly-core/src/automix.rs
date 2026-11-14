@@ -69,6 +69,9 @@ pub struct Automix {
     readers: Vec<Arc<ReaderCtl>>,
     /// The pair whose plan the engine has (outgoing id, incoming id).
     pub sent: Option<(String, String)>,
+    /// That plan's span on the outgoing song (exit, end of the mix), for the seek bar: it holds
+    /// only while [sent] does.
+    pub planned: Option<(i64, i64)>,
 }
 
 /// One analysis at a time across the app: decoding and the model take seconds of CPU.
@@ -84,6 +87,7 @@ impl Default for Automix {
             busy: HashSet::new(),
             readers: Vec::new(),
             sent: None,
+            planned: None,
         }
     }
 }

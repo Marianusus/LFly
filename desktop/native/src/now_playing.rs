@@ -179,6 +179,7 @@ impl Render for NowPlaying {
         };
         let accent = scheme.accent.hsla(1.);
         let m = self.model.read(cx);
+        let mix = m.mix_span().map(|(a, b)| (a, b, accent));
         let track = m.current().cloned();
         let playing = m.playing();
         let duration = m.duration_ms();
@@ -498,6 +499,7 @@ impl Render for NowPlaying {
                 if duration > 0 { position as f32 / duration as f32 } else { 0. },
                 duration == 0,
                 white(),
+                mix,
                 self.seek_bounds.clone(),
                 move |f, _, cx| {
                     let _ = me1.update(cx, |this, cx| {
@@ -595,6 +597,7 @@ impl Render for NowPlaying {
                     volume as f32 / 100.,
                     false,
                     white().opacity(0.9),
+                    None,
                     self.volume_bounds.clone(),
                     move |f, _, cx| {
                         let _ = me3.update(cx, |this, cx| {

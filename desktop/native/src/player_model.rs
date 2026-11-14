@@ -33,6 +33,8 @@ pub struct PlayerModel {
     pub remote: Option<String>,
     /// The local player's last state while a remote one is shown.
     local: Option<(State, u64)>,
+    /// Where the local player's coming change sits (the seek bars show it when not remote).
+    pub mix: Option<lfly_core::player::MixPoint>,
 }
 
 impl EventEmitter<PlayerEvent> for PlayerModel {}
@@ -52,7 +54,7 @@ impl PlayerModel {
             }
         })
         .detach();
-        Self { core, state: None, position_ms: 0, position_at: std::time::Instant::now(), active: true, remote: None, local: None }
+        Self { core, state: None, position_ms: 0, position_at: std::time::Instant::now(), active: true, remote: None, local: None, mix: None }
     }
 
     fn apply(&mut self, update: PlayerUpdate, cx: &mut Context<Self>) {
@@ -70,6 +72,7 @@ impl PlayerModel {
                 }
                 PlayerUpdate::Notice(text) => cx.emit(PlayerEvent::Notice(text.into())),
                 PlayerUpdate::Arrived => cx.emit(PlayerEvent::Arrived),
+                PlayerUpdate::MixPoint(point) => self.mix = point,
             }
             return;
         }
@@ -91,7 +94,23 @@ impl PlayerModel {
             }
             PlayerUpdate::Notice(text) => cx.emit(PlayerEvent::Notice(text.into())),
             PlayerUpdate::Arrived => cx.emit(PlayerEvent::Arrived),
+            PlayerUpdate::MixPoint(point) => {
+                self.mix = point;
+                cx.notify();
+            }
         }
+    }
+
+    /// The coming change as fractions of the playing song (start, end), for the seek bars: the
+    /// local player's only, and only for the song it was planned on.
+    pub fn mix_span(&self) -> Option<(f32, f32)> {
+        let m = self.mix.as_ref().filter(|_| self.remote.is_none())?;
+        let s = self.state.as_ref()?;
+        if s.duration_ms <= 0 || self.current()?.id != m.track_id {
+            return None;
+        }
+        let d = s.duration_ms as f32;
+        Some(((m.start_ms as f32 / d).clamp(0., 1.), (m.end_ms as f32 / d).clamp(0., 1.)))
     }
 
     /// Starts or stops showing the device this computer controls ([name] None: back here).

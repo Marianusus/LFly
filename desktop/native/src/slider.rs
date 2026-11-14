@@ -69,6 +69,35 @@ fn tracker(bounds: SliderBounds, vertical: bool, on_drag: OnFrac, on_release: Op
 pub struct SliderStyle {
     pub text: Hsla,
     pub accent: Hsla,
+    /// The coming change on a seek bar (start, end, as fractions).
+    pub mix: Option<(f32, f32)>,
+}
+
+/// The coming change on a seek bar (the phone's SeekSection): the accent at 55% while it lasts,
+/// under the fill. The track clips to a rectangle, so the tint rounds its own end at the bar's.
+fn mix_tint(start: f32, end: f32, accent: Hsla) -> Div {
+    div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left(relative(start))
+        .w(relative((end - start).max(0.)))
+        .bg(accent.opacity(0.55))
+        .when(end >= 0.995, |s| s.rounded_r_full())
+}
+
+/// A 12 px bubble in the accent, ringed in [ink], where the change starts; [height] is the slider's.
+fn mix_bubble(start: f32, height: f32, accent: Hsla, ink: Hsla) -> Div {
+    div()
+        .absolute()
+        .top(px((height - 12.) / 2.))
+        .left(relative(start))
+        .ml(px(-6.))
+        .size(px(12.))
+        .rounded_full()
+        .bg(accent)
+        .border_2()
+        .border_color(ink)
 }
 
 /// [frac] is 0..1. [on_drag] gets the fraction while the button is held; [on_release] once.
@@ -116,6 +145,7 @@ pub fn slider(
                 .bg(track_bg)
                 .overflow_hidden()
                 .when(!disabled, |s| s.group_hover(group.clone(), |s| s.h(px(7.))))
+                .when_some(style.mix, |s, (a, b)| s.child(mix_tint(a, b, style.accent)))
                 .child(
                     div()
                         .h_full()
@@ -125,6 +155,7 @@ pub fn slider(
                         .when(!disabled, |s| s.group_hover(group.clone(), |s| s.bg(style.accent))),
                 ),
         )
+        .when_some(style.mix.filter(|_| !disabled), |s, (a, _)| s.child(mix_bubble(a, 20., style.accent, style.text)))
         .when(!disabled, |s| {
             s.child(
                 div()
@@ -149,12 +180,15 @@ pub fn slider(
 }
 
 /// The full player's slider (Tauri: pages/parts/Slider.svelte): a 6 px bar at 22% of [ink],
-/// 10 px under the pointer, the fill at 82% (all of [ink] under the pointer), no knob.
+/// 10 px under the pointer, the fill at 82% (all of [ink] under the pointer), no knob. [mix]: the
+/// coming change (start, end, accent), as on the seek bar.
+#[allow(clippy::too_many_arguments)]
 pub fn bar_slider(
     id: impl Into<ElementId>,
     frac: f32,
     disabled: bool,
     ink: Hsla,
+    mix: Option<(f32, f32, Hsla)>,
     bounds: SliderBounds,
     on_drag: impl Fn(f32, &mut Window, &mut App) + 'static,
     on_release: impl Fn(f32, &mut Window, &mut App) + 'static,
@@ -190,6 +224,7 @@ pub fn bar_slider(
                 .bg(ink.opacity(0.22))
                 .overflow_hidden()
                 .when(!disabled, |s| s.group_hover(group.clone(), |s| s.h(px(10.))))
+                .when_some(mix, |s, (a, b, accent)| s.child(mix_tint(a, b, accent)))
                 .child(
                     div()
                         .h_full()
@@ -199,6 +234,7 @@ pub fn bar_slider(
                         .when(!disabled, |s| s.group_hover(group, move |s| s.bg(ink))),
                 ),
         )
+        .when_some(mix.filter(|_| !disabled), |s, (a, _, accent)| s.child(mix_bubble(a, 22., accent, ink)))
 }
 
 /// EqualizerPanel.svelte `.band input`: a vertical 6 px track (accent from the bottom) with a
