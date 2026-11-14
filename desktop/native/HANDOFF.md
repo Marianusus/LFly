@@ -70,26 +70,31 @@ Notes on these checks:
    - the lyrics lag when switching windows, and the Home shelf scroll. Both were fixed but not confirmed on the real screen;
    - how the Automix sounds. That is the user's judgement.
 2. **Lines without word timings** light up word after word, 50 ms apart (Tauri's behaviour). The phone lights the whole line. The user was asked which they want and has not answered.
-3. **Automix, not ported:**
-   - the send effects (echo, reverb, loop roll, jogwheel). AUTO's ECHO_OUT, REVERB_FADE and ROLL_DROP play their base recipe;
+3. **Automix effects (2026-11-14):**
+   - `crates/lfly-mix/src/effects.rs`: the phone's `TransitionEffects.kt` and its tests, plus the echo line, reverb and loop buffer from `DjEffects.kt`;
+   - the mixer plays them on the outgoing deck: the loop before the EQ, the send after the fader;
+   - the mixer lives on for the effect's tail (`outgoing_gone()` vs `finished()`), so the tempo return starts after it, unlike the phone;
+   - ECHO_OUT is never picked: AUTO picks it off the beat, and the desktop only mixes on the beat. How REVERB_FADE and ROLL_DROP sound is the user's call.
+4. **Automix, not ported:**
+   - the jogwheel and the noise riser (only Playlist Mix uses them; `DeckHistory` not ported);
    - Playlist Mix and DJ (phone `ui/mix`, `playback/dj`);
    - key detection and reorder (`MusicalKey.kt`, `MixOrder.kt`);
    - the mix point on the seek bar.
-4. **Automix, phase corrector:** the phone corrects the phase during the mix; here the decks start on the sample with no correction.
+5. **Automix, phase corrector:** the phone corrects the phase during the mix; here the decks start on the sample with no correction.
    - Exit and entry are snapped to each grid's fitted line: on click tracks the decks stay within 9 ms.
    - Live recordings can have bad grids: one had a beat 523 ms off its line. The plan log prints each grid's worst residual. Port the corrector if mixes of live drummers drift.
-5. **Monochrome:**
+6. **Monochrome:**
    - only `tracks.monochrome.st` answers;
    - it is slow (about 370 KB/s, about 0.9 s to the first byte) and returns 429;
    - its FLACs have no SEEKTABLE, so a seek in them takes 10–15 s;
    - Automix on Monochrome sources is untested.
-6. **YouTube captions** as a lyrics source get HTTP 400 for the phone's request, so it finds nothing for now.
-7. **The beat model makes the binary large:** 54 → 102 MB.
-8. **Fable's old worktrees** in `.claude/worktrees/agent-*` have nothing left to take.
+7. **YouTube captions** as a lyrics source get HTTP 400 for the phone's request, so it finds nothing for now.
+8. **The beat model makes the binary large:** 54 → 102 MB.
+9. **Fable's old worktrees** in `.claude/worktrees/agent-*` have nothing left to take.
    - The Automix one was copied into `crates/lfly-mix` and finished here.
    - The Party one is empty, and the sync one was merged earlier.
    - Ask the user before removing them.
-9. **Party** (play together with the phone) and the **DJ voice** are not started on the desktop.
+10. **Party** (play together with the phone) and the **DJ voice** are not started on the desktop.
 
 ## Where to look
 

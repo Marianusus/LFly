@@ -83,8 +83,12 @@ last minute of the playing song and the first of the next are analysed from 150 
 (lfly-core `automix.rs`: the Beat This! model on ONNX Runtime in lfly-beat, loudness and energy in
 lfly-mix), the planner picks the bars and the incoming tempo, and the engine mixes the two decks
 on the exit's very sample (lfly-audio `automix.rs`), the incoming song eased back to its own tempo
-afterwards. Analyses are kept in the data folder (`lfly/automix`). Not ported yet: the send
-effects (echo, reverb, loop roll), Playlist Mix and the DJ. The model is built in only where ONNX
+afterwards. Analyses are kept in the data folder (`lfly/automix`). AUTO's effects play on the
+outgoing deck (lfly-mix `effects.rs`): REVERB_FADE's reverb and ROLL_DROP's loop roll. ECHO_OUT's
+echo is ported too, but AUTO only picks it off the beat, and the desktop mixes on the beat or not at
+all, so it is never heard yet. Unlike the phone, the incoming song eases back to its tempo only once
+the reverb's tail (3.5 s) has rung out. Not ported yet: the jogwheel and the noise riser (Playlist
+Mix's only), Playlist Mix and the DJ. The model is built in only where ONNX
 Runtime ships a build (not for windows-gnu); elsewhere Automix falls back to a crossfade.
 
 Known differences, from what GPUI can draw: the lyrics' soft edge sweeps letter by letter (no

@@ -5,10 +5,10 @@
 //! A beat-matched mix runs over whole bars and starts on a bar line, so the quarter, the middle and
 //! the end of the progress all fall on downbeats.
 //!
-//! Not ported yet: the send effects (echo, reverb, loop roll, jogwheel stop) of the phone's
-//! `EffectCurve`, `LoopCurve` and `JogwheelCurve`. The styles that add one (ECHO_OUT, REVERB_FADE,
-//! ROLL_DROP) play their base recipe until then: FILTER, FADE and BASS_SWAP.
+//! The effect ingredients (echo, reverb, loop roll) are in [`crate::effects`]; the mixer plays
+//! them on the outgoing deck. The jogwheel is only Playlist Mix's, not ported yet.
 
+use crate::effects::{EffectCurve, LoopCurve};
 use crate::filter::{DjFilterSettings, FLAT_Q, OPEN_HIGH_PASS_HZ};
 use std::f64::consts::PI;
 
@@ -61,11 +61,15 @@ pub struct MixRecipe {
     pub filter_out: FilterCurve,
     /// The outgoing song builds up under a rising high-pass before the cut ([`TransitionStyle::Rise`]).
     pub riser: bool,
+    /// A send effect on the outgoing song.
+    pub effect: EffectCurve,
+    /// The outgoing song holds a loop.
+    pub looping: LoopCurve,
 }
 
 impl MixRecipe {
     const fn new(volume: VolumeCurve, eq: EqCurve, filter_in: FilterCurve, filter_out: FilterCurve) -> Self {
-        MixRecipe { volume, eq, filter_in, filter_out, riser: false }
+        MixRecipe { volume, eq, filter_in, filter_out, riser: false, effect: EffectCurve::None, looping: LoopCurve::None }
     }
 
     /// Both songs are heard together at full level, which needs the beats to line up.
@@ -131,11 +135,12 @@ pub enum TransitionStyle {
     Slam,
     /// The outgoing song builds up with a rising high-pass, then cuts on a downbeat.
     Rise,
-    /// [`TransitionStyle::Filter`] with an echo on the outgoing song (the echo not ported yet).
+    /// [`TransitionStyle::Filter`] with an echo on the outgoing song, a beat long.
     EchoOut,
-    /// A fade where the outgoing song dissolves into a reverb (the reverb not ported yet).
+    /// A fade where the outgoing song dissolves into a reverb.
     ReverbFade,
-    /// [`TransitionStyle::BassSwap`] with a loop roll into the drop (the roll not ported yet).
+    /// [`TransitionStyle::BassSwap`] with a loop roll on the outgoing song over the last two bars,
+    /// into the drop.
     RollDrop,
 }
 
@@ -145,13 +150,16 @@ impl TransitionStyle {
         use FilterCurve as F;
         use VolumeCurve as V;
         match self {
-            TransitionStyle::Fade | TransitionStyle::ReverbFade => MixRecipe::new(V::Crossfade, E::None, F::None, F::None),
-            TransitionStyle::BassSwap | TransitionStyle::RollDrop => MixRecipe::new(V::Overlap, E::EndBassSwap, F::LowPass, F::HighPass),
+            TransitionStyle::Fade => MixRecipe::new(V::Crossfade, E::None, F::None, F::None),
+            TransitionStyle::BassSwap => MixRecipe::new(V::Overlap, E::EndBassSwap, F::LowPass, F::HighPass),
             TransitionStyle::EqSwap => MixRecipe::new(V::Overlap, E::ThreeBand, F::None, F::None),
-            TransitionStyle::Filter | TransitionStyle::EchoOut => MixRecipe::new(V::FadeInFadeOut, E::CenterBassSwap, F::HighPass, F::HighPass),
+            TransitionStyle::Filter => MixRecipe::new(V::FadeInFadeOut, E::CenterBassSwap, F::HighPass, F::HighPass),
             TransitionStyle::Wave => MixRecipe::new(V::Overlap, E::CenterBassSwap, F::LowPass, F::LowPass),
             TransitionStyle::Slam => MixRecipe::new(V::CenterCut, E::None, F::None, F::None),
             TransitionStyle::Rise => MixRecipe { riser: true, ..MixRecipe::new(V::CenterCut, E::None, F::None, F::None) },
+            TransitionStyle::EchoOut => MixRecipe { effect: EffectCurve::Echo1Out, ..TransitionStyle::Filter.recipe() },
+            TransitionStyle::ReverbFade => MixRecipe { effect: EffectCurve::ReverbOutEnd, ..TransitionStyle::Fade.recipe() },
+            TransitionStyle::RollDrop => MixRecipe { looping: LoopCurve::Halving, ..TransitionStyle::BassSwap.recipe() },
         }
     }
 }

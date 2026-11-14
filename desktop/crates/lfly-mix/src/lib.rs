@@ -5,6 +5,7 @@
 
 pub mod beat_grid;
 pub mod curves;
+pub mod effects;
 pub mod energy;
 mod fft;
 pub mod filter;
