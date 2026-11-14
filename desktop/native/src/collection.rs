@@ -540,7 +540,7 @@ impl Collection {
 
     /// The phone's PlaylistMixButton: "Mixa" turns DJ transitions on between the playlist's songs
     /// (two at least), "Mixata" turns them off again. The player reads the file on its next tick.
-    fn mix_button(&self, id: &str, s: &crate::theme::Scheme, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn mix_button(&self, id: &str, s: &crate::theme::Scheme, cx: &mut Context<Self>) -> impl IntoElement {
         let on = self.mixed;
         let can = on || self.tracks.len() >= 2;
         let accent = s.accent.hsla(1.);
@@ -578,6 +578,10 @@ impl Collection {
             })
             .child(icon("sparkles", 15., fg))
             .child(if on { "Mixata" } else { "Mixa" })
+            // A short fade-in of the new state when it flips.
+            .with_animation(("hero-mix-flip", on as u64), Animation::new(std::time::Duration::from_millis(220)).with_easing(ease_out_quint()), move |d, t| {
+                d.opacity(if can { 0.55 + 0.45 * t } else { 0.45 })
+            })
     }
 
     fn start_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -1414,9 +1414,16 @@ impl SettingsPage {
                 bound.map_or("Non assegnato".to_string(), |c| c.describe())
             };
             let (m1, m2) = (midi.clone(), midi.clone());
+            // Waiting for the console: the caption breathes until a control arrives.
+            let text = label(action.label(), Some(caption), i);
+            let text = if listening {
+                text.with_animation(SharedString::from(format!("midi-listen-{action:?}")), Animation::new(std::time::Duration::from_millis(1400)).repeat().with_max_fps(30.).with_easing(pulsating_between(0.5, 1.)), |d, t| d.opacity(t)).into_any_element()
+            } else {
+                text.into_any_element()
+            };
             rows.push(
                 row()
-                    .child(label(action.label(), Some(caption), i))
+                    .child(text)
                     .when(bound.is_some() && !listening, |r| {
                         r.child(button(SharedString::from(format!("midi-forget-{action:?}")), "Togli", false, false, i).on_click(move |_, _, cx| m1.update(cx, |m, cx| m.forget(action, cx))))
                     })

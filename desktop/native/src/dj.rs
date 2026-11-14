@@ -138,12 +138,15 @@ impl Render for DjIsland {
         if t >= show + OUT {
             return div().into_any_element();
         }
-        // In: down from 12 px above (cubicOut); out: a fade.
+        // In: down from 12 px above (cubicOut); out: a fade while it lifts 6 px. With reduced
+        // motion it only fades.
+        let travel = if crate::prefs::Prefs::reduce_motion(cx) { 0. } else { 1. };
         let (dy, alpha) = if t < IN {
             let e = crate::motion::CUBIC_OUT.at((t / IN) as f64) as f32;
-            (-12. * (1. - e), e)
+            (-12. * (1. - e) * travel, e)
         } else if t > show {
-            (0., 1. - (t - show) / OUT)
+            let k = ((t - show) / OUT).min(1.);
+            (-6. * k * travel, 1. - k)
         } else {
             (0., 1.)
         };

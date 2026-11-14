@@ -747,7 +747,7 @@ impl Home {
                             .flex_col()
                             .gap(px(2.))
                             .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).text_color(s.text).child("DJ"))
-                            .child(div().text_size(px(13.)).text_color(s.text2).text_ellipsis().child(subtitle)),
+                            .child(dj_subtitle(subtitle, state.loading, s)),
                     )
                     .child(button),
             ),
@@ -782,4 +782,17 @@ fn chrono_like_now() -> Now {
     let now = Local::now();
     let weekday = DAYS[now.weekday().num_days_from_monday() as usize];
     Now { hour: now.hour(), date: format!("{weekday} {} {}", now.day(), MONTHS[now.month0() as usize]) }
+}
+
+/// The DJ card's line: a new one fades in; "preparing" breathes until the first block is in
+/// (both still with reduced motion, as GPUI's animations are).
+fn dj_subtitle(text: String, loading: bool, s: &crate::theme::Scheme) -> AnyElement {
+    let key = text.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
+    let line = div().text_size(px(13.)).text_color(s.text2).text_ellipsis().child(text);
+    if loading {
+        return line
+            .with_animation("dj-card-loading", Animation::new(std::time::Duration::from_millis(1400)).repeat().with_max_fps(30.).with_easing(pulsating_between(0.45, 1.)), |d, t| d.opacity(t))
+            .into_any_element();
+    }
+    line.with_animation(("dj-card-line", key), Animation::new(std::time::Duration::from_millis(260)).with_easing(ease_out_quint()), |d, t| d.opacity(t)).into_any_element()
 }

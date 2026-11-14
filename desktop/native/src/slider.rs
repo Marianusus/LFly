@@ -75,7 +75,7 @@ pub struct SliderStyle {
 
 /// The coming change on a seek bar (the phone's SeekSection): the accent at 55% while it lasts,
 /// under the fill. The track clips to a rectangle, so the tint rounds its own end at the bar's.
-fn mix_tint(start: f32, end: f32, accent: Hsla) -> Div {
+fn mix_tint(start: f32, end: f32, accent: Hsla) -> impl IntoElement {
     div()
         .absolute()
         .top_0()
@@ -84,10 +84,18 @@ fn mix_tint(start: f32, end: f32, accent: Hsla) -> Div {
         .w(relative((end - start).max(0.)))
         .bg(accent.opacity(0.55))
         .when(end >= 0.995, |s| s.rounded_r_full())
+        .with_animation(("mix-tint-in", mix_key(start)), Animation::new(MIX_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t))
+}
+
+/// A new mix point fades in over this, keyed by where it starts (still with reduced motion).
+const MIX_IN: std::time::Duration = std::time::Duration::from_millis(320);
+
+fn mix_key(start: f32) -> u64 {
+    (start.clamp(0., 1.) * 100_000.) as u64
 }
 
 /// A 12 px bubble in the accent, ringed in [ink], where the change starts; [height] is the slider's.
-fn mix_bubble(start: f32, height: f32, accent: Hsla, ink: Hsla) -> Div {
+fn mix_bubble(start: f32, height: f32, accent: Hsla, ink: Hsla) -> impl IntoElement {
     div()
         .absolute()
         .top(px((height - 12.) / 2.))
@@ -98,6 +106,7 @@ fn mix_bubble(start: f32, height: f32, accent: Hsla, ink: Hsla) -> Div {
         .bg(accent)
         .border_2()
         .border_color(ink)
+        .with_animation(("mix-bubble-in", mix_key(start)), Animation::new(MIX_IN).with_easing(ease_out_quint()), |d, t| d.opacity(t))
 }
 
 /// [frac] is 0..1. [on_drag] gets the fraction while the button is held; [on_release] once.

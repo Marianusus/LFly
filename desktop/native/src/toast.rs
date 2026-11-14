@@ -54,10 +54,11 @@ impl Render for Toasts {
             self.notice = None;
             return div().into_any_element();
         }
-        // In: up from 16 px below (cubicOut); out: a fade.
+        // In: up from 16 px below (cubicOut), only a fade with reduced motion; out: a fade.
+        let travel = if crate::prefs::Prefs::reduce_motion(cx) { 0. } else { 1. };
         let (dy, alpha) = if t < IN {
             let e = crate::motion::CUBIC_OUT.at((t / IN) as f64) as f32;
-            (16. * (1. - e), e)
+            (16. * (1. - e) * travel, e)
         } else if t > SHOW {
             (0., 1. - (t - SHOW) / OUT)
         } else {
