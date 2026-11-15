@@ -456,6 +456,12 @@ impl Engine {
             t.started = false;
             t
         } else {
+            // A song already fading in (or queued gaplessly) belongs to the old queue: left in
+            // place, promote() would swap it back in over this one.
+            if self.next.as_ref().is_some_and(|n| n.started) {
+                self.next = None;
+                self.queued_preload = None;
+            }
             let ctl = ReaderCtl::following(self.sh.cmd_gen.clone());
             match TrackDecoder::open(&source, &self.cache, ctl) {
                 Ok(dec) => Track::new(dec, out_rate),
@@ -1209,6 +1215,7 @@ fn clock(sh: Arc<Shared>) {
     let mut last_position = Instant::now() - Duration::from_secs(1);
     let mut buffering = false;
     let mut starving_ticks = 0u32;
+    let mut dry_since: Option<Instant> = None;
     while !sh.shutdown.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(50));
         let consumed = sh.out.consumed.load(Ordering::Acquire);
@@ -1252,9 +1259,15 @@ fn clock(sh: Arc<Shared>) {
             starving_ticks = if starving { starving_ticks + 1 } else { 0 };
             if starving_ticks >= 2 && !buffering {
                 buffering = true;
+                dry_since = Some(Instant::now());
+                // Logged: a stutter is either the stream (network) or the engine thread (CPU).
+                log::warn!("output ran dry at {:?} ms: waiting for audio", tl.position_ms(consumed));
                 events.push(PlayerEvent::Buffering(true));
             } else if !starving && buffering {
                 buffering = false;
+                if let Some(since) = dry_since.take() {
+                    log::warn!("audio back after {} ms without", since.elapsed().as_millis());
+                }
                 events.push(PlayerEvent::Buffering(false));
             }
         }

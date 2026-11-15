@@ -90,6 +90,9 @@ struct Now {
     duration_ms: i64,
     /// Bumped on every load: a stream resolved for an older load is dropped.
     load_seq: u64,
+    /// The load whose stream is still being resolved: until it reaches the engine, whatever the
+    /// engine reports is about the song before (its end or gapless switch must not move the queue).
+    loading: Option<u64>,
     /// The queue index of the preloaded song, to follow a gapless switch.
     preloaded: Option<i32>,
     /// One retry with a fresh URL before giving up on a song.
@@ -531,6 +534,7 @@ impl LocalPlayer {
                 return;
             };
             now.load_seq += 1;
+            now.loading = Some(now.load_seq);
             now.position_ms = position_ms;
             now.seeking = None;
             now.duration_ms = track.duration_ms;
@@ -544,11 +548,15 @@ impl LocalPlayer {
         self.rt.spawn(async move {
             match me.source_for(&track, false).await {
                 Ok(source) => {
-                    if me.now.lock().unwrap().load_seq != seq {
-                        return;
-                    }
-                    let play = me.now.lock().unwrap().wants_play;
-                    me.now.lock().unwrap().current_source = Some(source.clone());
+                    let play = {
+                        let mut now = me.now.lock().unwrap();
+                        if now.load_seq != seq {
+                            return;
+                        }
+                        now.loading = None;
+                        now.current_source = Some(source.clone());
+                        now.wants_play
+                    };
                     {
                         let mut a = me.automix.lock().unwrap();
                         a.cancel();
@@ -558,8 +566,12 @@ impl LocalPlayer {
                     me.preload_next();
                 }
                 Err(e) => {
-                    if me.now.lock().unwrap().load_seq != seq {
-                        return;
+                    {
+                        let mut now = me.now.lock().unwrap();
+                        if now.load_seq != seq {
+                            return;
+                        }
+                        now.loading = None;
                     }
                     log::warn!("No stream for '{}': {e}", track.title);
                     me.say(&format!("Impossibile riprodurre “{}”: passo al prossimo", track.title));
@@ -688,6 +700,10 @@ impl LocalPlayer {
     }
 
     fn on_event(&self, event: PlayerEvent) {
+        if self.now.lock().unwrap().loading.is_some() {
+            // Still the song before: a song picked a moment ago would be skipped or replaced.
+            return;
+        }
         match event {
             PlayerEvent::Position { ms } => {
                 let position_ms = {
