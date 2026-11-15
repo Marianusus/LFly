@@ -5,6 +5,7 @@
 
 pub mod account;
 pub mod automix;
+pub mod decks;
 pub mod discord;
 pub mod dj;
 pub mod downloads;

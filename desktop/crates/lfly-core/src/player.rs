@@ -143,6 +143,8 @@ pub struct LocalPlayer {
     pair: Mutex<Option<PlayingPair>>,
     host: OnceLock<Host>,
     device_id: String,
+    /// The output device chosen in Settings (None: the system's), for the Console's decks too.
+    output: Mutex<Option<String>>,
 }
 
 impl LocalPlayer {
@@ -170,6 +172,7 @@ impl LocalPlayer {
             pair: Mutex::default(),
             host: OnceLock::new(),
             device_id,
+            output: Mutex::default(),
         });
         player.audio.set_volume(perceptual(80));
         let events = player.audio.subscribe();
@@ -458,7 +461,24 @@ impl LocalPlayer {
     }
 
     pub fn set_device(&self, id: Option<String>) {
+        *self.output.lock().unwrap() = id.clone();
         self.audio.set_device(id);
+    }
+
+    /// The output device chosen in Settings (None: the system's default).
+    pub fn output_device(&self) -> Option<String> {
+        self.output.lock().unwrap().clone()
+    }
+
+    /// The audio disk cache (the Console's decks read songs through it too).
+    pub fn audio_cache(&self) -> Arc<lfly_audio::DiskCache> {
+        self.audio.cache().clone()
+    }
+
+    /// Where [track] plays from, as the player would open it: its download, the cache, else a
+    /// stream URL (resolved again when [fresh]). For the Console's decks.
+    pub async fn source_of(&self, track: &TrackRef, fresh: bool) -> Result<Source, String> {
+        self.source_for(track, fresh).await
     }
 
     pub fn is_playing(&self) -> bool {

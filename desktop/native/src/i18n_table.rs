@@ -473,4 +473,16 @@ pub const ROWS: &[(&str, &str, &str)] = &[
     ("Playlist#plurale", "Playlists", "Playlisturi"),
     ("Console", "Console", "Consolă"),
     ("Account", "Account", "Cont"),
+    // The Console's decks.
+    ("Ferma il deck prima di caricare un altro brano", "Stop the deck before loading another song", "Oprește deckul înainte de a încărca altă melodie"),
+    ("La console non trova un'uscita audio", "The console found no audio output", "Consola nu găsește nicio ieșire audio"),
+    ("Il brano non si apre sulla console", "The song does not open on the console", "Melodia nu se deschide pe consolă"),
+    ("Brano troppo lungo: la console ne tiene 20 minuti", "Song too long: the console holds 20 minutes of it", "Melodie prea lungă: consola păstrează 20 de minute din ea"),
+    ("SYNC: serve il tempo di entrambi i deck", "SYNC needs the tempo of both decks", "SYNC are nevoie de tempoul ambelor deckuri"),
+    ("Registrazione salvata: {0}", "Recording saved: {0}", "Înregistrare salvată: {0}"),
+    ("Registrazione non avviata: {0}", "Recording not started: {0}", "Înregistrarea nu a pornit: {0}"),
+    ("Carica un brano con A o B nella lista", "Load a song with A or B in the list", "Încarcă o melodie cu A sau B din listă"),
+    ("Caricamento…", "Loading…", "Se încarcă…"),
+    ("Non caricato", "Not loaded", "Neîncărcat"),
+    ("Il brano si è interrotto: sulla console ne è arrivata solo una parte", "The song broke off: only part of it reached the console", "Melodia s-a întrerupt: pe consolă a ajuns doar o parte"),
 ];

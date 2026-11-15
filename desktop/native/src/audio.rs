@@ -138,7 +138,13 @@ impl AudioModel {
 
     pub fn set_device(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         self.v.device = id.clone();
-        self.core.player.set_device(id);
+        self.core.player.set_device(id.clone());
+        // The Console's decks play on the same output.
+        if let Some(decks) = crate::deck_model::DjDecks::try_entity(cx) {
+            if let Some(m) = decks.read(cx).engine() {
+                m.set_device(id);
+            }
+        }
         self.save_soon(cx);
     }
 }

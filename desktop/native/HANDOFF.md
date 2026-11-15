@@ -276,27 +276,58 @@ Notes on these checks:
     - On first open the user must allow the unsigned app: System Settings → Privacy & Security →
       "Open Anyway", or `xattr -dr com.apple.quarantine /Applications/LFly.app`.
 
-15. **Console page (2026-11-15, uncommitted).** `src/console.rs`, sidebar item "Console" under
-    Libreria, `LFLY_ROUTE=console`. Laid out after the user's VirtualDJ Pro screenshot, drawn with
-    our own pieces (no VirtualDJ name, logo, skin or sampler sounds). The user asked for REA on
-    VirtualDJ again ("educational", "the Linux community did it"); refused, its EULA forbids it.
-    The maker's public manual is fine for control names.
-    - Decks take turns: even queue index on A (blue), odd on B (red); the other deck holds the song
-      `coming()` picks (repeat one/all as the core queue). Live: play/pause, CUE (the hardware
-      console's own cue in midi.rs, shared), PLAY on the waiting deck = skip to it, pitch readout
-      (speed), times, strips (second marks, the coming mix tinted, no peaks yet), crossfader
-      position (follows the mix), browser (liked, downloads, history, playlists; double click
-      plays) and the "IN CODA" list. Everything else (FX, stems, loops, EQ, gain, filter, SYNC,
-      faders, AUDIO/VIDEO/SCRATCH/MASTER tabs) is drawn only: the user will say what each does.
-    - `Decks` redraws at ~20 fps only while shown, in front and playing: headless, panel closed,
-      11.2% of a core vs Home 7.3% (30 fps cost 13.9%). Narrow windows hide FX, the loop row, the
-      queue column and the album column. Clicks are unverified (no page-level UI test; Core needs
-      network and audio): the user checks them.
-    - Next: real waveform peaks (decode only downloads or complete cache entries, never a second
-      download), BPM/key from the Automix analysis, then the functions the user dictates. Two
-      independent decks need engine work (one timeline today).
+15. **Console page (2026-11-15).** `src/console.rs` (page), `src/deck_model.rs` (every control, one
+    method each, for a MIDI mapping later), `crates/lfly-audio/src/decks.rs` (engine),
+    `crates/lfly-core/src/decks.rs` (grid and key). Sidebar item "Console" under Libreria,
+    `LFLY_ROUTE=console`. Laid out after the user's VirtualDJ Pro screenshot, drawn with our own
+    pieces (no VirtualDJ name, logo, skin or sounds). The user asked for REA on VirtualDJ twice;
+    refused, its EULA forbids it. The function list comes from the maker's public manual.
+    - First version (commit 9a56e3c): decks took turns on the player's queue. Replaced the same day
+      (uncommitted) after the user asked for "all VirtualDJ's functions": two real decks,
+      independent of the queue.
+    - Engine (`decks.rs`, beside `engine.rs`, which it does not touch): each song decoded whole to
+      16-bit memory at its own rate (20 min cap, ~230 MB at 48 kHz), read at any speed/direction
+      with cubic interpolation, mixed in its own low-latency cpal stream (512-frame buffer asked) on
+      the player's chosen device; the stream pauses after 8 s with nothing playing (a small buffer
+      left running holds the whole PipeWire graph at its quantum) and any command wakes it. A
+      stream still decoding: the deck waits where the decoding has got to. A load or eject resets
+      slip; a hand jump (hot cue, overview) moves slip's timeline, a roll/censor/scratch returns. Callback: no locks taken by others, no allocation, buffers dropped
+      off-thread (trash ring). Per deck: play/pause ramps, jumps crossfaded (96 frames), loops,
+      loop roll, slip, reverse, censor, scratch, brake, spinback, gain, LR4 three-band kill EQ
+      (bypassed at unity, 10 ms crossfade in), filter (LP left / HP right), 3 effect slots
+      (echo, reverb, flanger, wahwah, cut, distortion, phaser, bitcrush; beat-synced), channel
+      fader, crossfader curves (full, smooth, cut, scratch), master, limiter (0.98), meters, WAV
+      recording of the master. `Mixer::silent()` for test runs (no device). 19 render tests and an
+      ignored one on the real device (`the_real_output_runs_and_pauses_when_idle`, run once: ok).
+    - Analysis: `lfly_core::decks::analyse` runs Beat This! on the whole song and the key detector,
+      2-6 s per song. The constant grid scans tempos within 4% of the tracker's AND of the median
+      beat gap's, 0.01 BPM steps, scored by phase agreement over 32-beat stretches. Found: lfly-mix
+      `BeatGrid::tempo` miscounts when stray half beats are tracked (137.18 for a song whose gaps
+      say 129.6; 107.20 for one at 102.9), which the Automix also uses: not changed here, worth a
+      look. BPM ×2/÷2 and TAP pads fix a grid by hand.
+    - Page: strips with real peaks, grid, cues, loop; overview per deck (click seeks, shows decode
+      progress); key (click: Camelot), BPM with pitch %, time (click: remaining); platter (drag:
+      scratch in VINYL, bend or search in CD), SLIP; pitch fader drag with ranges 6-100%, bend
+      buttons held, double click resets; pads HOT CUE (right click deletes; saved in store key
+      `console-cues`), ROLL, LOOP, JUMP, PERFORM (brake, spinback, censor, reverse, BPM ÷2 ×2, tap,
+      eject); loop size ½ ×2, IN, OUT, RELOOP/EXIT, Q (quantize); STOP, CUE (CDJ: held while
+      stopped previews), PLAY, SYNC (tempo, half/double aware, then beat phase; range widens if
+      needed). Mixer knobs drag vertically, double click resets, right click kills a band.
+      Browser rows have A and B; a double click loads the free deck. REC writes
+      `~/Music/LFly/LFly Console <secs>.wav`.
+    - A deck starting pauses the music player; the player starting pauses the decks. Decks feed no
+      history and no Connect.
+    - Not built: PFL/headphones (needs a second output), keylock/master tempo, key shift, stems,
+      sampler, video, mic, broadcast, saved loops, slicer, a 4-deck mode.
+    - Tests: `LFLY_CONSOLE_LOAD=<s>` loads the folder's first two songs on A and B and plays A;
+      `LFLY_CONSOLE_STEPS="<s>:<action>:<deck>;…"` presses controls and logs both decks (see
+      `run_steps`). Checked headless: SYNC matched tempo and beat phase (fractions equal to 0.001
+      after 8 s), loop, half, roll with slip return, hot cue, beat jump, brake, CUE preview.
+      Mouse drags (knobs, faders, platter) are unverified: the user tries them. CPU (headless):
+      decks loaded and stopped 0.1% of a core, one or two playing 10-12% (mostly the 30 fps
+      redraw). Waveform and BPM appear once a song is fully decoded.
 
-16. **English and Romanian (2026-11-15, uncommitted; the user asked for them and went to sleep).**
+16. **English and Romanian (2026-11-15, committed in de4b755; the user asked for them and went to sleep).**
     See README "Languages". About 450 rows; the English and Romanian beyond the phone's own
     strings (res/values-en, values-ro: 131 exact matches) are mine and need the user's read.
     Default stays Italian (this PC's LANG is en_US, so following the system would have switched

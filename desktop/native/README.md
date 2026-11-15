@@ -46,6 +46,18 @@ so cached views draw again; text a page stored when it loaded (a collection's he
 its next load. lfly-core's few messages and the DJ's lines follow through `lfly_core::lang` (the
 Tauri app never sets it, so it stays Italian).
 
+## Console
+
+Two DJ decks and a mixer (sidebar › Console), independent of the music player's queue: songs
+load from the browser (A, B, or a double click), are decoded whole into memory
+(`lfly_audio::decks`, 20 minutes at most) and analysed for tempo, beat grid and key
+(`lfly_core::decks`). Hot cues, loops, rolls, beat jumps, slip, scratch, SYNC, three effect
+slots, a three-band kill EQ, filter, crossfader curves, a limiter and recording of the mix to
+`~/Music/LFly`. The decks play on their own low-latency stream on the chosen output; starting
+one pauses the music player and the other way round. Every control is a method of
+`deck_model::DjDecks`. Tests: `LFLY_CONSOLE_LOAD=<s>`, `LFLY_CONSOLE_STEPS=…` (HANDOFF item 15).
+Not built: headphone cueing, keylock, stems, sampler.
+
 ## Port status
 
 Done: the shell (sidebar with the library's playlists and SelectionPill's spring, top bar with the glass pills and window

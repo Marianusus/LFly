@@ -10,6 +10,7 @@ mod art;
 mod audio;
 mod artist;
 mod core;
+mod deck_model;
 mod dj;
 mod downloads;
 mod collection;
@@ -197,6 +198,7 @@ impl Lfly {
         crate::connect::ConnectModel::start(core.clone(), model.clone(), cx);
         crate::sleep::SleepTimer::start(model.clone(), cx);
         crate::midi::MidiModel::start(core.clone(), model.clone(), cx);
+        crate::deck_model::DjDecks::start(core.clone(), model.clone(), cx);
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
@@ -252,7 +254,7 @@ impl Lfly {
         library_page.update(cx, |l, cx| l.set_spotify(spotify, cx));
         let settings = cx.new(|cx| crate::settings_page::SettingsPage::new(core.clone(), look.clone(), library.clone(), lyrics_data.clone(), model.clone(), covers.clone(), cx));
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
-        let console = cx.new(|cx| crate::console::Console::new(core.clone(), model.clone(), covers.clone(), library.clone(), cx));
+        let console = cx.new(|cx| crate::console::Console::new(model.clone(), covers.clone(), library.clone(), cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
             // The window's size, kept for next time (not by test runs), once it stops changing.

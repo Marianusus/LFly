@@ -20,6 +20,7 @@
 pub mod automix;
 pub mod cache;
 pub mod decode;
+pub mod decks;
 mod engine;
 pub mod stretch;
 pub mod eq;
