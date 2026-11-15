@@ -26,6 +26,7 @@ mod look;
 mod menu;
 mod midi;
 mod midi_map;
+mod local_music;
 mod lyrics;
 mod console;
 mod i18n;
@@ -254,7 +255,7 @@ impl Lfly {
         library_page.update(cx, |l, cx| l.set_spotify(spotify, cx));
         let settings = cx.new(|cx| crate::settings_page::SettingsPage::new(core.clone(), look.clone(), library.clone(), lyrics_data.clone(), model.clone(), covers.clone(), cx));
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
-        let console = cx.new(|cx| crate::console::Console::new(model.clone(), covers.clone(), library.clone(), cx));
+        let console = cx.new(|cx| crate::console::Console::new(core.clone(), model.clone(), covers.clone(), library.clone(), window, cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
             // The window's size, kept for next time (not by test runs), once it stops changing.

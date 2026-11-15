@@ -29,6 +29,8 @@ use crate::Source;
 pub const DECKS: usize = 2;
 /// Effect slots on each deck.
 pub const FX_SLOTS: usize = 3;
+/// The sampler's slots.
+pub const SAMPLES: usize = 8;
 /// The longest song a deck holds (an hour-long mix is cut here): 20 minutes, ~230 MB at 48 kHz.
 pub const MAX_SECONDS: usize = 20 * 60;
 /// Frames per buffer chunk (~0.35 s): decoding publishes a chunk at a time.
@@ -207,6 +209,33 @@ impl TrackBuf {
 
     pub fn rate(&self) -> u32 {
         self.rate
+    }
+
+    /// Frames [start]..[end] as a buffer of their own (a sample: it must not keep the whole song
+    /// in memory).
+    pub fn slice(&self, start: f64, end: f64) -> Arc<TrackBuf> {
+        let ready = self.ready();
+        let (a, b) = (start.max(0.) as usize, (end.max(0.) as usize).min(ready));
+        let frames = b.saturating_sub(a);
+        let buf = TrackBuf::empty(self.rate, frames.max(1), ReaderCtl::detached(), frames);
+        let mut slot = 0;
+        let mut chunk = Vec::with_capacity(CHUNK * 2);
+        for i in a..b {
+            // The stored samples as they are (no round trip through floats).
+            let (l, r) = self.chunks[i / CHUNK].get().and_then(|c| Some((*c.get((i % CHUNK) * 2)?, *c.get((i % CHUNK) * 2 + 1)?))).unwrap_or((0, 0));
+            chunk.push(l);
+            chunk.push(r);
+            if chunk.len() == CHUNK * 2 {
+                let _ = buf.chunks[slot].set(std::mem::replace(&mut chunk, Vec::with_capacity(CHUNK * 2)).into_boxed_slice());
+                slot += 1;
+            }
+        }
+        if !chunk.is_empty() {
+            let _ = buf.chunks[slot].set(chunk.into_boxed_slice());
+        }
+        buf.ready.store(frames, Ordering::Release);
+        buf.done.store(true, Ordering::Release);
+        Arc::new(buf)
     }
 
     /// Frames decoded so far.
@@ -443,14 +472,23 @@ pub enum FxKind {
     Distortion = 6,
     Phaser = 7,
     Bitcrush = 8,
+    /// White noise swept in (a riser).
+    Noise = 9,
+    /// A high-pass that climbs with the amount (the Mix FX filter).
+    HighPass = 10,
 }
 
 impl FxKind {
-    pub const ALL: [FxKind; 8] =
-        [FxKind::Echo, FxKind::Reverb, FxKind::Flanger, FxKind::WahWah, FxKind::Cut, FxKind::Distortion, FxKind::Phaser, FxKind::Bitcrush];
+    pub const ALL: [FxKind; 9] =
+        [FxKind::Echo, FxKind::Reverb, FxKind::Flanger, FxKind::WahWah, FxKind::Cut, FxKind::Distortion, FxKind::Phaser, FxKind::Bitcrush, FxKind::Noise];
+
+    /// What the filter knob can be instead of the filter (Color FX); 0 is the filter itself.
+    pub const COLOR: [FxKind; 6] = [FxKind::Echo, FxKind::Reverb, FxKind::Flanger, FxKind::Distortion, FxKind::Noise, FxKind::Cut];
+    /// What the crossfader can bring in as it moves (Mix FX).
+    pub const MIX: [FxKind; 4] = [FxKind::HighPass, FxKind::Echo, FxKind::Reverb, FxKind::Noise];
 
     pub fn from_u8(v: u8) -> Option<FxKind> {
-        FxKind::ALL.into_iter().find(|k| *k as u8 == v)
+        FxKind::ALL.into_iter().chain([FxKind::Noise, FxKind::HighPass]).find(|k| *k as u8 == v)
     }
 
     pub fn name(self) -> &'static str {
@@ -463,6 +501,8 @@ impl FxKind {
             FxKind::Distortion => "DISTORTION",
             FxKind::Phaser => "PHASER",
             FxKind::Bitcrush => "BITCRUSH",
+            FxKind::Noise => "NOISE",
+            FxKind::HighPass => "FILTER",
         }
     }
 }
@@ -568,6 +608,9 @@ struct FxUnit {
     crush_hold: [f32; 2],
     crush_count: u32,
     gate: f32,
+    noise: u32,
+    hp: Svf,
+    hp_at: f32,
     /// A free-running sweep (0..1) for the flanger and the phaser.
     lfo: f32,
     /// How much of the effect is heard (0..1), eased so switching on and off does not click.
@@ -577,7 +620,7 @@ struct FxUnit {
 }
 
 /// Where the deck is in its beat (0..1) and how many output frames one beat lasts now.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Beat {
     phase: f32,
     frames: f32,
@@ -595,6 +638,9 @@ impl FxUnit {
             crush_hold: [0.; 2],
             crush_count: 0,
             gate: 1.,
+            noise: 0x9e37_79b9,
+            hp: Svf::default(),
+            hp_at: -1.,
             lfo: 0.,
             on: 0.,
             amount: 0.,
@@ -690,6 +736,23 @@ impl FxUnit {
                     }
                     out
                 }
+                Some(FxKind::Noise) => {
+                    // xorshift: white noise, thinned below as the knob opens.
+                    let mut r = self.noise;
+                    r ^= r << 13;
+                    r ^= r >> 17;
+                    r ^= r << 5;
+                    self.noise = r;
+                    let n = (r as f32 / u32::MAX as f32 - 0.5) * 0.5 * w;
+                    [dry[0] + n, dry[1] + n]
+                }
+                Some(FxKind::HighPass) => {
+                    if (w - self.hp_at).abs() > 1e-3 {
+                        self.hp.set(20. * 300f32.powf(w), 0.8, rate);
+                        self.hp_at = w;
+                    }
+                    [self.hp.run(dry[0], 0).2, self.hp.run(dry[1], 1).2]
+                }
                 Some(FxKind::Bitcrush) => {
                     let hold = 1 + (w * 15.) as u32;
                     if self.crush_count == 0 {
@@ -728,6 +791,12 @@ pub struct DeckState {
     /// Song frames per beat (0: unknown, effects assume 120 BPM) and the first beat's frame.
     pub beat_frames: AF64,
     pub first_beat: AF64,
+    /// Master tempo: the tempo changes, the key stays.
+    pub keylock: AtomicBool,
+    /// Which side of the crossfader: 0 none (always heard), 1 left, 2 right.
+    pub assign: AtomicU8,
+    /// What the filter knob does: 0 the filter, else an effect (Color FX).
+    pub color: AtomicU8,
 
     /// Set by the callback.
     pub position: AF64,
@@ -744,7 +813,7 @@ pub struct DeckState {
 }
 
 impl DeckState {
-    fn new() -> Self {
+    fn new(side: u8) -> Self {
         DeckState {
             pitch: AF32::new(1.),
             bend: AF32::new(1.),
@@ -756,6 +825,9 @@ impl DeckState {
             fx_amount: Default::default(),
             beat_frames: AF64::new(0.),
             first_beat: AF64::new(0.),
+            keylock: AtomicBool::new(false),
+            assign: AtomicU8::new(side),
+            color: AtomicU8::new(0),
             position: AF64::new(0.),
             playing: AtomicBool::new(false),
             shadow: AF64::new(0.),
@@ -825,6 +897,14 @@ pub struct MixState {
     /// Frames the callback rendered (a clock for the controls).
     pub rendered: AtomicU64,
     pub recording: AtomicBool,
+    /// The crossfader's own effect (Mix FX): 0 none, else an effect on the deck it moves away from.
+    pub mix_fx: AtomicU8,
+    /// An effect on the whole mix, and how much.
+    pub master_fx: AtomicU8,
+    pub master_fx_amount: AF32,
+    pub sampler_volume: AF32,
+    /// The sampler's voices playing.
+    pub samples_playing: [AtomicBool; SAMPLES],
     /// Something plays (or records, or an effect tail rings): the output must stay running.
     pub busy: AtomicBool,
     /// The stream failed (device gone): the device thread reopens it.
@@ -834,7 +914,7 @@ pub struct MixState {
 impl MixState {
     fn new() -> Self {
         MixState {
-            decks: [DeckState::new(), DeckState::new()],
+            decks: [DeckState::new(1), DeckState::new(2)],
             xfader: AF32::new(0.5),
             curve: AtomicU8::new(Curve::Full as u8),
             hamster: AtomicBool::new(false),
@@ -844,6 +924,11 @@ impl MixState {
             out_rate: AtomicU32::new(48_000),
             rendered: AtomicU64::new(0),
             recording: AtomicBool::new(false),
+            mix_fx: AtomicU8::new(0),
+            master_fx: AtomicU8::new(0),
+            master_fx_amount: AF32::new(0.5),
+            sampler_volume: AF32::new(0.8),
+            samples_playing: Default::default(),
             busy: AtomicBool::new(false),
             failed: AtomicBool::new(false),
         }
@@ -873,11 +958,31 @@ enum Cmd {
     Brake(usize, f64),
     Backspin(usize, f64),
     Record(Option<rtrb::Producer<f32>>),
+    /// A sampler slot gets a stretch of a song (start, end in its frames; looping or once), or
+    /// is emptied.
+    Sample(usize, Option<(Arc<TrackBuf>, f64, f64, bool)>),
+    /// A sampler slot starts from its beginning (true) or stops.
+    Trigger(usize, bool),
 }
 
 // ---- The callback's side ----
 
 const DECLICK: u32 = 96;
+/// How long a stopped deck's effects may still ring.
+const TAIL_SECONDS: f32 = 3.;
+/// Song frames fed to the time-stretch at a time.
+const KS_FEED: usize = 256;
+
+/// A sampler voice: a stretch of a song in memory, played at its own speed.
+struct Voice {
+    buf: Arc<TrackBuf>,
+    start: f64,
+    end: f64,
+    looped: bool,
+    pos: f64,
+    playing: bool,
+    level: f32,
+}
 
 struct DeckRt {
     buf: Option<Arc<TrackBuf>>,
@@ -902,6 +1007,19 @@ struct DeckRt {
     filter: Svf,
     filter_at: f32,
     fx: Vec<FxUnit>,
+    /// The filter knob's effect (Color FX) and the crossfader's (Mix FX).
+    color: FxUnit,
+    mixfx: FxUnit,
+    /// Master tempo: the song read at its own tempo into a time-stretch, which plays it faster
+    /// or slower at its pitch.
+    stretch: crate::stretch::Stretch,
+    ks_in: Vec<f32>,
+    ks_out: Vec<f32>,
+    ks_at: usize,
+    ks_live: bool,
+    /// Frames the deck has been silent for (stopped, faded out): after a few seconds its effect
+    /// tails are done and it costs nothing more.
+    silent_for: u64,
     eq: [f32; 3],
     iso_mix: f32,
     vol: f32,
@@ -930,6 +1048,18 @@ impl DeckRt {
             filter: Svf::default(),
             filter_at: 0.,
             fx: (0..FX_SLOTS).map(|_| FxUnit::new(rate)).collect(),
+            color: FxUnit::new(rate),
+            mixfx: FxUnit::new(rate),
+            stretch: {
+                let mut s = crate::stretch::Stretch::new(rate as u32);
+                s.reserve(KS_FEED * 4);
+                s
+            },
+            ks_in: Vec::with_capacity(KS_FEED * 2),
+            ks_out: Vec::with_capacity(BLOCK * 32),
+            ks_at: 0,
+            ks_live: false,
+            silent_for: 0,
             eq: [1.; 3],
             iso_mix: 0.,
             vol: 1.,
@@ -970,6 +1100,10 @@ pub struct MixRender {
     limiter: f32,
     rec: Option<rtrb::Producer<f32>>,
     out: Vec<[f32; 2]>,
+    voices: Vec<Option<Voice>>,
+    master_fx: FxUnit,
+    /// The last beat heard on each deck, for the master effect's timing.
+    beats: [Beat; DECKS],
 }
 
 impl MixRender {
@@ -987,6 +1121,9 @@ impl MixRender {
             limiter: 1.,
             rec: None,
             out: vec![[0.; 2]; BLOCK],
+            voices: (0..SAMPLES).map(|_| None).collect(),
+            master_fx: FxUnit::new(r),
+            beats: [Beat { phase: 0., frames: r * 0.5 }; DECKS],
         }
     }
 
@@ -1003,11 +1140,18 @@ impl MixRender {
             // Effect lines sized for the old rate would echo at the wrong length; rebuilt here
             // (outside the callback: the stream is down while the device reopens).
             d.fx = (0..FX_SLOTS).map(|_| FxUnit::new(self.rate)).collect();
+            d.color = FxUnit::new(self.rate);
+            d.mixfx = FxUnit::new(self.rate);
+            d.stretch = crate::stretch::Stretch::new(rate);
+            d.stretch.reserve(KS_FEED * 4);
+            d.ks_live = false;
         }
+        self.master_fx = FxUnit::new(self.rate);
     }
 
+    /// Hands a song buffer back to the control side to be freed there (the control side also
+    /// stops its decoding when nothing else holds it: another deck or a sample may).
     fn throw(&mut self, buf: Arc<TrackBuf>) {
-        buf.cancel();
         // The ring has room for many; should it be full, the buffer is kept until it is not.
         if let Err(rtrb::PushError::Full(b)) = self.trash.push(buf) {
             std::mem::forget(b);
@@ -1033,6 +1177,7 @@ impl MixRender {
                 d.scratch = None;
                 d.stop = None;
                 d.speed = 0.;
+                d.ks_live = false;
                 for fx in &mut d.fx {
                     fx.clear();
                 }
@@ -1073,6 +1218,7 @@ impl MixRender {
             Cmd::Jump(deck, to) => {
                 let d = &mut self.decks[deck];
                 d.jump(to);
+                d.ks_live = false;
                 // A jump by hand (a hot cue, a click on the song) moves the timeline slip keeps
                 // too; only a roll, a censor or a scratch going on still returns.
                 if !(d.rolling || d.censor || d.scratch.is_some()) {
@@ -1184,6 +1330,25 @@ impl MixRender {
                     d.stop = Some((n, n, true));
                 }
             }
+            Cmd::Sample(slot, sample) => {
+                if slot < SAMPLES {
+                    let old = std::mem::replace(
+                        &mut self.voices[slot],
+                        sample.map(|(buf, start, end, looped)| Voice { buf, start, end: end.max(start + 1.), looped, pos: start, playing: false, level: 0. }),
+                    );
+                    if let Some(v) = old {
+                        self.throw(v.buf);
+                    }
+                }
+            }
+            Cmd::Trigger(slot, on) => {
+                if let Some(Some(v)) = self.voices.get_mut(slot) {
+                    if on {
+                        v.pos = v.start;
+                    }
+                    v.playing = on;
+                }
+            }
             Cmd::Record(p) => {
                 // The writer keeps its end of the ring; dropping ours only marks it abandoned.
                 self.rec = p;
@@ -1204,6 +1369,7 @@ impl MixRender {
             x = 1. - x;
         }
         let xf_target = curve.levels(x);
+        let x = x.clamp(0., 1.);
         let master_target = self.state.master.get().clamp(0., 2.);
         self.out[..frames].iter_mut().for_each(|f| *f = [0.; 2]);
         let mut busy = self.rec.is_some();
@@ -1224,7 +1390,84 @@ impl MixRender {
             let fade_step = 1. / (0.004 * rate);
             let out = &mut d.buf_l[..frames];
 
-            for f in out.iter_mut() {
+            // Master tempo: while plainly playing (no hand on the platter, no reverse or brake).
+            let keylock = sh.keylock.load(Ordering::Relaxed) && d.playing && d.scratch.is_none() && !d.reverse && d.stop.is_none() && tempo > 0.05;
+            if keylock != d.ks_live || !keylock {
+                if d.ks_live && !keylock {
+                    // Leaving master tempo (a pause, a hand on the platter, MT off): the plain
+                    // path goes on from what was heard, not from what the stretch had read ahead.
+                    let lag = (d.stretch.latency_frames() as f64 + ((d.ks_out.len() - d.ks_at) / 2) as f64) * d.speed.abs() * base;
+                    d.pos = (d.pos - lag).max(0.);
+                }
+                if keylock {
+                    d.stretch.reset();
+                    d.stretch.engage();
+                }
+                d.ks_out.clear();
+                d.ks_at = 0;
+                d.ks_live = keylock;
+            }
+            if keylock {
+                d.stretch.glide_to(tempo);
+                d.speed = tempo;
+                let mut held = false;
+                while (d.ks_out.len() - d.ks_at) / 2 < frames && !held {
+                    d.ks_in.clear();
+                    for _ in 0..KS_FEED {
+                        let s = buf.at(d.pos, ready);
+                        d.ks_in.push(s[0]);
+                        d.ks_in.push(s[1]);
+                        let mut p = d.pos + base;
+                        if let Some((a, b)) = d.looped {
+                            if p >= b && d.pos < b + 1. {
+                                p -= b - a;
+                            }
+                        }
+                        if !done && p >= ready as f64 - 2. {
+                            held = true;
+                            break;
+                        }
+                        if p >= end {
+                            p = end;
+                            d.pos = p;
+                            held = true;
+                            if d.playing {
+                                d.playing = false;
+                                sh.ended.store(true, Ordering::Relaxed);
+                            }
+                            break;
+                        }
+                        d.pos = p;
+                    }
+                    if d.ks_in.is_empty() {
+                        break;
+                    }
+                    let input = std::mem::take(&mut d.ks_in);
+                    d.stretch.process(&input, &mut d.ks_out);
+                    d.ks_in = input;
+                }
+                for f in out.iter_mut() {
+                    d.level = if d.playing { (d.level + fade_step).min(1.) } else { (d.level - fade_step).max(0.) };
+                    let s = if d.ks_at + 1 < d.ks_out.len() {
+                        let v = [d.ks_out[d.ks_at], d.ks_out[d.ks_at + 1]];
+                        d.ks_at += 2;
+                        v
+                    } else {
+                        [0.; 2]
+                    };
+                    *f = [s[0] * d.level, s[1] * d.level];
+                    if d.slip || d.rolling || d.censor {
+                        d.shadow += tempo * base;
+                    }
+                }
+                // What was heard is behind what was read by what the stretch still holds.
+                if d.ks_at > d.ks_out.len() / 2 {
+                    d.ks_out.drain(..d.ks_at);
+                    d.ks_at = 0;
+                }
+            }
+
+            for f in out.iter_mut().filter(|_| !keylock) {
                 // The speed: the platter's while held, else the tempo (braking, spinning back).
                 let mut target = if let Some(s) = d.scratch {
                     s
@@ -1299,8 +1542,13 @@ impl MixRender {
                 d.pos = p;
             }
 
-            // A deck silent and staying so (no effect tail either) costs nothing more.
-            let quiet = d.level <= 0. && !d.playing && d.scratch.is_none() && d.fx.iter().all(|f| f.on <= 0.);
+            // A deck silent for a few seconds (its effect tails done) costs nothing more.
+            if d.level <= 0. && !d.playing && d.scratch.is_none() {
+                d.silent_for += frames as u64;
+            } else {
+                d.silent_for = 0;
+            }
+            let quiet = d.silent_for > (TAIL_SECONDS * rate) as u64;
             if quiet {
                 d.iso = Isolator::new(rate);
                 d.filter.clear();
@@ -1338,7 +1586,12 @@ impl MixRender {
             d.eq = eq_t;
 
             let fl = sh.filter.get().clamp(-1., 1.);
-            if fl.abs() > 0.02 {
+            let color = sh.color.load(Ordering::Relaxed);
+            if color != 0 {
+                d.filter.clear();
+                d.filter_at = 0.;
+            }
+            if color == 0 && fl.abs() > 0.02 {
                 if (fl - d.filter_at).abs() > 1e-4 || d.filter_at.is_nan() {
                     let freq = if fl < 0. { 20_000. * (40f32 / 20_000.).powf(-fl) } else { 20. * (8_000f32 / 20.).powf(fl) };
                     d.filter.set(freq, 0.7 + 0.5 * fl.abs(), rate);
@@ -1366,18 +1619,37 @@ impl MixRender {
                 let kind = sh.fx_kind[slot].load(Ordering::Relaxed);
                 fx.run(out, kind, sh.fx_amount[slot].get(), beat, rate);
             }
+            // The filter knob as an effect: its distance from the middle is the amount.
+            let amount = if fl.abs() > 0.02 { fl.abs() } else { 0. };
+            d.color.run(out, if color != 0 && amount > 0. { color } else { 0 }, amount, beat, rate);
+            // The crossfader's effect, on the deck it moves away from.
+            let assign = sh.assign.load(Ordering::Relaxed);
+            let away = match assign {
+                1 => x,
+                2 => 1. - x,
+                _ => 0.,
+            };
+            let mix = self.state.mix_fx.load(Ordering::Relaxed);
+            let amount = if away > 0.02 && away < 0.98 { away } else { 0. };
+            d.mixfx.run(out, if mix != 0 && amount > 0. { mix } else { 0 }, amount, beat, rate);
+            self.beats[n] = beat;
 
             // Channel fader (an audio taper) and crossfader, into the master.
             let vol_t = {
                 let v = sh.volume.get().clamp(0., 1.);
                 v * v
             };
+            let side_target = match sh.assign.load(Ordering::Relaxed) {
+                1 => xf_target[0],
+                2 => xf_target[1],
+                _ => 1.,
+            };
             let (v0, x0) = (d.vol, self.xf[n]);
             let mut peak = 0f32;
             for (i, f) in out.iter().enumerate() {
                 let t = (i + 1) as f32 * inv;
                 let v = v0 + (vol_t - v0) * t;
-                let xg = x0 + (xf_target[n] - x0) * t;
+                let xg = x0 + (side_target - x0) * t;
                 let k = v * xg;
                 let m = &mut self.out[i];
                 m[0] += f[0] * k;
@@ -1385,13 +1657,70 @@ impl MixRender {
                 peak = peak.max((f[0] * v).abs()).max((f[1] * v).abs());
             }
             d.vol = vol_t;
+            self.xf[n] = side_target;
             sh.vu.set(peak);
-            sh.position.set(d.pos);
+            // Under master tempo the playhead heard is behind the one read by what the stretch holds.
+            let lag = if d.ks_live {
+                (d.stretch.latency_frames() as f64 + ((d.ks_out.len() - d.ks_at) / 2) as f64) * d.speed * base
+            } else {
+                0.
+            };
+            sh.position.set((d.pos - lag).max(0.));
             sh.shadow.set(if d.holds_slip() { d.shadow } else { d.pos });
             sh.playing.store(d.playing, Ordering::Relaxed);
             sh.looping.store(d.looped.is_some(), Ordering::Relaxed);
         }
-        self.xf = xf_target;
+        // Quiet decks keep their crossfader level where it was told.
+        for (n, sh) in self.state.decks.iter().enumerate() {
+            if self.decks[n].buf.is_none() || (self.decks[n].level <= 0. && !self.decks[n].playing) {
+                self.xf[n] = match sh.assign.load(Ordering::Relaxed) {
+                    1 => xf_target[0],
+                    2 => xf_target[1],
+                    _ => 1.,
+                };
+            }
+        }
+
+        // The sampler: its voices into the mix at the sampler's volume.
+        let svol = self.state.sampler_volume.get().clamp(0., 1.5);
+        let fade = 1. / (0.003 * rate);
+        for (slot, v) in self.voices.iter_mut().enumerate() {
+            let Some(v) = v else {
+                self.state.samples_playing[slot].store(false, Ordering::Relaxed);
+                continue;
+            };
+            if !v.playing && v.level <= 0. {
+                self.state.samples_playing[slot].store(false, Ordering::Relaxed);
+                continue;
+            }
+            busy = true;
+            let ready = v.buf.ready();
+            let step = v.buf.rate as f64 / rate as f64;
+            for f in self.out[..frames].iter_mut() {
+                v.level = if v.playing { (v.level + fade).min(1.) } else { (v.level - fade).max(0.) };
+                if v.level <= 0. {
+                    break;
+                }
+                let s = v.buf.at(v.pos, ready);
+                f[0] += s[0] * v.level * svol;
+                f[1] += s[1] * v.level * svol;
+                v.pos += step;
+                if v.pos >= v.end {
+                    if v.looped {
+                        v.pos -= v.end - v.start;
+                    } else {
+                        v.playing = false;
+                    }
+                }
+            }
+            self.state.samples_playing[slot].store(v.playing, Ordering::Relaxed);
+        }
+
+        // The master effect, timed on the louder deck.
+        let mfx = self.state.master_fx.load(Ordering::Relaxed);
+        let lead = if self.state.decks[1].vu.get() > self.state.decks[0].vu.get() { 1 } else { 0 };
+        let beat = self.beats[lead];
+        self.master_fx.run(&mut self.out[..frames], mfx, self.state.master_fx_amount.get(), beat, rate);
 
         // Master volume and the limiter: it never lets a sample past 0.98.
         let m0 = self.master;
@@ -1616,6 +1945,14 @@ impl Mixer {
     }
     pub fn backspin(&self, deck: usize, seconds: f64) {
         self.send(Cmd::Backspin(deck.min(DECKS - 1), seconds))
+    }
+    /// Puts a stretch of [buf] (frames [start]..[end]) in sampler slot [slot], or empties it.
+    pub fn set_sample(&self, slot: usize, sample: Option<(Arc<TrackBuf>, f64, f64, bool)>) {
+        self.send(Cmd::Sample(slot.min(SAMPLES - 1), sample))
+    }
+    /// Starts sampler slot [slot] from its beginning, or stops it.
+    pub fn trigger(&self, slot: usize, on: bool) {
+        self.send(Cmd::Trigger(slot.min(SAMPLES - 1), on))
     }
 
     /// Records the master output to a 16-bit WAV at [path] (None: stops).
@@ -2078,8 +2415,8 @@ mod tests {
             rigs[1].state.decks[0].fx_kind[0].store(0, Ordering::Relaxed);
             let off = rigs[1].run(4800);
             let steps = off.chunks(2).map(|f| f[0]).collect::<Vec<_>>();
-            // (Distortion and bitcrush make steps of their own while they fade.)
-            let jagged = matches!(kind, FxKind::Distortion | FxKind::Bitcrush);
+            // (Distortion, bitcrush and noise make steps of their own while they fade.)
+            let jagged = matches!(kind, FxKind::Distortion | FxKind::Bitcrush | FxKind::Noise);
             assert!(jagged || steps.windows(2).all(|w| (w[1] - w[0]).abs() < 0.2), "{kind:?} clicked off");
             // Off, it is the dry deck again.
             let (a, b) = (rigs[0].run(4800 + 4800), rigs[1].run(4800));
@@ -2214,6 +2551,25 @@ mod tests {
         assert!(!rig.state.recording.load(Ordering::Relaxed));
     }
 
+    /// Which audio files a deck opens (run by hand: LFLY_FORMAT_DIR holds one file a format).
+    #[test]
+    #[ignore]
+    fn the_formats_a_deck_opens() {
+        let dir = std::env::var("LFLY_FORMAT_DIR").expect("LFLY_FORMAT_DIR");
+        let cache = Arc::new(DiskCache::new(std::env::temp_dir().join("lfly-format-cache"), 1 << 20).unwrap());
+        let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
+        entries.sort();
+        for path in entries {
+            let result = TrackBuf::open(&Source::file(&path), &cache).map(|b| {
+                while !b.is_done() {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                (b.duration_ms(), b.error())
+            });
+            println!("FORMAT {}: {:?}", path.display(), result);
+        }
+    }
+
     /// The real output (run by hand: it opens the default device, silent).
     #[test]
     #[ignore]
@@ -2232,6 +2588,137 @@ mod tests {
         m.play(0, false);
         std::thread::sleep(Duration::from_millis(500));
         assert!(m.state.rendered.load(Ordering::Relaxed) > a, "a command woke it");
+    }
+
+    /// The frequency of a stretch of mono-ish output, from its zero crossings.
+    fn pitch_of(out: &[f32], rate: f32) -> f32 {
+        let l: Vec<f32> = out.chunks(2).map(|f| f[0]).collect();
+        let ups = l.windows(2).filter(|w| w[0] < 0. && w[1] >= 0.).count();
+        ups as f32 / (l.len() as f32 / rate)
+    }
+
+    #[test]
+    fn master_tempo_keeps_the_key_while_the_tempo_moves() {
+        let mut rig = Rig::new();
+        rig.cmd(Cmd::Load { deck: 0, buf: TrackBuf::from_samples(RATE, &tone(440., 6., 0.3)), at: 0. });
+        rig.state.decks[0].pitch.set(1.08);
+        rig.state.decks[0].keylock.store(true, Ordering::Relaxed);
+        rig.cmd(Cmd::Play(0, true));
+        rig.run(9_600);
+        let out = rig.run(48_000);
+        let hz = pitch_of(&out, RATE as f32);
+        assert!((hz - 440.).abs() < 6., "keylock on: {hz} Hz");
+        let p0 = rig.pos(0);
+        rig.run(48_000);
+        assert!((rig.pos(0) - p0 - 51_840.).abs() < 600., "1.08× tempo: {}", rig.pos(0) - p0);
+        // Off: the pitch moves with the tempo, as a record does.
+        rig.state.decks[0].keylock.store(false, Ordering::Relaxed);
+        rig.run(4_800);
+        let hz = pitch_of(&rig.run(48_000), RATE as f32);
+        assert!((hz - 475.2).abs() < 6., "keylock off: {hz} Hz");
+    }
+
+    #[test]
+    fn leaving_master_tempo_keeps_the_place_heard() {
+        let mut rig = Rig::new();
+        rig.cmd(Cmd::Load { deck: 0, buf: TrackBuf::from_samples(RATE, &ramp(RATE as usize * 6)), at: 0. });
+        rig.state.decks[0].pitch.set(1.08);
+        rig.state.decks[0].keylock.store(true, Ordering::Relaxed);
+        rig.cmd(Cmd::Play(0, true));
+        rig.run(48_000);
+        let heard = rig.pos(0);
+        rig.cmd(Cmd::Play(0, false));
+        rig.run(BLOCK);
+        assert!((rig.pos(0) - heard).abs() < 700., "paused at {} after {heard}", rig.pos(0));
+        // MT off while playing: the position runs on from where it was heard.
+        rig.cmd(Cmd::Play(0, true));
+        rig.run(24_000);
+        let heard = rig.pos(0);
+        rig.state.decks[0].keylock.store(false, Ordering::Relaxed);
+        rig.run(BLOCK);
+        let step = rig.pos(0) - heard;
+        assert!((step - BLOCK as f64 * 1.08).abs() < 700., "moved {step} in one block");
+    }
+
+    #[test]
+    fn a_stopped_deck_with_an_effect_on_lets_the_output_rest() {
+        let mut rig = Rig::new();
+        rig.cmd(Cmd::Load { deck: 0, buf: TrackBuf::from_samples(RATE, &tone(440., 2., 0.3)), at: 0. });
+        rig.state.decks[0].fx_kind[0].store(FxKind::Echo as u8, Ordering::Relaxed);
+        rig.state.decks[0].fx_amount[0].set(0.8);
+        rig.state.master_fx.store(FxKind::Reverb as u8, Ordering::Relaxed);
+        rig.cmd(Cmd::Play(0, true));
+        rig.run(9_600);
+        assert!(rig.state.busy.load(Ordering::Relaxed));
+        rig.cmd(Cmd::Play(0, false));
+        rig.run(4_800);
+        assert!(rig.state.busy.load(Ordering::Relaxed), "the echo still rings");
+        rig.run((TAIL_SECONDS * RATE as f32) as usize + 4_800);
+        assert!(!rig.state.busy.load(Ordering::Relaxed), "then the output may rest");
+    }
+
+    #[test]
+    fn a_slice_is_a_small_copy() {
+        let song = TrackBuf::from_samples(RATE, &ramp(RATE as usize * 4));
+        let s = song.slice(48_000., 72_000.);
+        assert_eq!(s.ready(), 24_000);
+        assert_eq!(s.frame(0, s.ready()), song.frame(48_000, song.ready()));
+        assert_eq!(s.frame(23_999, s.ready()), song.frame(71_999, song.ready()));
+    }
+
+    #[test]
+    fn the_sampler_plays_a_stretch_once_or_looping() {
+        let mut rig = Rig::new();
+        let buf = TrackBuf::from_samples(RATE, &tone(440., 1., 0.3));
+        rig.cmd(Cmd::Sample(0, Some((buf.clone(), 0., 4_800., false))));
+        rig.cmd(Cmd::Sample(1, Some((buf, 0., 4_800., true))));
+        rig.cmd(Cmd::Trigger(0, true));
+        let out = rig.run(2_400);
+        assert!(Rig::rms(&out) > 0.1, "the one-shot sounds");
+        rig.run(4_800);
+        assert!(!rig.state.samples_playing[0].load(Ordering::Relaxed), "the one-shot ended");
+        assert!(Rig::rms(&rig.run(2_400)) < 1e-4);
+        rig.cmd(Cmd::Trigger(1, true));
+        rig.run(24_000);
+        assert!(rig.state.samples_playing[1].load(Ordering::Relaxed), "the loop goes on");
+        rig.cmd(Cmd::Trigger(1, false));
+        rig.run(960);
+        assert!(Rig::rms(&rig.run(960)) < 1e-4);
+    }
+
+    #[test]
+    fn color_fx_mix_fx_and_the_crossfader_sides() {
+        // The filter knob as an echo: the deck sounds different from the plain one.
+        let mut rigs = [Rig::new(), Rig::new()];
+        for rig in &mut rigs {
+            rig.cmd(Cmd::Load { deck: 0, buf: TrackBuf::from_samples(RATE, &tone(440., 2., 0.3)), at: 0. });
+            rig.cmd(Cmd::Play(0, true));
+        }
+        rigs[1].state.decks[0].color.store(FxKind::Echo as u8, Ordering::Relaxed);
+        rigs[1].state.decks[0].filter.set(0.7);
+        rigs[0].run(24_000);
+        rigs[1].run(24_000);
+        let (a, b) = (rigs[0].run(9_600), rigs[1].run(9_600));
+        let diff = Rig::rms(&a.iter().zip(&b).map(|(x, y)| x - y).collect::<Vec<_>>());
+        assert!(diff > 0.01, "{diff}");
+        // Mix FX: the crossfader three quarters over to B puts A through the high-pass.
+        let mut rig = Rig::new();
+        rig.cmd(Cmd::Load { deck: 0, buf: TrackBuf::from_samples(RATE, &tone(60., 2., 0.3)), at: 0. });
+        rig.cmd(Cmd::Play(0, true));
+        rig.state.mix_fx.store(FxKind::HighPass as u8, Ordering::Relaxed);
+        rig.state.xfader.set(0.4);
+        rig.run(9_600);
+        let near = Rig::rms(&rig.run(4_800));
+        rig.state.xfader.set(0.0);
+        rig.run(9_600);
+        let full = Rig::rms(&rig.run(4_800));
+        assert!(near < full * 0.6, "{near} vs {full}");
+        // A deck on no side is heard whatever the crossfader says.
+        rig.state.decks[0].assign.store(0, Ordering::Relaxed);
+        rig.state.mix_fx.store(0, Ordering::Relaxed);
+        rig.state.xfader.set(1.);
+        rig.run(9_600);
+        assert!(Rig::rms(&rig.run(4_800)) > 0.15);
     }
 
     #[test]

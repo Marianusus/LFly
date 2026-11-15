@@ -55,8 +55,12 @@ load from the browser (A, B, or a double click), are decoded whole into memory
 slots, a three-band kill EQ, filter, crossfader curves, a limiter and recording of the mix to
 `~/Music/LFly`. The decks play on their own low-latency stream on the chosen output; starting
 one pauses the music player and the other way round. Every control is a method of
-`deck_model::DjDecks`. Tests: `LFLY_CONSOLE_LOAD=<s>`, `LFLY_CONSOLE_STEPS=…` (HANDOFF item 15).
-Not built: headphone cueing, keylock, stems, sampler.
+`deck_model::DjDecks`. Keylock, 12 pad pages (hot cues, cue loops, saved loops, rolls, slicer,
+loops, manual loop, beat jumps, sampler, beat grid, perform, options), Color FX, Mix FX, a master
+effect. The browser searches the catalogue (Enter) and lists folders of this computer
+(`src/local_music.rs`); songs drag onto a deck. Tests: `LFLY_CONSOLE_LOAD=<s>`,
+`LFLY_CONSOLE_STEPS=…`, `LFLY_CONSOLE_FOLDER=<dir>`, `LFLY_CONSOLE_SEARCH="<s>@<q>"` (HANDOFF
+item 15). Not built: headphone cueing, key shift, stems.
 
 ## Port status
 

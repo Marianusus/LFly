@@ -41,6 +41,12 @@ impl Stretch {
         self.speed
     }
 
+    /// Room for [frames] of input ahead of time, so feeding that much never allocates (a live
+    /// audio callback).
+    pub fn reserve(&mut self, frames: usize) {
+        self.input.reserve((frames + self.n + self.tol * 2) * 2);
+    }
+
     /// Changes the speed (0.25..4) and starts afresh.
     pub fn set_speed(&mut self, speed: f64) {
         self.speed = speed.clamp(0.25, 4.);

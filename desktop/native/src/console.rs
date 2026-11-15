@@ -45,6 +45,7 @@ mod words {
     pub const FAILED: &str = crate::i18n::t("Non caricato");
     pub const ELAPSED: &str = crate::i18n::t("TRASCORSO");
     pub const REMAIN: &str = crate::i18n::t("RIMANENTE");
+    pub const TOTAL: &str = crate::i18n::t("DURATA");
     pub const LIKED: &str = crate::i18n::t("Brani che ti piacciono");
     pub const DOWNLOADS: &str = crate::i18n::t("Scaricati");
     pub const HISTORY: &str = crate::i18n::t("Cronologia");
@@ -56,6 +57,15 @@ mod words {
     pub const UP_NEXT: &str = crate::i18n::t("IN CODA");
     pub const NOTHING_NEXT: &str = crate::i18n::t("Niente in coda");
     pub const NO_SONGS: &str = crate::i18n::t("Nessun brano qui");
+    pub const SEARCH_HINT: &str = crate::i18n::t("Cerca nella lista, Invio per cercare online");
+    pub const SEARCH_ONLINE: &str = crate::i18n::t("Cerca online");
+    pub const SEARCHING: &str = crate::i18n::t("Ricerca…");
+    pub const SEARCH_FAILED: &str = crate::i18n::t("Ricerca non riuscita");
+    pub const RESULTS: &str = crate::i18n::t("Risultati");
+    pub const FOLDERS: &str = crate::i18n::t("CARTELLE");
+    pub const ADD_FOLDER: &str = crate::i18n::t("Aggiungi cartella");
+    pub const FOLDER_MISSING: &str = crate::i18n::t("Cartella non trovata (disco scollegato?)");
+    pub const NOTHING_FOUND: &str = crate::i18n::t("Nessun brano corrisponde");
 }
 
 // ---- The console's own dark palette (DJ software is dark whatever the theme) ----
@@ -101,10 +111,10 @@ pub struct Console {
 }
 
 impl Console {
-    pub fn new(model: Entity<PlayerModel>, covers: Entity<Covers>, library: Entity<LibraryModel>, cx: &mut Context<Self>) -> Self {
+    pub fn new(core: Arc<crate::core::Core>, model: Entity<PlayerModel>, covers: Entity<Covers>, library: Entity<LibraryModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let dj = DjDecks::entity(cx);
         let decks = cx.new(|cx| Decks::new(dj.clone(), covers, cx));
-        let browser = cx.new(|cx| Browser::new(model, library, dj, cx));
+        let browser = cx.new(|cx| Browser::new(core, model, library, dj, window, cx));
         Self { decks, browser, page_width: 900., height: 720. }
     }
 }
@@ -159,6 +169,8 @@ enum Ctl {
     Pitch(usize),
     Xfader,
     Master,
+    MasterFx,
+    SamplerVol,
     Fx(usize, usize),
     Platter(usize),
     Cue(usize),
@@ -192,6 +204,8 @@ pub struct Decks {
     dragging: Rc<Cell<bool>>,
     platters: [Spot; 2],
     overviews: [Spot; 2],
+    /// Seconds of song each side of the waveforms' playhead.
+    zoom: f64,
     _subs: Vec<Subscription>,
 }
 
@@ -209,6 +223,7 @@ impl Decks {
             dragging: Rc::default(),
             platters: Default::default(),
             overviews: Default::default(),
+            zoom: 6.,
             _subs: subs,
         }
     }
@@ -290,6 +305,14 @@ impl Decks {
                 let v = dj.master - dy / span;
                 dj.set_master(v, cx);
             }
+            Ctl::MasterFx => {
+                let v = dj.master_fx_amount - dy / span;
+                dj.set_master_fx_amount(v, cx);
+            }
+            Ctl::SamplerVol => {
+                let v = dj.sampler_volume - dy / span;
+                dj.set_sampler_volume(v, cx);
+            }
             Ctl::Fx(d, s) => {
                 let v = dj.decks[d].fx_amount[s] + dx / span;
                 dj.fx_amount(d, s, v, cx);
@@ -320,6 +343,33 @@ impl Decks {
             _ => {}
         });
         cx.notify();
+    }
+
+    /// A deck's piece of the page takes a song dropped on it: from the browser, or an audio file
+    /// from the file manager. The wheel over it zooms the waveforms.
+    fn dropzone(&self, deck: usize, cx: &Context<Self>) -> Div {
+        div()
+            .flex_none()
+            .drag_over::<DraggedTrack>(move |st, _, _, _| st.bg(deck_color(deck).opacity(0.14)))
+            .drag_over::<ExternalPaths>(move |st, _, _, _| st.bg(deck_color(deck).opacity(0.14)))
+            .on_drop(cx.listener(move |this, d: &DraggedTrack, _, cx| {
+                let t = d.track.clone();
+                this.dj.update(cx, |dj, cx| dj.load(deck, t, cx));
+            }))
+            .on_drop(cx.listener(move |this, paths: &ExternalPaths, _, cx| {
+                if let Some(p) = paths.paths().iter().find(|p| crate::local_music::is_audio(p)) {
+                    if let Some(r) = crate::core::track_ref(&crate::local_music::track_of(p)) {
+                        this.dj.update(cx, |dj, cx| dj.load(deck, r, cx));
+                    }
+                }
+            }))
+            .on_scroll(cx.listener(|this, e: &ScrollEvent, _, cx| {
+                let dy = e.delta.pixel_delta(px(20.)).y / px(1.);
+                if dy.abs() > 0.5 {
+                    this.zoom = (this.zoom * if dy > 0. { 1. / 1.15 } else { 1.15 }).clamp(1.5, 30.);
+                    cx.notify();
+                }
+            }))
     }
 
     /// Mouse down on an element starts [ctl] (with [span] pixels for its travel).
@@ -384,17 +434,17 @@ impl Render for Decks {
             .gap(px(2.))
             .bg(c(0x0c0d0f))
             .py(px(1.))
-            .child(strip(&dj.decks[0], 0, pos[0], dj.is_playing(0), w, strip_h))
-            .child(strip(&dj.decks[1], 1, pos[1], dj.is_playing(1), w, strip_h));
+            .child(self.dropzone(0, cx).child(strip(&dj.decks[0], 0, pos[0], self.zoom, w, strip_h)))
+            .child(self.dropzone(1, cx).child(strip(&dj.decks[1], 1, pos[1], self.zoom, w, strip_h)));
         let heads = div()
             .flex_none()
             .h(px(head_h))
             .flex()
             .border_b_1()
             .border_color(c(LINE))
-            .child(self.head(dj, 0, covers[0].clone(), deck_w, cx))
-            .child(div().w(px(mixer_w)).flex_none().h_full().flex().items_center().justify_center().child(beat_lights(dj)))
-            .child(self.head(dj, 1, covers[1].clone(), deck_w, cx));
+            .child(self.dropzone(0, cx).h_full().child(self.head(dj, 0, covers[0].clone(), deck_w, cx)))
+            .child(div().w(px(mixer_w)).flex_none().h_full().flex().items_center().justify_center().child(self.beat_lights(dj, cx)))
+            .child(self.dropzone(1, cx).h_full().child(self.head(dj, 1, covers[1].clone(), deck_w, cx)));
         let overviews = div()
             .flex_none()
             .h(px(over_h))
@@ -402,16 +452,16 @@ impl Render for Decks {
             .bg(c(0x101114))
             .border_b_1()
             .border_color(c(LINE))
-            .child(self.overview(dj, 0, pos[0], deck_w, over_h, cx))
+            .child(self.dropzone(0, cx).child(self.overview(dj, 0, pos[0], deck_w, over_h, cx)))
             .child(div().w(px(mixer_w)).flex_none())
-            .child(self.overview(dj, 1, pos[1], deck_w, over_h, cx));
+            .child(self.dropzone(1, cx).child(self.overview(dj, 1, pos[1], deck_w, over_h, cx)));
         let body = div()
             .flex_1()
             .min_h_0()
             .flex()
-            .child(self.deck_body(dj, 0, covers[0].clone(), deck_w, body_h, cx))
+            .child(self.dropzone(0, cx).h_full().child(self.deck_body(dj, 0, covers[0].clone(), deck_w, body_h, cx)))
             .child(self.mixer(dj, mixer_w, body_h, cx))
-            .child(self.deck_body(dj, 1, covers[1].clone(), deck_w, body_h, cx));
+            .child(self.dropzone(1, cx).h_full().child(self.deck_body(dj, 1, covers[1].clone(), deck_w, body_h, cx)));
         div()
             .relative()
             .size_full()
@@ -428,7 +478,7 @@ impl Render for Decks {
 
 /// The scrolling waveform of one deck: the song passing the playhead in the middle, louder parts
 /// taller, bass-heavy parts in the deck's colour; the beat grid, the cue points and the loop.
-fn strip(d: &Deck, deck: usize, pos: f64, playing: bool, w: f32, h: f32) -> impl IntoElement {
+fn strip(d: &Deck, deck: usize, pos: f64, half: f64, w: f32, h: f32) -> impl IntoElement {
     let col = deck_color(deck);
     let peaks = d.peaks.clone();
     let grid = d.grid;
@@ -437,7 +487,6 @@ fn strip(d: &Deck, deck: usize, pos: f64, playing: bool, w: f32, h: f32) -> impl
     let looped = d.looped;
     let dur = d.duration();
     let loaded = d.buf.is_some();
-    let _ = playing;
     canvas(
         |_, _, _| {},
         move |b, _, window, _| {
@@ -445,8 +494,7 @@ fn strip(d: &Deck, deck: usize, pos: f64, playing: bool, w: f32, h: f32) -> impl
             let width = b.size.width / px(1.);
             let height = b.size.height / px(1.);
             let mid = height / 2.;
-            // 6 s each side of the playhead.
-            let half = 6.;
+            // [half] seconds each side of the playhead (the wheel zooms).
             let px_per_s = (width / 2.) / half as f32;
             let x_of = |t: f64| width / 2. + ((t - pos) as f32) * px_per_s;
             let rect = |x: f32, y: f32, ww: f32, hh: f32, color: Hsla, window: &mut Window| {
@@ -514,17 +562,6 @@ fn strip(d: &Deck, deck: usize, pos: f64, playing: bool, w: f32, h: f32) -> impl
     .h(px(h))
 }
 
-/// The four beats of the bar on each deck, lit on the beat now.
-fn beat_lights(dj: &DjDecks) -> impl IntoElement {
-    let row = |d: usize| {
-        let on = dj.bar_beat(d);
-        div().flex().gap(px(3.)).children((0..4).map(move |i| {
-            div().w(px(14.)).h(px(5.)).rounded(px(1.)).bg(if on == Some(i) { deck_color(d) } else { c(PANEL2) })
-        }))
-    };
-    div().flex().flex_col().gap(px(4.)).items_center().child(row(0)).child(row(1))
-}
-
 /// A rounded label button.
 fn pill(label: impl Into<SharedString>, w: f32, h: f32, on: Option<Hsla>) -> Div {
     div()
@@ -589,6 +626,26 @@ fn meter(h: f32, level: f32) -> impl IntoElement {
 }
 
 impl Decks {
+    /// Each deck's place in its 16-beat phrase: the bar (1-4) and the beat lit; a click puts
+    /// that deck on the other's place in the phrase.
+    fn beat_lights(&self, dj: &DjDecks, cx: &Context<Self>) -> impl IntoElement {
+        let row = |d: usize| {
+            let at = dj.phrase(d);
+            div()
+                .id(("phrase", d))
+                .flex()
+                .items_center()
+                .gap(px(3.))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.phrase_sync(d, cx))))
+                .child(div().w(px(18.)).text_size(px(8.)).text_color(deck_color(d)).child(at.map_or("--".to_string(), |(bar, _)| format!("{}/4", bar + 1))))
+                .children((0..4).map(move |i| {
+                    div().w(px(14.)).h(px(5.)).rounded(px(1.)).bg(if at.map(|a| a.1) == Some(i) { deck_color(d) } else { c(PANEL2) })
+                }))
+        };
+        div().flex().flex_col().gap(px(4.)).items_center().child(row(0)).child(row(1))
+    }
+
     /// The deck's title row: its letter, cover, title and artist on the outside; key, tempo with
     /// the pitch and the time towards the mixer.
     fn head(&self, dj: &DjDecks, deck: usize, cover: Option<Arc<Image>>, w: f32, cx: &Context<Self>) -> impl IntoElement {
@@ -632,7 +689,11 @@ impl Decks {
             (None, false) => "---.--".to_string(),
         };
         let key = d.key_shown().unwrap_or_else(|| "--".into());
-        let time = if d.remain { format!("-{}", tenths((dur - pos).max(0.) * 1000.)) } else { tenths(pos * 1000.) };
+        let time = match d.time {
+            1 => format!("-{}", tenths((dur - pos).max(0.) * 1000.)),
+            2 => tenths(dur * 1000.),
+            _ => tenths(pos * 1000.),
+        };
         let readout = div()
             .flex_none()
             .flex()
@@ -669,7 +730,11 @@ impl Decks {
                     .cursor_pointer()
                     .when(w < 360., |d| d.hidden())
                     .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.toggle_time(deck, cx))))
-                    .child(div().text_size(px(7.5)).text_color(c(TEXT3)).child(if d.remain { tr(words::REMAIN) } else { tr(words::ELAPSED) }))
+                    .child(div().text_size(px(7.5)).text_color(c(TEXT3)).child(match d.time {
+                        1 => tr(words::REMAIN),
+                        2 => tr(words::TOTAL),
+                        _ => tr(words::ELAPSED),
+                    }))
                     .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(time)),
             );
         div()
@@ -865,31 +930,37 @@ impl Decks {
                 )
         }));
 
-        // Pads: the page tabs and eight pads.
-        let tabs = div().flex().gap(px(2.)).children(PadMode::ALL.into_iter().map(|m| {
-            let on = d.pads == m;
-            div()
-                .id(SharedString::from(format!("pm-{deck}-{}", m.label())))
-                .flex_1()
-                .h(px(16.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(3.))
-                .cursor_pointer()
-                .bg(if on { col.opacity(0.25) } else { c(PANEL2) })
-                .text_size(px(7.5))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(if on { col } else { c(TEXT3) })
-                .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.set_pads(deck, m, cx))))
-                .child(m.label())
-        }));
-        // Four a row (a pixel spare, so rounding never wraps one).
+        // Pads: the page (‹ name ›, as a dropdown steps) and eight pads; on the hot cue pages,
+        // the previous and next cue.
+        let cue_pages = matches!(d.pads, PadMode::HotCue | PadMode::CueLoop);
+        let tabs = div()
+            .flex()
+            .gap(px(2.))
+            .child(pill("‹", 16., 16., None).id(("pp", deck)).cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.step_pads(deck, -1, cx)))))
+            .child(
+                div()
+                    .flex_1()
+                    .h(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(3.))
+                    .bg(col.opacity(0.18))
+                    .text_size(px(8.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(col)
+                    .child(d.pads.label()),
+            )
+            .child(pill("›", 16., 16., None).id(("pn", deck)).cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.step_pads(deck, 1, cx)))))
+            .when(cue_pages, |row| {
+                row.child(pill("◀", 18., 16., None).id(("cprev", deck)).cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cue_step(deck, -1, cx)))))
+                    .child(pill("▶", 18., 16., None).id(("cnext", deck)).cursor_pointer().on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cue_step(deck, 1, cx)))))
+            });
         let pad_w = ((side_w - 9.) / 4. - 1.).floor().max(20.);
         let pad_h = ((top_h - 3. * 22. - 40. - 16.) / 2.).clamp(20., 34.);
         let pads = div().w(px(side_w)).flex().flex_wrap().gap(px(3.)).children((0..8).map(|i| {
             let (label, lit) = dj.pad_label(deck, i);
-            let tint = if d.pads == PadMode::HotCue { c(CUE_COLORS[i]) } else { col };
+            let tint = if matches!(d.pads, PadMode::HotCue | PadMode::CueLoop) { c(CUE_COLORS[i]) } else { col };
             div()
                 .id(("pad", deck * 10 + i))
                 .w(px(pad_w))
@@ -902,9 +973,11 @@ impl Decks {
                 .bg(if lit { tint.opacity(0.3) } else { c(0x202328) })
                 .border_1()
                 .border_color(if lit { tint } else { c(LINE) })
-                .text_size(px(9.))
+                .text_size(px(if label.len() > 8 { 7.5 } else { 9. }))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if lit { tint } else { c(TEXT2) })
+                .overflow_hidden()
+                .whitespace_nowrap()
                 .hover(|d| d.bg(c(0x2a2e34)))
                 .on_mouse_down(
                     MouseButton::Left,
@@ -934,7 +1007,7 @@ impl Decks {
             .child(div().flex().flex_col().gap(px(3.)).child(tabs).child(pads));
 
         // Pitch: range, fader, bend.
-        let fader_h = (platter_d - 30.).max(60.);
+        let fader_h = (platter_d - 50.).max(50.);
         let pitch_v = 1. - (d.fader + 1.) / 2.;
         let pitch = div()
             .flex_none()
@@ -942,6 +1015,25 @@ impl Decks {
             .flex_col()
             .items_center()
             .gap(px(3.))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(2.))
+                    .child(
+                        pill("MT", 19., 16., d.keylock.then_some(col))
+                            .id(("mt", deck))
+                            .cursor_pointer()
+                            .text_size(px(8.))
+                            .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.toggle_keylock(deck, cx)))),
+                    )
+                    .child(
+                        pill("0", 19., 16., None)
+                            .id(("p0", deck))
+                            .cursor_pointer()
+                            .text_size(px(8.))
+                            .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.pitch_reset(deck, cx)))),
+                    ),
+            )
             .child(
                 pill(format!("±{}%", (d.range * 100.).round()), 40., 16., None)
                     .id(("range", deck))
@@ -1098,7 +1190,7 @@ impl Decks {
     /// with their meters, the crossfader with its curve, the master with its meter and REC.
     fn mixer(&self, dj: &DjDecks, w: f32, h: f32, cx: &Context<Self>) -> impl IntoElement {
         let rows = ["GAIN", "HIGH", "MID", "LOW", "FILTER"];
-        let knob_d = ((h - 110.) / rows.len() as f32 - 4.).clamp(16., 26.);
+        let knob_d = ((h - 165.) / rows.len() as f32 - 4.).clamp(15., 26.);
         let column = |deck: usize| {
             div().flex().flex_col().gap(px(4.)).children(rows.iter().enumerate().map(|(k, _)| {
                 let v = dj.decks[deck].knobs[k];
@@ -1161,8 +1253,8 @@ impl Decks {
             .flex()
             .flex_col()
             .items_center()
-            .gap(px(6.))
-            .pt(px(8.))
+            .gap(px(4.))
+            .pt(px(6.))
             .bg(c(0x17191c))
             .border_l_1()
             .border_r_1()
@@ -1180,17 +1272,65 @@ impl Decks {
                     .child(meter(fader_h, dj.vu(1)))
                     .child(column(1)),
             )
+            // Each deck's filter-knob effect (Color FX) and crossfader side.
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(3.))
+                    .children([0usize, 1].map(|deck| {
+                        div()
+                            .flex()
+                            .gap(px(3.))
+                            .when(deck == 1, |d| d.flex_row_reverse())
+                            .child(
+                                pill(dj.color_label(deck), 54., 15., (dj.decks[deck].color != 0).then_some(deck_color(deck)))
+                                    .id(("color", deck))
+                                    .cursor_pointer()
+                                    .text_size(px(7.))
+                                    .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cycle_color(deck, cx)))),
+                            )
+                            .child(
+                                pill(dj.assign_label(deck), 30., 15., None)
+                                    .id(("assign", deck))
+                                    .cursor_pointer()
+                                    .text_size(px(7.))
+                                    .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cycle_assign(deck, cx)))),
+                            )
+                    })),
+            )
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(4.))
                     .child(
-                        pill(dj.curve.name(), 50., 16., None)
+                        pill(dj.curve.name(), 44., 16., None)
                             .id("curve")
                             .cursor_pointer()
                             .text_size(px(7.5))
                             .on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cycle_curve(cx)))),
+                    )
+                    .child(
+                        pill(format!("MIX {}", dj.mix_fx_label()), 66., 16., (dj.mix_fx != 0).then_some(c(TEXT)))
+                            .id("mixfx")
+                            .cursor_pointer()
+                            .text_size(px(7.))
+                            .on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cycle_mix_fx(cx)))),
+                    )
+                    .child(
+                        pill("HAM", 26., 16., dj.hamster.then_some(c(TEXT)))
+                            .id("hamster")
+                            .cursor_pointer()
+                            .text_size(px(7.))
+                            .on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.toggle_hamster(cx)))),
+                    )
+                    .child(
+                        pill("LOCK", 28., 16., dj.pitch_lock.then_some(c(TEXT)))
+                            .id("plock")
+                            .cursor_pointer()
+                            .text_size(px(7.))
+                            .on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.toggle_pitch_lock(cx)))),
                     )
                     .child(
                         pill("Q", 18., 16., dj.quantize.then_some(c(0x3ddc84)))
@@ -1224,6 +1364,23 @@ impl Decks {
                             .on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.toggle_record(cx)))),
                     ),
             )
+            // The master's effect and its amount; the sampler's volume.
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .child(
+                        pill(format!("FX {}", dj.master_fx_label()), 76., 16., (dj.master_fx != 0).then_some(c(TEXT)))
+                            .id("masterfx")
+                            .cursor_pointer()
+                            .text_size(px(7.))
+                            .on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cycle_master_fx(cx)))),
+                    )
+                    .child(knob(18., dj.master_fx_amount, c(TEXT2)).id("masterfx-amt").on_mouse_down(MouseButton::Left, self.grab(Ctl::MasterFx, 160., cx)))
+                    .child(div().text_size(px(7.)).text_color(c(TEXT3)).child("SAMPLER"))
+                    .child(knob(18., dj.sampler_volume, c(TEXT2)).id("sampler-vol").on_mouse_down(MouseButton::Left, self.grab(Ctl::SamplerVol, 160., cx))),
+            )
     }
 }
 
@@ -1235,6 +1392,36 @@ enum Folder {
     Downloads,
     History,
     Playlist(String),
+    /// A folder of this computer.
+    Local(std::path::PathBuf),
+    /// What the search found online.
+    Search,
+}
+
+/// A song being dragged from the browser onto a deck.
+#[derive(Clone)]
+pub struct DraggedTrack {
+    pub track: TrackRef,
+    title: String,
+}
+
+impl Render for DraggedTrack {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(10.))
+            .py(px(5.))
+            .rounded(px(6.))
+            .bg(c(PANEL2))
+            .border_1()
+            .border_color(c(TEXT3))
+            .text_size(px(11.5))
+            .text_color(c(TEXT))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(icon("music", 11., c(TEXT2)))
+            .child(self.title.clone())
+    }
 }
 
 pub struct Browser {
@@ -1244,8 +1431,22 @@ pub struct Browser {
     on_decks: [Option<String>; 2],
     library: Entity<LibraryModel>,
     folder: Folder,
+    /// The folder's songs, and those the search box lets through.
+    all: Arc<Vec<Track>>,
     tracks: Arc<Vec<Track>>,
     selected: Option<usize>,
+    /// Folders of this computer added to the browser.
+    folders: Vec<std::path::PathBuf>,
+    scanning: bool,
+    input: Entity<gpui_kit::component::input::InputState>,
+    /// What the box filters by.
+    filter: String,
+    /// The online search: its songs, the one asked, and a count to drop late answers.
+    results: Arc<Vec<Track>>,
+    asked: String,
+    search_seq: u64,
+    searching: bool,
+    core: Arc<crate::core::Core>,
     scroll: UniformListScrollHandle,
     width: f32,
     _subs: Vec<Subscription>,
@@ -1256,10 +1457,31 @@ fn tracks_of(values: &[Value]) -> Vec<Track> {
 }
 
 impl Browser {
-    fn new(model: Entity<PlayerModel>, library: Entity<LibraryModel>, dj: Entity<DjDecks>, cx: &mut Context<Self>) -> Self {
+    fn new(core: Arc<crate::core::Core>, model: Entity<PlayerModel>, library: Entity<LibraryModel>, dj: Entity<DjDecks>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        use gpui_kit::component::input::{InputEvent, InputState};
         let downloads = crate::downloads::DownloadsModel::entity(cx);
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(tr(words::SEARCH_HINT)));
+        // A field the app's single-key shortcuts leave alone while it has the focus.
+        crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
         let subs = vec![
-            cx.observe(&library, |b, _, cx| b.reload(cx)),
+            cx.subscribe_in(&input, window, |b, state, ev: &InputEvent, _w, cx| match ev {
+                InputEvent::Change => {
+                    b.filter = state.read(cx).value().to_string();
+                    b.apply_filter(cx);
+                }
+                InputEvent::PressEnter { .. } => {
+                    let q = state.read(cx).value().to_string();
+                    b.search_online(q, cx);
+                }
+                _ => {}
+            }),
+            // The library's folders follow its changes; a folder of this computer or the search does
+            // not (re-reading a disk on every like would blank the list).
+            cx.observe(&library, |b, _, cx| {
+                if matches!(b.folder, Folder::Liked | Folder::History | Folder::Playlist(_)) {
+                    b.reload(cx);
+                }
+            }),
             cx.observe(&downloads, |b, _, cx| {
                 if b.folder == Folder::Downloads {
                     b.reload(cx);
@@ -1280,14 +1502,30 @@ impl Browser {
                 }
             }),
         ];
+        let mut folders = crate::local_music::saved();
+        // LFLY_CONSOLE_FOLDER=<path> (tests): that folder too, opened (never saved).
+        let test_folder = std::env::var("LFLY_CONSOLE_FOLDER").ok().map(std::path::PathBuf::from);
+        if let Some(f) = &test_folder {
+            folders.push(f.clone());
+        }
         let mut b = Self {
             model,
             dj,
             on_decks: [None, None],
             library,
-            folder: Folder::Liked,
+            folder: test_folder.map_or(Folder::Liked, Folder::Local),
+            all: Arc::default(),
             tracks: Arc::default(),
             selected: None,
+            folders,
+            scanning: false,
+            input,
+            filter: String::new(),
+            results: Arc::default(),
+            asked: String::new(),
+            search_seq: 0,
+            searching: false,
+            core,
             scroll: UniformListScrollHandle::new(),
             width: 900.,
             _subs: subs,
@@ -1311,6 +1549,14 @@ impl Browser {
             })
             .detach();
         }
+        // LFLY_CONSOLE_SEARCH="<seconds>@<query>" (tests): that search online then.
+        if let Some((secs, q)) = std::env::var("LFLY_CONSOLE_SEARCH").ok().and_then(|v| v.split_once('@').and_then(|(s, q)| Some((s.parse::<f64>().ok()?, q.to_string())))) {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Duration::from_secs_f64(secs)).await;
+                let _ = this.update(cx, |b, cx| b.search_online(q, cx));
+            })
+            .detach();
+        }
         b
     }
 
@@ -1324,9 +1570,127 @@ impl Browser {
                 let dl = crate::downloads::DownloadsModel::entity(cx);
                 dl.read(cx).list.tracks.iter().filter_map(crate::core::track_of).collect()
             }
+            // The search's songs stay until the next search (a library change must not wipe them).
+            Folder::Search => self.results.to_vec(),
+            Folder::Local(dir) => {
+                // Read off the window's thread; the list shows when it is done.
+                let dir = dir.clone();
+                self.scanning = true;
+                cx.spawn(async move |this, cx| {
+                    let d2 = dir.clone();
+                    let found = cx.background_executor().spawn(async move { crate::local_music::scan(&d2) }).await;
+                    let _ = this.update(cx, |b, cx| {
+                        if b.folder == Folder::Local(dir) {
+                            b.scanning = false;
+                            b.all = Arc::new(found);
+                            b.selected = None;
+                            b.apply_filter(cx);
+                        }
+                    });
+                })
+                .detach();
+                Vec::new()
+            }
         };
-        self.tracks = Arc::new(tracks);
+        self.all = Arc::new(tracks);
         self.selected = None;
+        self.apply_filter(cx);
+    }
+
+    /// The folder's songs whose title, artist or album hold every word typed in the box.
+    fn apply_filter(&mut self, cx: &mut Context<Self>) {
+        let words: Vec<String> = self.filter.to_lowercase().split_whitespace().map(str::to_string).collect();
+        let shown: Vec<Track> = if words.is_empty() {
+            self.all.to_vec()
+        } else {
+            self.all
+                .iter()
+                .filter(|t| {
+                    let hay = format!("{} {} {}", t.title, t.artist, t.album.as_deref().unwrap_or("")).to_lowercase();
+                    words.iter().all(|w| hay.contains(w.as_str()))
+                })
+                .cloned()
+                .collect()
+        };
+        self.tracks = Arc::new(shown);
+        // EJECT on an empty deck loads the next song of what is shown.
+        let refs: Vec<TrackRef> = self.tracks.iter().filter_map(crate::core::track_ref).collect();
+        self.dj.update(cx, |dj, _| dj.browse = Arc::new(refs));
+        cx.notify();
+    }
+
+    /// The catalogue searched for [q]: a song nobody saved, on a deck in a moment.
+    fn search_online(&mut self, q: String, cx: &mut Context<Self>) {
+        let q = q.trim().to_string();
+        if q.is_empty() {
+            return;
+        }
+        self.search_seq += 1;
+        let seq = self.search_seq;
+        self.searching = true;
+        self.asked = q.clone();
+        cx.notify();
+        let core = self.core.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        crate::core::runtime().spawn(async move {
+            let _ = tx.send(core.search(q).await);
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(found) = rx.await else { return };
+            let _ = this.update(cx, |b, cx| {
+                if b.search_seq != seq {
+                    return;
+                }
+                b.searching = false;
+                match found {
+                    Ok(list) => {
+                        b.results = Arc::new(list);
+                        b.folder = Folder::Search;
+                        // The box now names the search, not a filter on its songs.
+                        b.filter.clear();
+                        b.reload(cx);
+                        b.scroll.scroll_to_item(0, ScrollStrategy::Top);
+                    }
+                    Err(e) => {
+                        log::warn!("console search: {e}");
+                        crate::toast::Toasts::say(tr(words::SEARCH_FAILED), cx);
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// A folder of this computer, picked in the system's dialog.
+    fn add_folder(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: true, prompt: Some(tr(words::ADD_FOLDER).into()) });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = picked.await else { return };
+            let _ = this.update(cx, |b, cx| {
+                let mut last = None;
+                for p in paths {
+                    if !b.folders.contains(&p) {
+                        b.folders.push(p.clone());
+                    }
+                    last = Some(p);
+                }
+                crate::local_music::save(&b.folders);
+                if let Some(p) = last {
+                    b.open(Folder::Local(p), cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn remove_folder(&mut self, dir: &std::path::Path, cx: &mut Context<Self>) {
+        self.folders.retain(|f| f != dir);
+        crate::local_music::save(&self.folders);
+        if self.folder == Folder::Local(dir.to_path_buf()) {
+            self.open(Folder::Liked, cx);
+        }
         cx.notify();
     }
 
@@ -1371,6 +1735,7 @@ impl Render for Browser {
                 .child(div().flex_1().min_w_0().text_size(px(11.5)).text_color(if on { c(TEXT) } else { c(TEXT2) }).whitespace_nowrap().text_ellipsis().overflow_hidden().child(label))
         };
         let playlists = self.library.read(cx).playlists.clone();
+        let folders = self.folders.clone();
         // Narrow: the folders get thinner, then the queue column goes (the list keeps the room).
         let tree_w = if self.width < 900. { 150. } else { 190. };
         let show_queue = self.width >= 820.;
@@ -1392,6 +1757,35 @@ impl Render for Browser {
             .child(folder_row("cf-liked".into(), tr(words::LIKED).into(), "heart", Folder::Liked, self.folder == Folder::Liked))
             .child(folder_row("cf-dl".into(), tr(words::DOWNLOADS).into(), "download", Folder::Downloads, self.folder == Folder::Downloads))
             .child(folder_row("cf-history".into(), tr(words::HISTORY).into(), "clock", Folder::History, self.folder == Folder::History))
+            .when(!self.results.is_empty() || self.searching, |t| {
+                let label = if self.searching { tr(words::SEARCHING).to_string() } else { format!("{} «{}»", tr(words::RESULTS), self.asked) };
+                t.child(folder_row("cf-search".into(), label, "search", Folder::Search, self.folder == Folder::Search))
+            })
+            .child(div().pt(px(10.)).pb(px(4.)).px(px(8.)).text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT3)).child(tr(words::FOLDERS)))
+            .children(folders.into_iter().enumerate().map(|(i, dir)| {
+                let on = self.folder == Folder::Local(dir.clone());
+                let this = this.clone();
+                let gone = dir.clone();
+                folder_row(format!("cf-dir-{i}").into(), crate::local_music::name_of(&dir), "library", Folder::Local(dir.clone()), on).on_mouse_down(MouseButton::Right, move |_, _, cx| {
+                    // A right click takes the folder off the list (its files stay).
+                    let _ = this.update(cx, |b, cx| b.remove_folder(&gone, cx));
+                })
+            }))
+            .child(
+                div()
+                    .id("cf-add")
+                    .h(px(22.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .rounded(px(3.))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(c(0x22252a)))
+                    .on_click(cx.listener(|b, _, _, cx| b.add_folder(cx)))
+                    .child(icon("plus", 12., c(TEXT2)))
+                    .child(div().text_size(px(11.5)).text_color(c(TEXT2)).child(tr(words::ADD_FOLDER))),
+            )
             .child(div().pt(px(10.)).pb(px(4.)).px(px(8.)).text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT3)).child(tr(words::PLAYLISTS).to_uppercase()))
             .children(playlists.into_iter().map(|p| {
                 let on = self.folder == Folder::Playlist(p.id.clone());
@@ -1458,9 +1852,11 @@ impl Render for Browser {
                             })
                             .child(if deck == 0 { "A" } else { "B" })
                     };
+                    let dragged = crate::core::track_ref(t).map(|r| DraggedTrack { title: t.title.clone(), track: r });
                     div()
                         .id(("cl", i))
                         .w(px(list_w))
+                        .when_some(dragged, |row, d| row.on_drag(d, |d, _, _, cx| cx.new(|_| d.clone())))
                         .h(px(22.))
                         .flex()
                         .items_center()
@@ -1492,21 +1888,50 @@ impl Render for Browser {
                         .child(div().w(px(artist_w)).flex_none().text_color(if on { live_col } else { c(TEXT2) }).whitespace_nowrap().text_ellipsis().overflow_hidden().child(t.artist.clone()))
                         .when(album_w > 0., |d| d.child(div().w(px(album_w)).flex_none().text_color(c(TEXT3)).whitespace_nowrap().text_ellipsis().overflow_hidden().child(t.album.clone().unwrap_or_default())))
                         .child(div().w(px(40.)).flex_none().text_right().text_color(c(TEXT2)).child(t.bpm.filter(|b| *b > 0.).map(|b| format!("{b:.1}")).unwrap_or_default()))
-                        .child(div().w(px(46.)).flex_none().text_right().text_color(c(TEXT2)).child(clock(t.duration_ms)))
+                        .child(div().w(px(46.)).flex_none().text_right().text_color(c(TEXT2)).child(if t.duration_ms > 0 { clock(t.duration_ms) } else { String::new() }))
                 })
                 .collect::<Vec<_>>()
         })
         .track_scroll(&self.scroll)
         .flex_1()
         .min_h_0();
+        let typed = self.filter.trim().to_string();
+        let search_bar = div()
+            .h(px(30.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .px(px(8.))
+            .bg(c(0x16181b))
+            .border_b_1()
+            .border_color(c(LINE))
+            .child(icon("search", 12., c(TEXT3)))
+            .child(div().flex_1().min_w_0().text_size(px(11.5)).child(gpui_kit::component::input::Input::new(&self.input).appearance(false).cleanable(true)))
+            .child(
+                pill(if self.searching { tr(words::SEARCHING).to_string() } else { tr(words::SEARCH_ONLINE).to_string() }, 96., 20., (!typed.is_empty()).then_some(c(TEXT)))
+                    .id("search-online")
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |b, _, _, cx| {
+                        let q = b.input.read(cx).value().to_string();
+                        b.search_online(q, cx);
+                    })),
+            );
+        let empty_text = match &self.folder {
+            _ if self.scanning => tr(words::LOADING).to_string(),
+            Folder::Local(dir) if !dir.is_dir() => tr(words::FOLDER_MISSING).to_string(),
+            _ if !typed.is_empty() => tr(words::NOTHING_FOUND).to_string(),
+            _ => tr(words::NO_SONGS).to_string(),
+        };
         let middle = div()
             .flex_1()
             .min_w_0()
             .h_full()
             .flex()
             .flex_col()
+            .child(search_bar)
             .child(header)
-            .when(count == 0, |d| d.child(div().p(px(16.)).text_size(px(12.)).text_color(c(TEXT3)).child(tr(words::NO_SONGS))))
+            .when(count == 0, |d| d.child(div().p(px(16.)).text_size(px(12.)).text_color(c(TEXT3)).child(empty_text)))
             .child(list)
             .child(
                 div()

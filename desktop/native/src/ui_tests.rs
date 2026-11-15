@@ -266,3 +266,93 @@ fn a_window_refresh_redraws_cached_views(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(renders.get(), first + 1, "the refresh drew the cached child again");
 }
+
+/// A row dragged from one cached view onto another, as a song from the Console's browser onto a
+/// deck (both pages are cached views).
+#[derive(Clone)]
+struct Dragged(u32);
+
+impl Render for Dragged {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size(px(20.))
+    }
+}
+
+struct Source;
+
+impl Render for Source {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().id("row").size(px(100.)).on_drag(Dragged(7), |d, _, _, cx| cx.new(|_| d.clone()))
+    }
+}
+
+struct Target(Rc<Cell<u32>>);
+
+impl Render for Target {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let got = self.0.clone();
+        div().size(px(100.)).on_drop(move |d: &Dragged, _, _| got.set(d.0))
+    }
+}
+
+struct DragPage {
+    source: gpui::Entity<Source>,
+    target: gpui::Entity<Target>,
+}
+
+impl Render for DragPage {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size(px(300.))
+            .flex()
+            .child(div().size(px(100.)).child(self.source.clone().cached(gpui::StyleRefinement::default().size_full())))
+            .child(div().size(px(100.)).child(self.target.clone().cached(gpui::StyleRefinement::default().size_full())))
+    }
+}
+
+#[gpui::test]
+fn a_row_dragged_onto_a_cached_view_is_dropped_there(cx: &mut TestAppContext) {
+    use gpui::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent};
+    let got = Rc::new(Cell::new(0));
+    let g = got.clone();
+    let (_, cx) = cx.add_window_view(move |_, cx| DragPage { source: cx.new(|_| Source), target: cx.new(|_| Target(g)) });
+    let m = Modifiers::default();
+    cx.simulate_event(MouseDownEvent { position: at(50., 50.), modifiers: m, button: MouseButton::Left, click_count: 1, first_mouse: false });
+    for x in [60., 90., 120., 150.] {
+        cx.simulate_event(MouseMoveEvent { position: at(x, 50.), modifiers: m, pressed_button: Some(MouseButton::Left) });
+    }
+    cx.simulate_event(MouseUpEvent { position: at(150., 50.), modifiers: m, button: MouseButton::Left, click_count: 1 });
+    cx.run_until_parked();
+    assert_eq!(got.get(), 7, "the drop reached the cached target");
+}
+
+struct DragRow(Rc<Cell<u32>>);
+
+impl Render for DragRow {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let doubles = self.0.clone();
+        div()
+            .id("row")
+            .size(px(100.))
+            .on_drag(Dragged(1), |d, _, _, cx| cx.new(|_| d.clone()))
+            .on_click(move |e, _, _| {
+                if e.click_count() == 2 {
+                    doubles.set(doubles.get() + 1);
+                }
+            })
+    }
+}
+
+#[gpui::test]
+fn a_draggable_row_still_takes_a_double_click(cx: &mut TestAppContext) {
+    use gpui::{MouseButton, MouseDownEvent, MouseUpEvent};
+    let doubles = Rc::new(Cell::new(0));
+    let d = doubles.clone();
+    let (_, cx) = cx.add_window_view(move |_, _| DragRow(d));
+    let m = Modifiers::default();
+    for n in [1, 2] {
+        cx.simulate_event(MouseDownEvent { position: at(50., 50.), modifiers: m, button: MouseButton::Left, click_count: n, first_mouse: false });
+        cx.simulate_event(MouseUpEvent { position: at(50., 50.), modifiers: m, button: MouseButton::Left, click_count: n });
+    }
+    assert_eq!(doubles.get(), 1);
+}

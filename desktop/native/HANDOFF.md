@@ -317,8 +317,55 @@ Notes on these checks:
       `~/Music/LFly/LFly Console <secs>.wav`.
     - A deck starting pauses the music player; the player starting pauses the decks. Decks feed no
       history and no Connect.
-    - Not built: PFL/headphones (needs a second output), keylock/master tempo, key shift, stems,
-      sampler, video, mic, broadcast, saved loops, slicer, a 4-deck mode.
+    - Second round (2026-11-15 afternoon, uncommitted; the user: "aggiungi un paio di funzioni",
+      the advisor's gap list from the manual reports):
+      - Engine: keylock (Stretch per deck, fed at 1× in 256-frame pieces, bypassed while
+        scratching, reversed or braking; heard position = read position minus what the stretch
+        holds; `Stretch::reserve` added so the callback never allocates), an 8-voice sampler
+        (stretches of songs already in memory, one-shot or looping), Color FX on the filter knob,
+        Mix FX on the crossfader (high-pass, echo, reverb, noise on the deck it moves away from),
+        a master effect, crossfader assign (side or THRU), Noise and HighPass effects. Tests:
+        440 Hz at +8% with keylock stays 440 (±6) while the position runs 1.08×; sampler; Color
+        and Mix FX; assign.
+      - Pads: 12 pages stepped with ‹ ›: HOT CUE (◀ ▶ previous/next cue), CUELOOP, SAVED LOOP
+        (kept with the cues in `console-cues`, now `{"cues", "loops"}`; old arrays still read),
+        LOOP ROLL, SLICER (eight 1-beat slices of the 8-beat window, held = roll), LOOP (on/off,
+        hold or roll per OPTIONS), MANUAL LOOP (in, out, ends ±1/16 beat, move by length),
+        BEATJUMP, SAMPLER (empty pad records the loop or 4 beats; right click clears; session
+        only, not saved), BEAT GRID (±1 beat, ±1%, BPM ±0.05, TAP, first beat here), PERFORM
+        (brake, spinback, censor, reverse, BPM ÷2 ×2, MATCH, EJECT/next), OPTIONS (CUE mode
+        standard/hold-to-play/inverted, play-stutter, hot cue stutter, loop pad mode, loop back,
+        auto BPM on load, auto sync on play, sampler mode).
+      - Deck: MT (keylock), "0" gradual pitch reset (1.5 s), STOP when stopped = next cue, STOP
+        on an empty deck = clone the other deck (same buffer, place, tempo, playing), EJECT on an
+        empty deck = next song of the browser list, time cycles elapsed/remaining/length, phrase
+        display (bar of 4 and beat; click = phrase sync), waveform zoom with the wheel.
+      - Mixer: per-deck Color FX and side buttons, MIX FX, HAM (hamster), LOCK (pitch lock), FX
+        (master effect) with its knob, SAMPLER volume.
+      - Browser: a search box (typing filters the folder; Enter or "Cerca online" searches the
+        catalogue into "Risultati «…»", kept across library changes, late answers dropped);
+        "CARTELLE" with "Aggiungi cartella" (system dialog; store key `console-folders`; right
+        click removes; scanned off-thread, links to folders not followed, 20 000 files and 12
+        levels at most; a missing folder stays listed) - `src/local_music.rs`; local songs have
+        the id `file:<path>`, open with `Source::file` and never reach the player, library,
+        history or Connect; rows drag onto any deck piece; audio files dropped from the file
+        manager load too. Formats checked through `TrackBuf::open`: mp3, flac, wav, ogg, opus,
+        m4a, aac, webm (AIFF and WMA do not open; not listed).
+      - Review fixes: a deck counts as quiet 3 s after it stops (effects left on no longer keep
+        the output from pausing; test), leaving keylock goes on from the place heard (test),
+        samples are copies of their stretch (`TrackBuf::slice`, a minute at most), the right
+        button stops a playing sample and clears a stopped one, a 1% grid move across a beat
+        turns the bar, local folders are not re-read on library changes, file names keep a
+        leading number unless a separator follows it ("2Pac", "50 Cent", "1979"), pitch lock
+        widens the other deck's range. `ui_tests`: a drop across two cached views arrives, and a
+        draggable row still takes a double click.
+      - Checked headless: everything above through `LFLY_CONSOLE_STEPS` (actions added),
+        `LFLY_CONSOLE_FOLDER=<dir>` (the test formats folder: listed, loaded, played) and
+        `LFLY_CONSOLE_SEARCH="<s>@<query>"` (50 results). Not tried on screen: mouse drags, a
+        real drag and drop, the folder dialog.
+    - Not built: PFL/headphones (a controller's sound card usually has channels 3-4: wait for the
+      model), key shift and key match, stems, video, VST, DMX, scratch DNA, broadcast, mic, four
+      decks, the sampler's saved banks and its sync.
     - Tests: `LFLY_CONSOLE_LOAD=<s>` loads the folder's first two songs on A and B and plays A;
       `LFLY_CONSOLE_STEPS="<s>:<action>:<deck>;…"` presses controls and logs both decks (see
       `run_steps`). Checked headless: SYNC matched tempo and beat phase (fractions equal to 0.001
