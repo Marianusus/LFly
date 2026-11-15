@@ -10,7 +10,7 @@ app until this one has every screen.
     OFFLINE=1 LFLY_DOWNLOADS_DIR=<that dir> unshare -rn target/release/examples/downloads   # it plays with no network
 
 Test modes: `LFLY_AUTOPLAY="query"` plays the first result, `LFLY_ROUTE=liked|library|settings|lyrics|
-nowplaying|album:<id>|playlist:<id>|local:<id>|artist:<id>` opens a page (`examples/ids.rs` prints
+console|nowplaying|album:<id>|playlist:<id>|local:<id>|artist:<id>` opens a page (`examples/ids.rs` prints
 real ids), `LFLY_NP_PANEL=lyrics|queue|none` picks the full player's panel, `LFLY_PANEL=queue|lyrics|devices`
 opens the right panel, `LFLY_MENU=1` opens the playing song's menu and a toast,
 `LFLY_NP_OUTPUT=1` opens the full player's output menu, `LFLY_SIZE=WxH` sizes the window, `LFLY_ROUTE_AFTER=<route>@<seconds>` opens a second page later, `LFLY_MEDIA_TEST=1` registers the system media controls in a

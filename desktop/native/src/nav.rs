@@ -8,6 +8,8 @@ pub enum Route {
     Home,
     Search,
     Library,
+    /// The DJ console page (console.rs).
+    Console,
     Liked,
     Downloads,
     Playlist { id: String, name: String, local: bool },
@@ -26,6 +28,7 @@ impl Route {
             Route::Home => "home".into(),
             Route::Search => "search".into(),
             Route::Library => "library".into(),
+            Route::Console => "console".into(),
             Route::Liked => "liked".into(),
             Route::Downloads => "downloads".into(),
             Route::Artist { .. } => "artist".into(),

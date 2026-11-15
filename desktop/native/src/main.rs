@@ -26,6 +26,7 @@ mod menu;
 mod midi;
 mod midi_map;
 mod lyrics;
+mod console;
 mod lyrics_page;
 mod media;
 mod motion;
@@ -148,6 +149,7 @@ struct Lfly {
     library_page: Entity<LibraryPage>,
     now_playing: Entity<NowPlaying>,
     lyrics_page: Entity<LyricsPage>,
+    console: Entity<crate::console::Console>,
     ui: Entity<Ui>,
     right_panel: Entity<RightPanel>,
     settings: Entity<crate::settings_page::SettingsPage>,
@@ -248,6 +250,7 @@ impl Lfly {
         library_page.update(cx, |l, cx| l.set_spotify(spotify, cx));
         let settings = cx.new(|cx| crate::settings_page::SettingsPage::new(core.clone(), look.clone(), library.clone(), lyrics_data.clone(), model.clone(), covers.clone(), cx));
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
+        let console = cx.new(|cx| crate::console::Console::new(core.clone(), model.clone(), covers.clone(), library.clone(), cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
         let subs = vec![
             // The window's size, kept for next time (not by test runs), once it stops changing.
@@ -431,6 +434,7 @@ impl Lfly {
             library_page,
             now_playing,
             lyrics_page,
+            console,
             ui,
             right_panel,
             settings,
@@ -780,6 +784,7 @@ impl Lfly {
             Route::Search => cached(&self.search),
             Route::Library => cached(&self.library_page),
             Route::Lyrics => cached(&self.lyrics_page),
+            Route::Console => cached(&self.console),
             Route::Settings => {
                 // Read again what it shows each time it opens.
                 if !self.settings_shown {
@@ -983,6 +988,7 @@ fn test_route(r: &str) -> Option<Route> {
         "library" => Some(Route::Library),
         "settings" => Some(Route::Settings),
         "lyrics" => Some(Route::Lyrics),
+        "console" => Some(Route::Console),
         "nowplaying" => Some(Route::NowPlaying),
         "album" => Some(Route::Album { id: id.into(), name: String::new() }),
         "playlist" => Some(Route::Playlist { id: id.into(), name: String::new(), local: false }),
@@ -1129,6 +1135,11 @@ impl Render for Lfly {
         });
         self.lyrics_page.update(cx, |l, cx| {
             if put(&mut l.width, win_w) | put(&mut l.page_width, stage_w) | put(&mut l.height, win_h) {
+                cx.notify();
+            }
+        });
+        self.console.update(cx, |c, cx| {
+            if put(&mut c.page_width, stage_w) | put(&mut c.height, win_h) {
                 cx.notify();
             }
         });

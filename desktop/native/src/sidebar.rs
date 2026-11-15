@@ -102,7 +102,7 @@ impl Render for Sidebar {
             radius: 999.,
         };
         let reduce = crate::prefs::Prefs::reduce_motion(cx);
-        let tab_key = ["home", "search", "library"].contains(&key.as_str()).then_some(key.as_str());
+        let tab_key = ["home", "search", "library", "console"].contains(&key.as_str()).then_some(key.as_str());
         let tabs_pill = self.tabs_pill.render(tab_key, &pill_look, reduce, window);
         let list_key = (key == "liked" || key == "downloads" || key.starts_with("playlist:")).then_some(key.as_str());
         let list_pill = self.list_pill.render(list_key, &crate::pill::PillLook { radius: 16., ..pill_look }, reduce, window);
@@ -361,7 +361,8 @@ impl Render for Sidebar {
                             .children(tabs_pill)
                             .child(item("home", "Home", "home", 20., Route::Home))
                             .child(item("search", "Cerca", "search", 20., Route::Search))
-                            .child(item("library", "Libreria", "library", 20., Route::Library)),
+                            .child(item("library", "Libreria", "library", 20., Route::Library))
+                            .child(item("console", "Console", "console", 20., Route::Console)),
                     )
                     .child(
                         // `.section`: the caption and the way to the library; folded, a rule.

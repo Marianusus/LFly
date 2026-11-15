@@ -275,3 +275,23 @@ Notes on these checks:
       ONNX Runtime's `@available` checks; the app targets macOS 13.4, as the prebuilt ORT does.
     - On first open the user must allow the unsigned app: System Settings → Privacy & Security →
       "Open Anyway", or `xattr -dr com.apple.quarantine /Applications/LFly.app`.
+
+15. **Console page (2026-11-15, uncommitted).** `src/console.rs`, sidebar item "Console" under
+    Libreria, `LFLY_ROUTE=console`. Laid out after the user's VirtualDJ Pro screenshot, drawn with
+    our own pieces (no VirtualDJ name, logo, skin or sampler sounds). The user asked for REA on
+    VirtualDJ again ("educational", "the Linux community did it"); refused, its EULA forbids it.
+    The maker's public manual is fine for control names.
+    - Decks take turns: even queue index on A (blue), odd on B (red); the other deck holds the song
+      `coming()` picks (repeat one/all as the core queue). Live: play/pause, CUE (the hardware
+      console's own cue in midi.rs, shared), PLAY on the waiting deck = skip to it, pitch readout
+      (speed), times, strips (second marks, the coming mix tinted, no peaks yet), crossfader
+      position (follows the mix), browser (liked, downloads, history, playlists; double click
+      plays) and the "IN CODA" list. Everything else (FX, stems, loops, EQ, gain, filter, SYNC,
+      faders, AUDIO/VIDEO/SCRATCH/MASTER tabs) is drawn only: the user will say what each does.
+    - `Decks` redraws at ~20 fps only while shown, in front and playing: headless, panel closed,
+      11.2% of a core vs Home 7.3% (30 fps cost 13.9%). Narrow windows hide FX, the loop row, the
+      queue column and the album column. Clicks are unverified (no page-level UI test; Core needs
+      network and audio): the user checks them.
+    - Next: real waveform peaks (decode only downloads or complete cache entries, never a second
+      download), BPM/key from the Automix analysis, then the functions the user dictates. Two
+      independent decks need engine work (one timeline today).

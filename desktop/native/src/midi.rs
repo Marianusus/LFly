@@ -203,7 +203,7 @@ impl MidiModel {
     }
 
     /// A CDJ's cue: paused, it marks the point; playing, it goes back there and pauses.
-    fn cue(&mut self, cx: &mut Context<Self>) {
+    pub fn cue(&mut self, cx: &mut Context<Self>) {
         let m = self.model.read(cx);
         let Some(song) = m.current().map(|t| t.id.clone()) else { return };
         if m.playing() {
