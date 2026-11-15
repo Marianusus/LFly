@@ -9,6 +9,8 @@ use std::time::Instant;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_connect::protocol::TrackRef;
 
 use crate::core::Core;
@@ -129,7 +131,7 @@ pub fn like_action(library: Entity<LibraryModel>, core: Arc<Core>, t: TrackRef) 
         if let Some(now) = now {
             core.rate(id, now.then_some(true));
             if now {
-                Toasts::say("Aggiunto ai Brani che ti piacciono", cx);
+                Toasts::say(tr("Aggiunto ai Brani che ti piacciono"), cx);
             }
         }
     })
@@ -220,11 +222,11 @@ impl Render for Menu {
         let (core1, core2, core3) = (core.clone(), core.clone(), core);
         let add_queue: Rc<dyn Fn(&mut App)> = Rc::new(move |cx| {
             core1.edit("add", vec![t1.clone()], -1, -1);
-            Toasts::say("Aggiunto alla coda", cx);
+            Toasts::say(tr("Aggiunto alla coda"), cx);
         });
         let play_next: Rc<dyn Fn(&mut App)> = Rc::new(move |cx| {
             core2.edit("next", vec![t2.clone()], -1, -1);
-            Toasts::say("Suonerà dopo questo brano", cx);
+            Toasts::say(tr("Suonerà dopo questo brano"), cx);
         });
         let like = like_action(library.clone(), core3, t3);
 
@@ -251,22 +253,22 @@ impl Render for Menu {
                     ),
             )
             .child(hr())
-            .child(item("cm-queue", "queue", 15., "Aggiungi alla coda".into(), true, false).on_click(run(add_queue)))
-            .child(item("cm-next", "next", 14., "Riproduci dopo".into(), true, false).on_click(run(play_next)))
+            .child(item("cm-queue", "queue", 15., tr("Aggiungi alla coda").into(), true, false).on_click(run(add_queue)))
+            .child(item("cm-next", "next", 14., tr("Riproduci dopo").into(), true, false).on_click(run(play_next)))
             .child(hr())
             .child(
                 item(
                     "cm-like",
                     if liked { "heart-fill" } else { "heart" },
                     15.,
-                    if liked { "Togli dai Brani che ti piacciono" } else { "Aggiungi ai Brani che ti piacciono" }.into(),
+                    if liked { tr("Togli dai Brani che ti piacciono") } else { tr("Aggiungi ai Brani che ti piacciono") }.into(),
                     true,
                     false,
                 )
                 .on_click(run(like)),
             )
             .child(
-                item("cm-add", "plus", 15., "Aggiungi a playlist".into(), true, false)
+                item("cm-add", "plus", 15., tr("Aggiungi a playlist").into(), true, false)
                     .child(icon(if self.sub { "chevron-up" } else { "chevron-down" }, 13., s.text2))
                     .on_click({
                         let me = me.clone();
@@ -285,7 +287,7 @@ impl Render for Menu {
                 let nav = nav2.clone();
                 lib2.update(cx, |l, cx| {
                     l.create_playlist(
-                        format!("La mia playlist n. {}", n + 1),
+                        trf("La mia playlist n. {0}", &[&(n + 1)]),
                         vec![track_value(&t4)],
                         move |id, name, cx| nav.update(cx, |n, cx| n.go(Route::Playlist { id, name, local: true }, cx)),
                         cx,
@@ -302,7 +304,7 @@ impl Render for Menu {
                 .pl(px(8.))
                 .border_l_1()
                 .border_color(sep)
-                .child(item("cm-new", "plus", 14., "Nuova playlist".into(), true, false).on_click(run(new_playlist)));
+                .child(item("cm-new", "plus", 14., tr("Nuova playlist").into(), true, false).on_click(run(new_playlist)));
             for (i, pl) in playlists.into_iter().enumerate() {
                 let (lib3, t5) = (library.clone(), t.clone());
                 let name = pl.name.clone();
@@ -312,7 +314,7 @@ impl Render for Menu {
                         l.add_to_playlist(
                             pl.id.clone(),
                             vec![track_value(&t5)],
-                            move |n, cx| Toasts::say(if n > 0 { format!("Aggiunto a {name}") } else { format!("Già in {name}") }, cx),
+                            move |n, cx| Toasts::say(if n > 0 { trf("Aggiunto a {0}", &[&name]) } else { trf("Già in {0}", &[&name]) }, cx),
                             cx,
                         )
                     });
@@ -341,10 +343,10 @@ impl Render for Menu {
         let (have, going) = (dl.read(cx).has(&t.id), dl.read(cx).pending(&t.id));
         let (t6, id6) = (t.clone(), t.id.clone());
         menu = menu.child(if have {
-            item("cm-download", "trash", 15., "Rimuovi il download".into(), true, false)
+            item("cm-download", "trash", 15., tr("Rimuovi il download").into(), true, false)
                 .on_click(run(Rc::new(move |cx: &mut App| dl.update(cx, |m, cx| m.remove(vec![id6.clone()], cx)))))
         } else {
-            let it = item("cm-download", "download", 15., if going { "Download in corso…" } else { "Scarica" }.into(), !going, false);
+            let it = item("cm-download", "download", 15., if going { tr("Download in corso…") } else { tr("Scarica") }.into(), !going, false);
             if going {
                 it
             } else {
@@ -352,7 +354,7 @@ impl Render for Menu {
             }
         });
         if let Some(remove) = remove {
-            menu = menu.child(item("cm-remove", "trash", 15., "Rimuovi da questa playlist".into(), true, true).on_click(run(remove)));
+            menu = menu.child(item("cm-remove", "trash", 15., tr("Rimuovi da questa playlist").into(), true, true).on_click(run(remove)));
         }
         // TrackActionsSheet.kt: the sleep timer, in the full player's menu only.
         if player {
@@ -360,7 +362,7 @@ impl Render for Menu {
             let value = sleep.read(cx).label();
             let me2 = me.clone();
             menu = menu.child(hr()).child(
-                item("cm-sleep", "moon", 15., "Timer di spegnimento".into(), true, false)
+                item("cm-sleep", "moon", 15., tr("Timer di spegnimento").into(), true, false)
                     .when_some(value.clone(), |d, v| d.child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(accent).child(v)))
                     .child(icon(if self.sleep_sub { "chevron-up" } else { "chevron-down" }, 13., s.text2))
                     .on_click(move |_, _, cx| {
@@ -390,18 +392,18 @@ impl Render for Menu {
                 };
                 for (k, m) in crate::sleep::PRESET_MINUTES.iter().copied().enumerate() {
                     let sl = sleep.clone();
-                    sub = sub.child(choice(k, format!("{m} minuti"), false, Rc::new(move |cx: &mut App| sl.update(cx, |t, cx| t.set_minutes(m, cx)))));
+                    sub = sub.child(choice(k, crate::i18n::minutes(m), false, Rc::new(move |cx: &mut App| sl.update(cx, |t, cx| t.set_minutes(m, cx)))));
                 }
                 let (sl1, sl2) = (sleep.clone(), sleep.clone());
                 let end_on = matches!(sleep.read(cx).v, crate::sleep::Sleep::EndOfTrack(..));
-                sub = sub.child(choice(10, "Fine del brano".into(), end_on, Rc::new(move |cx: &mut App| sl1.update(cx, |t, cx| t.set_end_of_track(cx)))));
-                sub = sub.child(choice(11, "Disattivato".into(), value.is_none(), Rc::new(move |cx: &mut App| sl2.update(cx, |t, cx| t.cancel(cx)))));
+                sub = sub.child(choice(10, tr("Fine del brano").into(), end_on, Rc::new(move |cx: &mut App| sl1.update(cx, |t, cx| t.set_end_of_track(cx)))));
+                sub = sub.child(choice(11, tr("Disattivato").into(), value.is_none(), Rc::new(move |cx: &mut App| sl2.update(cx, |t, cx| t.cancel(cx)))));
                 menu = menu.child(sub);
             }
         }
         // The phone's "Modalità Ambient" (its ⋮ menu): the song as a bedside clock.
         if player {
-            menu = menu.child(item("cm-standby", "clock", 15., "Modalità Ambient".into(), true, false).on_click(run(Rc::new(|cx: &mut App| crate::standby::request(cx)))));
+            menu = menu.child(item("cm-standby", "clock", 15., tr("Modalità Ambient").into(), true, false).on_click(run(Rc::new(|cx: &mut App| crate::standby::request(cx)))));
         }
         // TrackActionsSheet.kt SpeedPage: the tempo, the pitch kept; the value in the accent when
         // it is not 1×.
@@ -409,7 +411,7 @@ impl Render for Menu {
             let speed = self.core.player.speed();
             let me3 = me.clone();
             menu = menu.child(
-                item("cm-speed", "forward", 15., "Velocità".into(), true, false)
+                item("cm-speed", "forward", 15., tr("Velocità").into(), true, false)
                     .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(if (speed - 1.).abs() > 0.01 { accent } else { s.text2 }).child(format_speed(speed)))
                     .child(icon(if self.speed_sub { "chevron-up" } else { "chevron-down" }, 13., s.text2))
                     .on_click(move |_, _, cx| {
@@ -442,7 +444,7 @@ impl Render for Menu {
                                 // Stays open: the choice shows where it went.
                                 let _ = me4.update(cx, |_, cx| cx.notify());
                             })
-                            .child(div().flex_1().child(if v == 1. { "Normale (1×)".to_string() } else { format_speed(v) }))
+                            .child(div().flex_1().child(if v == 1. { tr("Normale (1×)").to_string() } else { format_speed(v) }))
                             .when(on, |d| d.child(icon("check", 13., accent))),
                     );
                 }
@@ -464,8 +466,8 @@ impl Render for Menu {
         });
         menu = menu
             .child(hr())
-            .child(item("cm-artist", "music", 15., "Vai all'artista".into(), t.artist_id.is_some(), false).when(t.artist_id.is_some(), |d| d.on_click(run(go_artist))))
-            .child(item("cm-album", "library", 15., "Vai all'album".into(), t.album_id.is_some(), false).when(t.album_id.is_some(), |d| d.on_click(run(go_album))));
+            .child(item("cm-artist", "music", 15., tr("Vai all'artista").into(), t.artist_id.is_some(), false).when(t.artist_id.is_some(), |d| d.on_click(run(go_artist))))
+            .child(item("cm-album", "library", 15., tr("Vai all'album").into(), t.album_id.is_some(), false).when(t.album_id.is_some(), |d| d.on_click(run(go_album))));
 
         let close = me.clone();
         div()
@@ -517,7 +519,7 @@ const SPEEDS: [f32; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
 fn format_speed(v: f32) -> String {
     let s = format!("{:.2}", v);
     let s = s.trim_end_matches('0').trim_end_matches('.');
-    format!("{}×", s.replace('.', ","))
+    if crate::i18n::lang() == crate::i18n::Lang::En { format!("{s}×") } else { format!("{}×", s.replace('.', ",")) }
 }
 
 #[cfg(test)]

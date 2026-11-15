@@ -73,13 +73,13 @@ impl SleepTimer {
         if m.playing() {
             m.command(protocol::CMD_PAUSE, 0);
         }
-        Toasts::say("Timer di spegnimento: musica in pausa", cx);
+        Toasts::say(crate::i18n::tr("Timer di spegnimento: musica in pausa"), cx);
         cx.notify();
     }
 
     pub fn set_minutes(&mut self, minutes: u64, cx: &mut Context<Self>) {
         self.set_for(Duration::from_secs(minutes * 60), cx);
-        Toasts::say(format!("La musica si ferma tra {minutes} minuti"), cx);
+        Toasts::say(crate::i18n::trf("La musica si ferma tra {0}", &[&crate::i18n::minutes(minutes)]), cx);
     }
 
     fn set_for(&mut self, d: Duration, cx: &mut Context<Self>) {
@@ -104,7 +104,7 @@ impl SleepTimer {
         let place = m.remote.clone();
         self.seq += 1;
         self.v = Sleep::EndOfTrack(id, place);
-        Toasts::say("Si ferma alla fine di questo brano", cx);
+        Toasts::say(crate::i18n::tr("Si ferma alla fine di questo brano"), cx);
         cx.notify();
     }
 
@@ -118,7 +118,7 @@ impl SleepTimer {
     pub fn label(&self) -> Option<String> {
         match &self.v {
             Sleep::Off => None,
-            Sleep::EndOfTrack(..) => Some("Fine del brano".into()),
+            Sleep::EndOfTrack(..) => Some(crate::i18n::tr("Fine del brano").into()),
             Sleep::At(t) => Some(countdown(t.saturating_duration_since(Instant::now()))),
         }
     }

@@ -11,6 +11,8 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_connect::protocol::Device;
 use lfly_connect::Discovery;
 use lfly_core::drive::Drive;
@@ -204,7 +206,7 @@ impl SyncModel {
             let done = runtime()
                 .spawn(async move {
                     if !s.libsync.enabled() {
-                        return Err("La sincronizzazione è spenta".to_string());
+                        return Err(tr("La sincronizzazione è spenta").to_string());
                     }
                     let n = s.libsync.sync_all().await;
                     Ok((n, s.libsync.status()))
@@ -217,9 +219,9 @@ impl SyncModel {
                         this.local = status;
                         Toasts::say(
                             match n {
-                                0 => "Nessun dispositivo del tuo account in rete".to_string(),
-                                1 => "Libreria allineata con un dispositivo".to_string(),
-                                n => format!("Libreria allineata con {n} dispositivi"),
+                                0 => tr("Nessun dispositivo del tuo account in rete").to_string(),
+                                1 => tr("Libreria allineata con un dispositivo").to_string(),
+                                n => trf("Libreria allineata con {0} dispositivi", &[&n]),
                             },
                             cx,
                         );
@@ -275,7 +277,7 @@ impl SyncModel {
     /// "Collega Google Drive": Google's page in the browser, then the first sync (`signIn`).
     pub fn drive_sign_in(&mut self, cx: &mut Context<Self>) {
         self.drive_run(
-            |_| Some("Sincronizzazione con Google Drive attiva"),
+            |_| Some(tr("Sincronizzazione con Google Drive attiva")),
             |d| async move {
                 d.sign_in().await?;
                 d.sync().await
@@ -286,7 +288,7 @@ impl SyncModel {
 
     /// "Sincronizza ora" with Drive (`syncNow`).
     pub fn drive_sync_now(&mut self, cx: &mut Context<Self>) {
-        self.drive_run(|changed| Some(if changed { "Libreria aggiornata dal telefono" } else { "Libreria già allineata" }), |d| async move { d.sync().await }, cx);
+        self.drive_run(|changed| Some(if changed { tr("Libreria aggiornata dal telefono") } else { tr("Libreria già allineata") }), |d| async move { d.sync().await }, cx);
     }
 
     /// The switch of "Sincronizza tramite Google Drive" (`setEnabled`).

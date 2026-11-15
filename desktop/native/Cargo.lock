@@ -4125,6 +4125,7 @@ dependencies = [
  "log",
  "midir",
  "raw-window-handle",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

@@ -8,6 +8,8 @@ use std::time::Instant;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_connect::protocol;
 
 use crate::core::Core;
@@ -272,7 +274,7 @@ impl Render for NowPlaying {
                     .items_center()
                     .gap(px(2.))
                     .min_w_0()
-                    .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(white().opacity(0.65)).child("IN RIPRODUZIONE"))
+                    .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(white().opacity(0.65)).child(tr("In riproduzione").to_uppercase()))
                     .children(track.as_ref().and_then(|t| t.album.clone()).map(|al| {
                         div().max_w(px(w * 0.4)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(white()).truncate().child(al)
                     })),
@@ -296,8 +298,8 @@ impl Render for NowPlaying {
                                     .p(px(4.))
                                     .flex()
                                     .gap(px(2.))
-                                    .child(toggle("np-lyrics", Panel::Lyrics, "lyrics", "Testo"))
-                                    .child(toggle("np-queue", Panel::Queue, "queue", "Coda")),
+                                    .child(toggle("np-lyrics", Panel::Lyrics, "lyrics", tr("Testo")))
+                                    .child(toggle("np-queue", Panel::Queue, "queue", tr("Coda"))),
                             ),
                     )
                     .child(
@@ -339,7 +341,7 @@ impl Render for NowPlaying {
                         .text_size(px(15.))
                         .text_color(white().opacity(0.75))
                         .child(icon("music", 40., white().opacity(0.75)))
-                        .child("Niente in riproduzione.")
+                        .child(tr("Niente in riproduzione."))
                         .child(
                             div()
                                 .id("np-go")
@@ -353,7 +355,7 @@ impl Render for NowPlaying {
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .cursor_pointer()
                                 .on_click(move |_, _, cx| nav.update(cx, |n, cx| n.go(Route::Search, cx)))
-                                .child("Cerca qualcosa da ascoltare"),
+                                .child(tr("Cerca qualcosa da ascoltare")),
                         ),
                 )
                 .into_any_element();
@@ -626,7 +628,7 @@ impl Render for NowPlaying {
             .iter()
             .find(|d| Some(&d.id) == device_id.as_ref())
             .or_else(|| devices.iter().find(|d| d.is_default))
-            .map_or("Questo computer".to_string(), |d| d.name.clone());
+            .map_or(tr("Questo computer").to_string(), |d| d.name.clone());
         let open = self.output_open;
         let pop = if crate::prefs::Prefs::reduce_motion(cx) { 1. } else { (self.output_at.elapsed().as_secs_f32() / 0.24).min(1.) };
         if open && pop < 1. {
@@ -688,15 +690,15 @@ impl Render for NowPlaying {
                     .when_some(tail, |d, t| d.child(div().text_size(px(12.)).text_color(white().opacity(0.6)).child(t)))
                     .when(on && tail.is_none(), |d| d.child(icon("check", 16., accent)))
             };
-            let sec = |t: &'static str| div().mt(px(8.)).mx(px(10.)).mb(px(4.)).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(white().opacity(0.5)).child(t);
-            let mut items: Vec<AnyElement> = vec![sec("QUESTO COMPUTER").into_any_element()];
+            let sec = |t: String| div().mt(px(8.)).mx(px(10.)).mb(px(4.)).text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(white().opacity(0.5)).child(t);
+            let mut items: Vec<AnyElement> = vec![sec(tr("Questo computer").to_uppercase()).into_any_element()];
             if remote {
                 let c = connect.clone();
-                items.push(opt("np-here".into(), "desktop", "Ascolta qui".into(), false, None, false, Some(std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.play_here(cx))))).into_any_element());
+                items.push(opt("np-here".into(), "desktop", tr("Ascolta qui").into(), false, None, false, Some(std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.play_here(cx))))).into_any_element());
             }
             if empty {
                 if !remote {
-                    items.push(opt("np-out-0".into(), "desktop", "Questo computer".into(), true, None, false, None).into_any_element());
+                    items.push(opt("np-out-0".into(), "desktop", tr("Questo computer").into(), true, None, false, None).into_any_element());
                 }
             } else {
                 for (k, d) in devices.iter().enumerate() {
@@ -707,18 +709,18 @@ impl Render for NowPlaying {
                 }
             }
             if !others.is_empty() {
-                items.push(sec("LFLY CONNECT").into_any_element());
+                items.push(sec("LFLY CONNECT".into()).into_any_element());
                 for (k, d) in others.iter().enumerate() {
                     let on = following.as_ref().is_some_and(|f| f.id == d.id);
                     let busy = connecting.as_deref() == Some(d.id.as_str());
                     let (c, dev) = (connect.clone(), d.clone());
                     let act: Option<std::rc::Rc<dyn Fn(&mut App)>> = (!on).then(|| std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.follow(dev.clone(), cx))) as std::rc::Rc<dyn Fn(&mut App)>);
-                    items.push(opt(format!("np-cd-{k}").into(), crate::connect::kind_icon(&d.kind), d.name.clone(), on, busy.then_some("Collego…"), false, act).into_any_element());
+                    items.push(opt(format!("np-cd-{k}").into(), crate::connect::kind_icon(&d.kind), d.name.clone(), on, busy.then_some(tr("Collego…")), false, act).into_any_element());
                 }
             }
             if let Some(f) = &following {
                 let c = connect.clone();
-                items.push(opt("np-stop".into(), "close", format!("Smetti di controllare {}", f.name), false, None, true, Some(std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.disconnect(cx))))).into_any_element());
+                items.push(opt("np-stop".into(), "close", trf("Smetti di controllare {0}", &[&f.name]), false, None, true, Some(std::rc::Rc::new(move |cx: &mut App| c.update(cx, |c, cx| c.disconnect(cx))))).into_any_element());
             }
             let mut mg = glass_look;
             mg.tint = Rgb::hex(0x1c1c20).hsla(0.72);

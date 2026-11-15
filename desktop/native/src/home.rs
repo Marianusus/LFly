@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::tr;
 use lfly_core::pages::{Item, Shelf};
 use serde_json::Value;
 
@@ -524,10 +526,10 @@ impl Render for Home {
         let w = self.width;
         let now = chrono_like_now();
         let greeting = match now.hour {
-            0..=4 => "Buonanotte",
-            5..=12 => "Buongiorno",
-            13..=17 => "Buon pomeriggio",
-            _ => "Buonasera",
+            0..=4 => tr("Buonanotte"),
+            5..=12 => tr("Buongiorno"),
+            13..=17 => tr("Buon pomeriggio"),
+            _ => tr("Buonasera"),
         };
         let lib = self.library.read(cx);
         let quick: Vec<_> = lib.playlists.iter().take(8).cloned().collect();
@@ -596,7 +598,7 @@ impl Render for Home {
                     song_tile(format!("recent-{i}").into(), it, tile_w, cover, current.as_deref() == Some(it.id.as_str()), &s, &core).into_any_element()
                 })
                 .collect();
-            sections.push(shelf("recent".into(), "Ascoltati di recente".into(), tiles, true, tile_cols, tile_w, view, &s));
+            sections.push(shelf("recent".into(), tr("Ascoltati di recente").into(), tiles, true, tile_cols, tile_w, view, &s));
         }
         match &self.shelves {
             None => sections.push(crate::skeleton::shelves(card_w, &s, cx)),
@@ -606,7 +608,7 @@ impl Render for Home {
                     .flex()
                     .flex_col()
                     .gap(px(8.))
-                    .child(div().font_weight(FontWeight::BOLD).child("Home non disponibile"))
+                    .child(div().font_weight(FontWeight::BOLD).child(tr("Home non disponibile")))
                     .child(div().text_color(s.text2).child(e.clone()))
                     .child(
                         div()
@@ -630,7 +632,7 @@ impl Render for Home {
                                     let _ = me.update(cx, |this, cx| this.load(cx));
                                 }
                             })
-                            .child("Riprova"),
+                            .child(tr("Riprova")),
                     )
                     .into_any_element(),
             ),
@@ -691,13 +693,13 @@ impl Home {
         let remote = self.model.read(cx).remote.is_some();
         let accent = s.accent.hsla(1.);
         let subtitle = if state.loading {
-            "Il DJ sta preparando la selezione…".to_string()
+            tr("Il DJ sta preparando la selezione…").to_string()
         } else if let Some(b) = state.block.as_ref().filter(|_| state.active) {
             crate::dj::block_label(b)
         } else {
-            "La tua musica, scelta e presentata per te".to_string()
+            tr("La tua musica, scelta e presentata per te").to_string()
         };
-        let label = if state.active { "Ferma il DJ" } else { "Avvia il DJ" };
+        let label = if state.active { tr("Ferma il DJ") } else { tr("Avvia il DJ") };
         let button = div()
             .id("dj-toggle")
             .h(px(36.))
@@ -773,15 +775,12 @@ struct Now {
     date: String,
 }
 
-/// The local hour and the date in Italian ("mercoledì 12 novembre"), as Home.svelte's
-/// toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" }).
+/// The local hour and the long date in the window's language ("mercoledì 12 novembre", as
+/// Home.svelte's toLocaleDateString with weekday, day and month).
 fn chrono_like_now() -> Now {
     use chrono::{Datelike, Local, Timelike};
-    const MONTHS: [&str; 12] = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
-    const DAYS: [&str; 7] = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"];
     let now = Local::now();
-    let weekday = DAYS[now.weekday().num_days_from_monday() as usize];
-    Now { hour: now.hour(), date: format!("{weekday} {} {}", now.day(), MONTHS[now.month0() as usize]) }
+    Now { hour: now.hour(), date: crate::i18n::long_date(now.weekday().num_days_from_monday() as usize, now.day(), now.month0() as usize) }
 }
 
 /// The DJ card's line: a new one fades in; "preparing" breathes until the first block is in

@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use gpui::{
     div, point, px, size, Context, InteractiveElement, IntoElement, Modifiers, ParentElement, Pixels, Point, Render,
-    ScrollDelta, ScrollEvent, StatefulInteractiveElement, Styled, TestAppContext, TouchPhase, Window,
+    AppContext as _, ScrollDelta, ScrollEvent, StatefulInteractiveElement, Styled, TestAppContext, TouchPhase, Window,
 };
 
 fn at(x: f32, y: f32) -> Point<Pixels> {
@@ -228,4 +228,41 @@ fn shortcuts_stand_aside_while_a_field_has_the_keyboard(cx: &mut TestAppContext)
     });
     cx.run_until_parked();
     cx.update(|window, cx| assert!(crate::ui::typing(window, cx)));
+}
+
+/// A cached view that counts its renders, inside a parent that draws it cached (as the pages are).
+struct Counted(Rc<Cell<u32>>);
+
+impl Render for Counted {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        self.0.set(self.0.get() + 1);
+        div().size(px(10.))
+    }
+}
+
+struct Holder(gpui::Entity<Counted>);
+
+impl Render for Holder {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size(px(100.)).child(self.0.clone().cached(gpui::StyleRefinement::default().size_full()))
+    }
+}
+
+/// A language switch calls `refresh_windows`: every cached view must draw again, though none
+/// was notified, or its text would stay in the old language.
+#[gpui::test]
+fn a_window_refresh_redraws_cached_views(cx: &mut TestAppContext) {
+    let renders = Rc::new(Cell::new(0));
+    let r = renders.clone();
+    let (holder, cx) = cx.add_window_view(move |_, cx| Holder(cx.new(|_| Counted(r))));
+    cx.run_until_parked();
+    let first = renders.get();
+    assert!(first >= 1);
+    // The parent draws again: the cached child is reused.
+    holder.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert_eq!(renders.get(), first, "a parent's redraw reuses the cached child");
+    cx.update(|_, cx| cx.refresh_windows());
+    cx.run_until_parked();
+    assert_eq!(renders.get(), first + 1, "the refresh drew the cached child again");
 }

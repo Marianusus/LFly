@@ -295,3 +295,12 @@ Notes on these checks:
     - Next: real waveform peaks (decode only downloads or complete cache entries, never a second
       download), BPM/key from the Automix analysis, then the functions the user dictates. Two
       independent decks need engine work (one timeline today).
+
+16. **English and Romanian (2026-11-15, uncommitted; the user asked for them and went to sleep).**
+    See README "Languages". About 450 rows; the English and Romanian beyond the phone's own
+    strings (res/values-en, values-ro: 131 exact matches) are mine and need the user's read.
+    Default stays Italian (this PC's LANG is en_US, so following the system would have switched
+    the user to English). Known gaps: a few Romanian counts inside sentences may miss "de" for 20+
+    (song counts use `i18n::songs`/`count`, which handle it); YouTube Music's own shelf titles come in
+    whatever language YouTube sends (`hl` untouched); the Tauri app is Italian only; text a page
+    stored at load updates on its next load. Scratchpad snapshots of the diff were taken.

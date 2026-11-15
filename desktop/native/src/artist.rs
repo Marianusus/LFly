@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::tr;
 use lfly_core::pages::ArtistPage;
 
 use crate::art;
@@ -118,7 +120,7 @@ impl Render for Artist {
 
         let mut body: Vec<AnyElement> = Vec::new();
         match &self.page {
-            None => body.push(div().px(px(24.)).text_color(s.text2).child("Carico…").into_any_element()),
+            None => body.push(div().px(px(24.)).text_color(s.text2).child(tr("Carico…")).into_any_element()),
             Some(Err(e)) => {
                 // `.p-msg`: the error and "Riprova".
                 let me = cx.entity().downgrade();
@@ -151,7 +153,7 @@ impl Render for Artist {
                                         this.load(id, name, cx);
                                     });
                                 })
-                                .child("Riprova"),
+                                .child(tr("Riprova")),
                         )
                         .into_any_element(),
                 )
@@ -221,7 +223,7 @@ impl Render for Artist {
                                     .flex()
                                     .items_baseline()
                                     .justify_between()
-                                    .child(div().text_size(px(22.)).font_weight(FontWeight::BOLD).child("Brani popolari"))
+                                    .child(div().text_size(px(22.)).font_weight(FontWeight::BOLD).child(tr("Brani popolari")))
                                     .when(p.songs.len() > 6, |d| {
                                         d.child(
                                             div()
@@ -236,7 +238,7 @@ impl Render for Artist {
                                                         cx.notify();
                                                     });
                                                 })
-                                                .child(if all_on { "Mostra meno" } else { "Mostra altro" }),
+                                                .child(if all_on { tr("Mostra meno") } else { tr("Mostra altro") }),
                                         )
                                     }),
                             )
@@ -245,7 +247,7 @@ impl Render for Artist {
                     );
                 }
                 let nav = self.nav.clone();
-                for (key, label, items) in [("a-albums", "Album", &p.albums), ("a-singles", "Singoli ed EP", &p.singles), ("a-related", "Ai fan piacciono anche", &p.related)] {
+                for (key, label, items) in [("a-albums", tr("Album#plurale"), &p.albums), ("a-singles", tr("Singoli ed EP"), &p.singles), ("a-related", tr("Ai fan piacciono anche"), &p.related)] {
                     if let Some(shelf) = card_shelf(key, label, items, (self.page_width - 48.).max(crate::home::CARD_MIN), &self.covers, &s, &self.core, &nav, None, view, cx) {
                         body.push(shelf);
                     }
@@ -257,7 +259,7 @@ impl Render for Artist {
                             .px(px(24.))
                             .pt(px(8.))
                             .pb(px(28.))
-                            .child(div().mb(px(12.)).text_size(px(22.)).font_weight(FontWeight::BOLD).child("Informazioni"))
+                            .child(div().mb(px(12.)).text_size(px(22.)).font_weight(FontWeight::BOLD).child(tr("Informazioni")))
                             .child(
                                 div()
                                     .id("about")
@@ -288,7 +290,7 @@ impl Render for Artist {
                                             .child(div().font_weight(FontWeight::BOLD).child(p.name.clone()))
                                             .children(p.subscribers.clone().map(|x| div().text_size(px(13.)).text_color(s.text2).child(x)))
                                             .child(div().text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).when(!self.about, |d| d.line_clamp(4).text_ellipsis()).child(desc))
-                                            .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(accent).child(if self.about { "Mostra meno" } else { "Altro" })),
+                                            .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(accent).child(if self.about { tr("Mostra meno") } else { tr("Altro") })),
                                     ),
                             )
                             .into_any_element(),
@@ -319,7 +321,7 @@ impl Render for Artist {
                             .flex()
                             .flex_col()
                             .gap(px(4.))
-                            .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(on_art(s.text2)).child("ARTISTA"))
+                            .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(on_art(s.text2)).child(tr("Artista").to_uppercase()))
                             .child(
                                 div()
                                     .text_size(px((self.width * 0.07).clamp(40., 92.)))

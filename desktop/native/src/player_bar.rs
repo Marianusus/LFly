@@ -222,7 +222,7 @@ impl Render for PlayerBar {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(if has { c.text } else { c.text2 })
                             .truncate()
-                            .child(track.as_ref().map_or(SharedString::from("Niente in riproduzione"), |t| t.title.clone().into())),
+                            .child(track.as_ref().map_or(SharedString::from(crate::i18n::tr("Niente in riproduzione")), |t| t.title.clone().into())),
                     )
                     .child(
                         div()
@@ -230,7 +230,7 @@ impl Render for PlayerBar {
                             .line_height(px(16.9))
                             .text_color(if has { c.text2 } else { c.text3 })
                             .truncate()
-                            .child(track.as_ref().map_or(SharedString::from("Scegli un brano per iniziare"), |t| t.artist.clone().into())),
+                            .child(track.as_ref().map_or(SharedString::from(crate::i18n::tr("Scegli un brano per iniziare")), |t| t.artist.clone().into())),
                     ),
             )
             .when(has && !narrow, |s| {

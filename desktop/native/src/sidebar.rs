@@ -6,6 +6,8 @@
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use crate::i18n::{tr, trf};
+
 use crate::covers::Covers;
 use crate::glass;
 use crate::icons::icon;
@@ -202,8 +204,8 @@ impl Render for Sidebar {
         let mut entries = vec![entry(
             "liked".into(),
             liked_art,
-            "Brani che ti piacciono".into(),
-            format!("Playlist · {}", crate::ui::brani(favorites as u64)).into(),
+            tr("Brani che ti piacciono").into(),
+            format!("{} · {}", tr("Playlist"), crate::ui::brani(favorites as u64)).into(),
             Route::Liked,
         )];
         // Sidebar.svelte `showDownloads`: once something is downloaded or on its way.
@@ -223,8 +225,8 @@ impl Render for Sidebar {
                 .bg(linear_gradient(140., linear_color_stop(rgb(0x34c3ff), 0.), linear_color_stop(rgb(0x2563eb), 1.)))
                 .child(icon("download", 17., white()))
                 .into_any_element();
-            let sub = if downloading > 0 { format!("In download: {downloading}") } else { crate::ui::brani(dl_count as u64) };
-            entries.push(entry("downloads".into(), art, "Scaricati".into(), sub.into(), Route::Downloads));
+            let sub = if downloading > 0 { trf("In download: {0}", &[&downloading]) } else { crate::ui::brani(dl_count as u64) };
+            entries.push(entry("downloads".into(), art, tr("Scaricati").into(), sub.into(), Route::Downloads));
         }
         for p in playlists {
             let cover = p.cover_url.as_ref().and_then(|u| self.covers.update(cx, |cv, cx| cv.get(u, cx)));
@@ -240,7 +242,7 @@ impl Render for Sidebar {
                 format!("playlist:{}", p.id),
                 art,
                 p.name.clone().into(),
-                format!("Playlist · {}", crate::ui::brani(p.count as u64)).into(),
+                format!("{} · {}", tr("Playlist"), crate::ui::brani(p.count as u64)).into(),
                 Route::Playlist { id: p.id, name: p.name, local: true },
             ));
         }
@@ -260,7 +262,7 @@ impl Render for Sidebar {
                 format!("playlist:{}", p.id),
                 art,
                 p.title.clone().into(),
-                p.subtitle.clone().unwrap_or_else(|| "Playlist".into()).into(),
+                p.subtitle.clone().unwrap_or_else(|| tr("Playlist").into()).into(),
                 Route::Playlist { id: p.id, name: p.title, local: false },
             ));
         }
@@ -359,10 +361,10 @@ impl Render for Sidebar {
                             .gap(px(2.))
                             .child(self.tabs_pill.origin())
                             .children(tabs_pill)
-                            .child(item("home", "Home", "home", 20., Route::Home))
-                            .child(item("search", "Cerca", "search", 20., Route::Search))
-                            .child(item("library", "Libreria", "library", 20., Route::Library))
-                            .child(item("console", "Console", "console", 20., Route::Console)),
+                            .child(item("home", tr("Home"), "home", 20., Route::Home))
+                            .child(item("search", tr("Cerca"), "search", 20., Route::Search))
+                            .child(item("library", tr("Libreria"), "library", 20., Route::Library))
+                            .child(item("console", tr("Console"), "console", 20., Route::Console)),
                     )
                     .child(
                         // `.section`: the caption and the way to the library; folded, a rule.
@@ -377,7 +379,7 @@ impl Render for Sidebar {
                             .pb(px(6.))
                             .pl(px(18.))
                             .when(wide, |d| {
-                                d.child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c.text3).whitespace_nowrap().child("PLAYLIST")).child(
+                                d.child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(c.text3).whitespace_nowrap().child(tr("Playlist#plurale").to_uppercase())).child(
                                     div()
                                         .id("sb-mini")
                                         .size(px(26.))
@@ -420,7 +422,7 @@ impl Render for Sidebar {
                             .px(px(4.))
                             .border_t_1()
                             .border_color(c.separator)
-                            .child(item("settings", "Impostazioni", "settings", 19., Route::Settings)),
+                            .child(item("settings", tr("Impostazioni"), "settings", 19., Route::Settings)),
                     ),
             )
     }

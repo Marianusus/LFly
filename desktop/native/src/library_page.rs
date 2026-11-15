@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use serde_json::Value;
 
 use crate::core::Core;
@@ -92,13 +94,13 @@ pub fn new_playlist(library: &Entity<LibraryModel>, nav: &Entity<Nav>, cx: &mut 
     let n = library.read(cx).playlists.len() + 1;
     let nav = nav.clone();
     library.update(cx, |l, cx| {
-        l.create_playlist(format!("La mia playlist n. {n}"), Vec::new(), move |id, name, cx| nav.update(cx, |n, cx| n.go(Route::Playlist { id, name, local: true }, cx)), cx)
+        l.create_playlist(trf("La mia playlist n. {0}", &[&n]), Vec::new(), move |id, name, cx| nav.update(cx, |n, cx| n.go(Route::Playlist { id, name, local: true }, cx)), cx)
     });
 }
 
 /// library.importBackup: the person picks the phone's .lfly backup; its library replaces this one.
 pub fn import_backup(library: &Entity<LibraryModel>, cx: &mut App) {
-    let picked = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Importa".into()) });
+    let picked = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(tr("Importa").into()) });
     let library = library.clone();
     cx.spawn(async move |cx| {
         let Ok(Ok(Some(paths))) = picked.await else { return };
@@ -108,7 +110,7 @@ pub fn import_backup(library: &Entity<LibraryModel>, cx: &mut App) {
                 l.import_backup(
                     path,
                     |r, cx| match r {
-                        Ok(s) => Toasts::say(format!("Importati {} playlist, {} preferiti e {} brani ascoltati", s.playlists, s.favorites, s.history), cx),
+                        Ok(s) => Toasts::say(trf("Importati {0} playlist, {1} preferiti e {2} brani ascoltati", &[&s.playlists, &s.favorites, &s.history]), cx),
                         Err(e) => Toasts::say(e, cx),
                     },
                     cx,
@@ -291,24 +293,24 @@ impl Render for LibraryPage {
             .flex()
             .flex_wrap()
             .gap(px(8.))
-            .child(pill("import", "upload", "Importa dal telefono", false, false).on_click(move |_, _, cx| import_backup(&lib1, cx)))
-            .child(pill("spotify", "download", "Importa da Spotify", false, self.spotify).on_click(move |_, _, cx| {
+            .child(pill("import", "upload", tr("Importa dal telefono"), false, false).on_click(move |_, _, cx| import_backup(&lib1, cx)))
+            .child(pill("spotify", "download", tr("Importa da Spotify"), false, self.spotify).on_click(move |_, _, cx| {
                 let _ = me_sp.update(cx, |this, cx| {
                     this.spotify = !this.spotify;
                     cx.notify();
                 });
             }))
-            .child(pill("new", "plus", "Nuova playlist", true, false).on_click(move |_, _, cx| new_playlist(&lib2, &nav1, cx)));
+            .child(pill("new", "plus", tr("Nuova playlist"), true, false).on_click(move |_, _, cx| new_playlist(&lib2, &nav1, cx)));
 
         // Chips.svelte on glass, and the grid/list switch beside it.
         let yt_items = crate::account::AccountModel::entity(cx).read(cx).shelf();
-        let mut filters = vec![(Filter::All, "Tutto"), (Filter::Playlists, "Playlist")];
+        let mut filters = vec![(Filter::All, tr("Tutto")), (Filter::Playlists, tr("Playlist#plurale"))];
         if !yt_items.is_empty() {
             filters.push((Filter::YouTube, "YouTube Music"));
         }
-        filters.push((Filter::Downloads, "Scaricati"));
+        filters.push((Filter::Downloads, tr("Scaricati")));
         if !history.is_empty() {
-            filters.push((Filter::Recent, "Recenti"));
+            filters.push((Filter::Recent, tr("Recenti")));
         }
         let bg = s.bg.hsla(1.);
         let chips = div()
@@ -422,9 +424,9 @@ impl Render for LibraryPage {
                     .gap(px(10.))
                     .text_size(px(13.))
                     .text_color(s.text2)
-                    .child(div().mr_auto().child(format!("{} sul computer", crate::ui::brani(downloaded.len() as u64))))
-                    .child(pill("dl-play", true).on_click(move |_, _, cx| play(cx)).child(icon("play", 14., s.on_accent.hsla(1.))).child("Riproduci"))
-                    .child(pill("dl-open", false).on_click(move |_, _, cx| open(cx)).child("Apri Scaricati"))
+                    .child(div().mr_auto().child(trf("{0} sul computer", &[&crate::ui::brani(downloaded.len() as u64)])))
+                    .child(pill("dl-play", true).on_click(move |_, _, cx| play(cx)).child(icon("play", 14., s.on_accent.hsla(1.))).child(tr("Riproduci")))
+                    .child(pill("dl-open", false).on_click(move |_, _, cx| open(cx)).child(tr("Apri Scaricati")))
                     .into_any_element(),
             );
             sections.push(crate::track_row::columns(true, &s).into_any_element());
@@ -464,8 +466,8 @@ impl Render for LibraryPage {
                     .gap(px(8.))
                     .text_color(s.text2)
                     .child(icon("download", 28., s.text2))
-                    .child(div().font_weight(FontWeight::BOLD).text_color(s.text).child("Nessun brano scaricato"))
-                    .child(div().text_center().child("Scarica album, playlist o singoli brani (tasto destro › Scarica) per ascoltarli anche senza connessione."))
+                    .child(div().font_weight(FontWeight::BOLD).text_color(s.text).child(tr("Nessun brano scaricato")))
+                    .child(div().text_center().child(tr("Scarica album, playlist o singoli brani (tasto destro › Scarica) per ascoltarli anche senza connessione.")))
                     .into_any_element(),
             );
         } else {
@@ -474,7 +476,7 @@ impl Render for LibraryPage {
                 if self.filter == Filter::All {
                     items.push(library_item(
                         "lib-liked".into(),
-                        "Brani che ti piacciono".into(),
+                        tr("Brani che ti piacciono").into(),
                         crate::ui::brani(favorites.len() as u64),
                         Art::Icon("heart-fill", None),
                         list,
@@ -487,8 +489,8 @@ impl Render for LibraryPage {
                     if !downloaded.is_empty() {
                         items.push(library_item(
                             "lib-downloads".into(),
-                            "Scaricati".into(),
-                            format!("{} sul computer", crate::ui::brani(downloaded.len() as u64)),
+                            tr("Scaricati").into(),
+                            trf("{0} sul computer", &[&crate::ui::brani(downloaded.len() as u64)]),
                             Art::Icon("download", Some((0x3d8bfd, 0x1d2f8f))),
                             list,
                             item_w,
@@ -505,7 +507,7 @@ impl Render for LibraryPage {
                     items.push(library_item(
                         format!("lib-{}", p.id).into(),
                         p.name.clone(),
-                        format!("Playlist · {}", crate::ui::brani(p.count as u64)),
+                        format!("{} · {}", tr("Playlist"), crate::ui::brani(p.count as u64)),
                         Art::Cover(cover),
                         list,
                         item_w,
@@ -520,7 +522,7 @@ impl Render for LibraryPage {
                     div()
                         .px(px(24.))
                         .pb(px(28.))
-                        .when(self.filter == Filter::All, |d| d.child(section_title("Le tue raccolte")))
+                        .when(self.filter == Filter::All, |d| d.child(section_title(tr("Le tue raccolte"))))
                         .child(grid(items))
                         .when(playlists.is_empty(), |d| {
                             d.child(
@@ -534,9 +536,9 @@ impl Render for LibraryPage {
                                     .items_center()
                                     .gap(px(8.))
                                     .text_color(s.text2)
-                                    .child(div().font_weight(FontWeight::BOLD).text_color(s.text).child("Ancora nessuna playlist"))
-                                    .child("Crea la prima, importala dal telefono o da Spotify.")
-                                    .child(pill("new-empty", "plus", "Nuova playlist", true, false).on_click(move |_, _, cx| new_playlist(&lib3, &nav3, cx))),
+                                    .child(div().font_weight(FontWeight::BOLD).text_color(s.text).child(tr("Ancora nessuna playlist")))
+                                    .child(tr("Crea la prima, importala dal telefono o da Spotify."))
+                                    .child(pill("new-empty", "plus", tr("Nuova playlist"), true, false).on_click(move |_, _, cx| new_playlist(&lib3, &nav3, cx))),
                             )
                         })
                         .into_any_element(),
@@ -558,7 +560,7 @@ impl Render for LibraryPage {
                         library_item(
                             format!("lib-yt-{i}").into(),
                             it.title.clone(),
-                            it.subtitle.clone().unwrap_or_else(|| "Playlist".into()),
+                            it.subtitle.clone().unwrap_or_else(|| tr("Playlist").into()),
                             art,
                             list,
                             item_w,
@@ -569,7 +571,7 @@ impl Render for LibraryPage {
                         )
                     })
                     .collect();
-                sections.push(div().px(px(24.)).pb(px(28.)).child(section_title("Da YouTube Music")).child(grid(items)).into_any_element());
+                sections.push(div().px(px(24.)).pb(px(28.)).child(section_title(tr("Da YouTube Music"))).child(grid(items)).into_any_element());
             }
             if !history.is_empty() && matches!(self.filter, Filter::All | Filter::Recent) {
                 let n = if self.filter == Filter::Recent { 60 } else { 12 };
@@ -595,7 +597,7 @@ impl Render for LibraryPage {
                         )
                     })
                     .collect();
-                sections.push(div().px(px(24.)).pb(px(28.)).child(section_title("Ascoltati di recente")).child(grid(items)).into_any_element());
+                sections.push(div().px(px(24.)).pb(px(28.)).child(section_title(tr("Ascoltati di recente"))).child(grid(items)).into_any_element());
             }
         }
 
@@ -621,8 +623,8 @@ impl Render for LibraryPage {
                             .flex()
                             .flex_col()
                             .gap(px(4.))
-                            .child(div().text_size(px(((self.page_width + 280.) * 0.036).clamp(30., 44.))).font_weight(FontWeight::EXTRA_BOLD).child("Libreria"))
-                            .child(div().text_size(px(13.)).text_color(s.text3).child(format!("{} playlist · {} brani che ti piacciono", playlists.len(), favorites.len()))),
+                            .child(div().text_size(px(((self.page_width + 280.) * 0.036).clamp(30., 44.))).font_weight(FontWeight::EXTRA_BOLD).child(tr("Libreria")))
+                            .child(div().text_size(px(13.)).text_color(s.text3).child(trf("{0} playlist · {1}", &[&playlists.len(), &crate::i18n::count(favorites.len() as u64, ("brano che ti piace", "brani che ti piacciono"), ("liked song", "liked songs"), ("melodie apreciată", "melodii apreciate"))]))),
                     )
                     .child(acts),
             )

@@ -13,6 +13,7 @@ pub mod identity;
 pub mod library;
 pub mod library_merge;
 pub mod libsync;
+pub mod lang;
 pub mod lyrics_store;
 pub mod media;
 pub mod pages;

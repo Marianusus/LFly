@@ -27,6 +27,8 @@ mod midi;
 mod midi_map;
 mod lyrics;
 mod console;
+mod i18n;
+mod i18n_table;
 mod lyrics_page;
 mod media;
 mod motion;
@@ -329,7 +331,7 @@ impl Lfly {
                             } else {
                                 crate::menu::Menu::open_track(point(px(520.), px(260.)), t, None, cx);
                             }
-                            crate::toast::Toasts::say("Aggiunto alla coda", cx);
+                            crate::toast::Toasts::say(crate::i18n::tr("Aggiunto alla coda"), cx);
                         }
                     }
                     cx.notify();
@@ -400,17 +402,17 @@ impl Lfly {
                 "s" if ctrl && !m.shift && has => {
                     let on = !pm.state.as_ref().is_some_and(|s| s.shuffle);
                     pm.command(protocol::CMD_SHUFFLE, i64::from(on));
-                    crate::toast::Toasts::say(if on { "Riproduzione casuale attiva" } else { "Riproduzione casuale disattivata" }, cx);
+                    crate::toast::Toasts::say(if on { crate::i18n::tr("Riproduzione casuale attiva") } else { crate::i18n::tr("Riproduzione casuale disattivata") }, cx);
                 }
                 "r" if ctrl && !m.shift && has => {
                     // PlayerBar's cycle: off → all → one → off.
                     let (next, say) = match pm.state.as_ref().map_or("off", |s| s.repeat.as_str()) {
-                        "off" => (protocol::REPEAT_ALL, "Ripeti tutto"),
-                        "all" => (protocol::REPEAT_ONE, "Ripeti questo brano"),
-                        _ => (protocol::REPEAT_OFF, "Ripetizione disattivata"),
+                        "off" => (protocol::REPEAT_ALL, crate::i18n::t("Ripeti tutto")),
+                        "all" => (protocol::REPEAT_ONE, crate::i18n::t("Ripeti questo brano")),
+                        _ => (protocol::REPEAT_OFF, crate::i18n::t("Ripetizione disattivata")),
                     };
                     pm.command(protocol::CMD_REPEAT, next);
-                    crate::toast::Toasts::say(say, cx);
+                    crate::toast::Toasts::say(crate::i18n::tr(say), cx);
                 }
                 _ => return,
             }
@@ -698,7 +700,7 @@ impl Lfly {
                                 .text_size(px(13.5))
                                 .text_color(text2)
                                 .child(icon("search", 16., text2))
-                                .child(div().flex_1().truncate().child("Cosa vuoi ascoltare?"))
+                                .child(div().flex_1().truncate().child(crate::i18n::tr("Cosa vuoi ascoltare?")))
                                 .child(
                                     div()
                                         .flex_none()
@@ -801,10 +803,10 @@ impl Lfly {
                 .flex_col()
                 .gap(px(6.))
                 .child(div().text_size(px(28.)).font_weight(FontWeight::BOLD).child(match other {
-                    Route::Settings => "Impostazioni",
+                    Route::Settings => crate::i18n::tr("Impostazioni"),
                     _ => "",
                 }))
-                .child(div().text_color(text3).child("Questa pagina non è ancora stata portata nella versione nativa."))
+                .child(div().text_color(text3).child(crate::i18n::tr("Questa pagina non è ancora stata portata nella versione nativa.")))
                 .into_any_element(),
         }
     }
@@ -824,15 +826,15 @@ impl Lfly {
         let (badge, title, text, code, asking) = match (request, pairing) {
             (Some(r), _) => (
                 "phone",
-                format!("{} vuole controllare questo computer", r.device_name),
-                format!("Accetta solo se il codice è lo stesso che vedi su {}.", r.device_name),
+                crate::i18n::trf("{0} vuole controllare questo computer", &[&r.device_name]),
+                crate::i18n::trf("Accetta solo se il codice è lo stesso che vedi su {0}.", &[&r.device_name]),
                 r.code,
                 true,
             ),
             (None, Some((name, code))) => (
                 "devices",
-                format!("Abbinamento con {name}"),
-                format!("Accetta questo computer su {name}. Il codice deve essere lo stesso su entrambi gli schermi."),
+                crate::i18n::trf("Abbinamento con {0}", &[&name]),
+                crate::i18n::trf("Accetta questo computer su {0}. Il codice deve essere lo stesso su entrambi gli schermi.", &[&name]),
                 code,
                 false,
             ),
@@ -862,10 +864,10 @@ impl Lfly {
                 .justify_center()
                 .gap(px(10.))
                 .w_full()
-                .child(btn("pair-no", "Rifiuta", false).on_click(move |_, _, cx| c1.update(cx, |c, cx| c.answer(false, cx))))
-                .child(btn("pair-yes", "Accetta", true).on_click(move |_, _, cx| c2.update(cx, |c, cx| c.answer(true, cx))))
+                .child(btn("pair-no", crate::i18n::tr("Rifiuta"), false).on_click(move |_, _, cx| c1.update(cx, |c, cx| c.answer(false, cx))))
+                .child(btn("pair-yes", crate::i18n::tr("Accetta"), true).on_click(move |_, _, cx| c2.update(cx, |c, cx| c.answer(true, cx))))
         } else {
-            div().flex().justify_center().w_full().child(btn("pair-cancel", "Annulla", false).on_click(move |_, _, cx| c3.update(cx, |c, cx| c.disconnect(cx))))
+            div().flex().justify_center().w_full().child(btn("pair-cancel", crate::i18n::tr("Annulla"), false).on_click(move |_, _, cx| c3.update(cx, |c, cx| c.disconnect(cx))))
         };
         Some(
             div()
@@ -962,7 +964,7 @@ impl Lfly {
                         .on_click(move |_, _, cx| ui.update(cx, |u, cx| u.toggle_panel(crate::ui::SidePanel::Devices, cx)))
                         .child(div().size(px(7.)).rounded_full().bg(on))
                         .child(crate::icons::icon(crate::connect::kind_icon(&following.kind), 13., on))
-                        .child(format!("In riproduzione su {}", following.name)),
+                        .child(crate::i18n::trf("In riproduzione su {0}", &[&following.name])),
                 )
                 .into_any_element(),
         )
@@ -1333,6 +1335,8 @@ impl Render for Lfly {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // The language first: the core's messages and the DJ read it too.
+    i18n::set_lang(i18n::saved());
     let (core, updates) = match Core::new() {
         Ok(c) => c,
         Err(e) => {

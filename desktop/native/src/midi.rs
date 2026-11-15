@@ -119,7 +119,7 @@ impl MidiModel {
                     match &name {
                         Some(n) => {
                             log::info!("Console: {n}");
-                            Toasts::say(format!("Console collegata: {}", display_name(n)), cx);
+                            Toasts::say(crate::i18n::trf("Console collegata: {0}", &[&display_name(n)]), cx);
                         }
                         None => log::info!("Console: none"),
                     }
@@ -165,7 +165,7 @@ impl MidiModel {
                 audio.update(cx, |a, cx| {
                     let on = !a.v.automix;
                     a.set_automix(on, None, cx);
-                    Toasts::say(if on { "Automix acceso" } else { "Automix spento" }, cx);
+                    Toasts::say(if on { crate::i18n::tr("Automix acceso") } else { crate::i18n::tr("Automix spento") }, cx);
                 });
             }
             Action::Volume => {

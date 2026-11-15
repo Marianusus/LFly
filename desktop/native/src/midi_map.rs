@@ -26,10 +26,10 @@ impl Control {
     /// "Nota 11, canale 1" as Settings shows it.
     pub fn describe(&self) -> String {
         let kind = match self.kind {
-            Kind::Note => "Nota",
-            Kind::Cc => "Controllo",
+            Kind::Note => crate::i18n::tr("Nota {0}, canale {1}"),
+            Kind::Cc => crate::i18n::tr("Controllo {0}, canale {1}"),
         };
-        format!("{kind} {}, canale {}", self.number, self.channel + 1)
+        crate::i18n::fill(kind, &[&self.number, &(self.channel + 1)])
     }
 }
 
@@ -83,12 +83,12 @@ impl Action {
 
     pub fn label(self) -> &'static str {
         match self {
-            Action::PlayPause => "Play / pausa",
+            Action::PlayPause => crate::i18n::tr("Play / pausa"),
             Action::Cue => "Cue",
-            Action::Next => "Brano successivo",
-            Action::Previous => "Brano precedente",
-            Action::Volume => "Volume",
-            Action::Tempo => "Tempo",
+            Action::Next => crate::i18n::tr("Brano successivo"),
+            Action::Previous => crate::i18n::tr("Brano precedente"),
+            Action::Volume => crate::i18n::tr("Volume"),
+            Action::Tempo => crate::i18n::tr("Tempo"),
             Action::Automix => "Automix",
         }
     }

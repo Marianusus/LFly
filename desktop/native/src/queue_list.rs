@@ -55,7 +55,7 @@ pub fn queue_list(model: &Entity<PlayerModel>, covers: &Entity<Covers>, core: &A
     if let Some(t) = &current {
         // `.eq`: three bars in the accent, moving while the music plays, low and still in pause.
         let bars = div().mr(px(6.)).child(crate::track_row::eq_bars("queue-eq", 14., accent, playing, moving));
-        out = out.child(section("IN RIPRODUZIONE".into(), true)).child(
+        out = out.child(section(crate::i18n::tr("In riproduzione").to_uppercase(), true)).child(
             div()
                 .flex()
                 .items_center()
@@ -71,9 +71,9 @@ pub fn queue_list(model: &Entity<PlayerModel>, covers: &Entity<Covers>, core: &A
     }
     let upcoming: Vec<(usize, _)> = queue.iter().enumerate().filter(|(i, _)| *i as i32 > index).map(|(i, t)| (i, t.clone())).collect();
     let n = upcoming.len();
-    out = out.child(section(if n > 0 { format!("SUCCESSIVI · {n}") } else { "SUCCESSIVI".into() }, current.is_none()));
+    out = out.child(section(if n > 0 { format!("{} · {n}", crate::i18n::tr("Successivi").to_uppercase()) } else { crate::i18n::tr("Successivi").to_uppercase() }, current.is_none()));
     if upcoming.is_empty() {
-        return out.child(div().mx(px(8.)).my(px(4.)).text_color(white().opacity(0.6)).child("Nient'altro in coda."));
+        return out.child(div().mx(px(8.)).my(px(4.)).text_color(white().opacity(0.6)).child(crate::i18n::tr("Nient'altro in coda.")));
     }
     for (i, t) in upcoming {
         let group: SharedString = format!("q-{i}").into();

@@ -60,12 +60,12 @@ fn test_run() -> bool {
 
 pub fn kind_label(kind: &str) -> &'static str {
     match kind {
-        "phone" => "Telefono",
-        "tablet" => "Tablet",
-        "desktop" => "Computer",
-        "tv" => "TV",
-        "watch" => "Orologio",
-        _ => "Dispositivo",
+        "phone" => crate::i18n::t("Telefono"),
+        "tablet" => crate::i18n::t("Tablet"),
+        "desktop" => crate::i18n::t("Computer"),
+        "tv" => crate::i18n::t("TV"),
+        "watch" => crate::i18n::t("Orologio"),
+        _ => crate::i18n::t("Dispositivo"),
     }
 }
 
@@ -253,7 +253,7 @@ impl ConnectModel {
                         self.request = None;
                     }
                 }
-                HostEvent::Trusted { device_name, .. } => Toasts::say(format!("{device_name} ora può controllare questo computer"), cx),
+                HostEvent::Trusted { device_name, .. } => Toasts::say(crate::i18n::trf("{0} ora può controllare questo computer", &[&device_name]), cx),
                 HostEvent::Controllers { count } => self.controllers = count,
             },
             Ev::Controller(e) => self.on_controller(e, cx),
@@ -273,14 +273,14 @@ impl ConnectModel {
             ControllerEvent::Refused { device_name } => {
                 self.pairing = None;
                 self.connecting = None;
-                Toasts::say(format!("{device_name} non ha accettato questo computer."), cx);
+                Toasts::say(crate::i18n::trf("{0} non ha accettato questo computer.", &[&device_name]), cx);
             }
             ControllerEvent::Following { device } => {
                 self.pairing = None;
                 self.connecting = None;
                 if device.is_none() {
                     if let Some(old) = &self.following {
-                        Toasts::say(format!("Collegamento con {} perso.", old.name), cx);
+                        Toasts::say(crate::i18n::trf("Collegamento con {0} perso.", &[&old.name]), cx);
                     }
                 }
                 self.set_following(device, cx);
@@ -292,7 +292,7 @@ impl ConnectModel {
             ControllerEvent::HandedTo { device_id } => match self.devices.iter().find(|d| d.id == device_id).cloned() {
                 Some(next) => self.follow(next, cx),
                 None => {
-                    Toasts::say("La musica è passata a un altro dispositivo.", cx);
+                    Toasts::say(crate::i18n::tr("La musica è passata a un altro dispositivo."), cx);
                     self.disconnect(cx);
                 }
             },
@@ -407,7 +407,7 @@ impl ConnectModel {
         if let Some(host) = self.core.player.host() {
             host.forget_trusted();
         }
-        Toasts::say("Dispositivi abbinati dimenticati", cx);
+        Toasts::say(crate::i18n::tr("Dispositivi abbinati dimenticati"), cx);
         cx.notify();
     }
 }

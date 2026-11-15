@@ -9,6 +9,8 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use crate::i18n::{tr, trf};
+
 use crate::core::{runtime, Core};
 use crate::icons::icon;
 use crate::library_model::LibraryModel;
@@ -105,17 +107,17 @@ impl SpotifyImport {
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match r {
-                    Ok(r) if r.tracks.is_empty() => this.error = Some("Nessun brano trovato su YouTube Music".into()),
+                    Ok(r) if r.tracks.is_empty() => this.error = Some(tr("Nessun brano trovato su YouTube Music").into()),
                     Ok(r) => {
                         let mut notes = Vec::new();
                         if !r.missing.is_empty() {
-                            notes.push(format!("{} non trovati", r.missing.len()));
+                            notes.push(trf("{0} non trovati", &[&r.missing.len()]));
                         }
                         if r.truncated {
-                            notes.push("Spotify mostra solo i primi 100 brani".to_string());
+                            notes.push(tr("Spotify mostra solo i primi 100 brani").to_string());
                         }
                         let n = r.tracks.len();
-                        let say = format!("\"{}\" importata: {n} brani{}", r.name, if notes.is_empty() { String::new() } else { format!(" ({})", notes.join(", ")) });
+                        let say = format!("{}{}", trf("“{0}” importata: {1}", &[&r.name, &crate::ui::brani(n as u64)]), if notes.is_empty() { String::new() } else { format!(" ({})", notes.join(", ")) });
                         this.missing = r.missing;
                         let tracks: Vec<serde_json::Value> = r.tracks.iter().filter_map(|t| serde_json::to_value(t).ok()).collect();
                         let nav = this.nav.clone();
@@ -156,9 +158,9 @@ impl Render for SpotifyImport {
         let me2 = me.clone();
         let me3 = me.clone();
         let go_label = if self.busy {
-            if total > 0 { format!("{done} di {total}…") } else { "Leggo…".to_string() }
+            if total > 0 { trf("{0} di {1}…", &[&done, &total]) } else { tr("Leggo…").to_string() }
         } else {
-            "Importa".to_string()
+            tr("Importa").to_string()
         };
         div()
             .mt(px(16.))
@@ -179,7 +181,7 @@ impl Render for SpotifyImport {
                     .items_center()
                     .gap(px(10.))
                     .child(div().size(px(30.)).rounded_full().flex().items_center().justify_center().bg(rgb(0x1db954)).child(icon("upload", 17., white())))
-                    .child(div().flex_1().font_weight(FontWeight::BOLD).child("Importa da Spotify"))
+                    .child(div().flex_1().font_weight(FontWeight::BOLD).child(tr("Importa da Spotify")))
                     .child(
                         div()
                             .id("sp-close")
@@ -197,7 +199,7 @@ impl Render for SpotifyImport {
                     ),
             )
             .child(div().text_size(px(13.)).line_height(px(19.5)).text_color(s.text2).child(
-                "Incolla il link di una playlist, di un album o di un brano (Spotify › Condividi › Copia link). LFly cerca ogni brano su YouTube Music e crea una playlist nella tua libreria. Non serve l'account Spotify; la playlist deve essere pubblica.",
+                tr("Incolla il link di una playlist, di un album o di un brano (Spotify › Condividi › Copia link). LFly cerca ogni brano su YouTube Music e crea una playlist nella tua libreria. Non serve l'account Spotify; la playlist deve essere pubblica."),
             ))
             .child(
                 div()
@@ -255,7 +257,7 @@ impl Render for SpotifyImport {
                                 cx.notify();
                             });
                         })
-                        .child(format!("{} {} brani non trovati su YouTube Music", if open { "▾" } else { "▸" }, self.missing.len())),
+                        .child(format!("{} {}", if open { "▾" } else { "▸" }, trf("{0} brani non trovati su YouTube Music", &[&self.missing.len()]))),
                 )
                 .when(open, |d| d.children(self.missing.iter().map(|m| div().pl(px(16.)).text_size(px(12.)).text_color(s.text3).child(m.clone()))))
             })

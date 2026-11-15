@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_connect::protocol::TrackRef;
 use lfly_core::downloads::{DownloadEvent, DownloadList, Downloads};
 
@@ -89,10 +91,10 @@ impl DownloadsModel {
                     let found = was.map_or(0, |w| w.saturating_sub(self.missing_lyrics));
                     Toasts::say(
                         match (total, found) {
-                            (0, _) => "Nessun testo da cercare".to_string(),
-                            (_, 0) => "Nessun testo trovato: riprova più tardi".to_string(),
-                            (_, 1) => "1 testo salvato".to_string(),
-                            (_, n) => format!("{n} testi salvati"),
+                            (0, _) => tr("Nessun testo da cercare").to_string(),
+                            (_, 0) => tr("Nessun testo trovato: riprova più tardi").to_string(),
+                            (_, 1) => tr("1 testo salvato").to_string(),
+                            (_, n) => trf("{0} testi salvati", &[&n]),
                         },
                         cx,
                     );
@@ -100,7 +102,7 @@ impl DownloadsModel {
             }
             DownloadEvent::Progress { id, done } if done < 0. => {
                 self.progress.remove(&id);
-                Toasts::say("Un download non è riuscito: riprova più tardi.", cx);
+                Toasts::say(tr("Un download non è riuscito: riprova più tardi."), cx);
             }
             DownloadEvent::Progress { id, done } if done >= 1. => {
                 self.progress.remove(&id);
@@ -127,14 +129,14 @@ impl DownloadsModel {
     /// Downloads these songs (those not here yet), and says so.
     pub fn add(&mut self, tracks: Vec<TrackRef>, cx: &mut Context<Self>) {
         let Some(d) = self.d.clone() else {
-            Toasts::say("Non riesco a creare la cartella dei download", cx);
+            Toasts::say(tr("Non riesco a creare la cartella dei download"), cx);
             return;
         };
         let fresh: Vec<TrackRef> = tracks.into_iter().filter(|t| !self.has(&t.id) && !self.pending(&t.id)).collect();
         if fresh.is_empty() {
             return;
         }
-        Toasts::say(if fresh.len() == 1 { "Download avviato".to_string() } else { format!("Download di {} brani avviato", fresh.len()) }, cx);
+        Toasts::say(if fresh.len() == 1 { tr("Download avviato").to_string() } else { trf("Download avviato: {0}", &[&crate::ui::brani(fresh.len() as u64)]) }, cx);
         for t in &fresh {
             self.progress.insert(t.id.clone(), 0.);
         }

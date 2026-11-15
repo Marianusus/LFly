@@ -7,6 +7,8 @@ use std::sync::Arc;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{t, tr, trf};
 use lfly_core::pages::{Item, SearchResults};
 use lfly_yt::Track;
 
@@ -24,18 +26,18 @@ use crate::track_row::{track_row, RowData};
 
 /// Search.svelte `browse`: genre, two gradient colours.
 const BROWSE: &[(&str, u32, u32)] = &[
-    ("Pop italiano", 0xff5f6d, 0xc2185b),
-    ("Hip hop", 0xf7971e, 0xb2401c),
-    ("Rock", 0xe53935, 0x5d1010),
-    ("Elettronica", 0x00c6ff, 0x0049b7),
-    ("Chill", 0x43cea2, 0x185a9d),
-    ("Allenamento", 0xf12711, 0xf5af19),
-    ("Concentrazione", 0x7f7fd5, 0x3a3a8c),
-    ("Anni '80", 0xfc466b, 0x3f5efb),
-    ("Jazz", 0xc79081, 0x5b3a29),
-    ("Indie", 0xa8e063, 0x2f7336),
-    ("Lo-fi", 0xb993d6, 0x5b4a8a),
-    ("Festa", 0xff0099, 0x493240),
+    (t("Pop italiano"), 0xff5f6d, 0xc2185b),
+    (t("Hip hop"), 0xf7971e, 0xb2401c),
+    (t("Rock"), 0xe53935, 0x5d1010),
+    (t("Elettronica"), 0x00c6ff, 0x0049b7),
+    (t("Chill"), 0x43cea2, 0x185a9d),
+    (t("Allenamento"), 0xf12711, 0xf5af19),
+    (t("Concentrazione"), 0x7f7fd5, 0x3a3a8c),
+    (t("Anni '80"), 0xfc466b, 0x3f5efb),
+    (t("Jazz"), 0xc79081, 0x5b3a29),
+    (t("Indie"), 0xa8e063, 0x2f7336),
+    (t("Lo-fi"), 0xb993d6, 0x5b4a8a),
+    (t("Festa"), 0xff0099, 0x493240),
 ];
 
 #[derive(Clone, Copy, PartialEq)]
@@ -103,6 +105,8 @@ pub struct Search {
     pub autoplay: bool,
     pub width: f32,
     pub page_width: f32,
+    /// The language the field's placeholder was set in (it is set once, so a switch sets it again).
+    placeholder_lang: crate::i18n::Lang,
     _subs: Vec<Subscription>,
 }
 
@@ -118,7 +122,7 @@ impl Search {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Artisti, brani, album e playlist"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Artisti, brani, album e playlist")));
         crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
         let subs = vec![
             cx.subscribe_in(&input, window, |this, state, ev: &InputEvent, _w, cx| match ev {
@@ -155,6 +159,7 @@ impl Search {
         let recents = lfly_core::store::get(RECENTS).ok().flatten().and_then(|v| v.as_array().cloned()).unwrap_or_default();
         cx.set_global(SearchGlobal(cx.entity().downgrade()));
         Self {
+            placeholder_lang: crate::i18n::lang(),
             core,
             covers,
             look,
@@ -358,10 +363,10 @@ impl Search {
         let w = ((avail - 16. * (cols - 1.)) / cols).floor();
         let me = cx.entity().downgrade();
         let kind_name = |k: &str| match k {
-            "song" => "Brano",
-            "album" => "Album",
-            "playlist" => "Playlist",
-            _ => "Artista",
+            "song" => tr("Brano"),
+            "album" => tr("Album"),
+            "playlist" => tr("Playlist"),
+            _ => tr("Artista"),
         };
         let rows: Vec<AnyElement> = self
             .recents
@@ -375,7 +380,7 @@ impl Search {
                     (
                         div().size(px(48.)).flex_none().rounded(px(10.)).flex().items_center().justify_center().bg(s.glass_tint).child(icon("search", 18., s.text2)).into_any_element(),
                         q.to_string(),
-                        "Ricerca".to_string(),
+                        tr("Ricerca").to_string(),
                     )
                 } else {
                     let it = recent_item(&r)?;
@@ -469,7 +474,7 @@ impl Search {
                     .flex()
                     .items_baseline()
                     .justify_between()
-                    .child(section_title("Ricerche recenti"))
+                    .child(section_title(tr("Ricerche recenti")))
                     .child(
                         div()
                             .id("recents-clear")
@@ -485,7 +490,7 @@ impl Search {
                                     cx.notify();
                                 });
                             })
-                            .child("Cancella"),
+                            .child(tr("Cancella")),
                     ),
             )
             .child(div().flex().flex_wrap().gap_x(px(16.)).gap_y(px(4.)).children(rows))
@@ -505,8 +510,12 @@ impl Search {
 }
 
 impl Render for Search {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         crate::track_row::eq_begin();
+        if self.placeholder_lang != crate::i18n::lang() {
+            self.placeholder_lang = crate::i18n::lang();
+            self.input.update(cx, |i, cx| i.set_placeholder(tr("Artisti, brani, album e playlist"), window, cx));
+        }
         let (s, look) = {
             let l = self.look.read(cx);
             (l.scheme.clone(), l.glass())
@@ -539,7 +548,7 @@ impl Render for Search {
                     .text_size(px(17.))
                     .child(icon("search", 20., s.text2))
                     .child(div().flex_1().child(Input::new(&self.input).appearance(false).cleanable(true)))
-                    .when(self.loading, |d| d.child(div().text_size(px(12.)).text_color(s.text3).child("Cerco…"))),
+                    .when(self.loading, |d| d.child(div().text_size(px(12.)).text_color(s.text3).child(tr("Cerco…")))),
             );
         // The suggestions under the field, over everything below (`.sugg`).
         let sugg = (focused && !self.suggestions.is_empty()).then(|| {
@@ -589,12 +598,12 @@ impl Render for Search {
                 let songs = r.songs.iter().filter(|t| !t.is_video).count();
                 let videos = r.songs.len() - songs;
                 let cats: Vec<(Cat, &str)> = [
-                    (Cat::All, "Tutto", 1),
-                    (Cat::Songs, "Brani", songs),
-                    (Cat::Videos, "Video", videos),
-                    (Cat::Artists, "Artisti", r.artists.len()),
-                    (Cat::Albums, "Album", r.albums.len()),
-                    (Cat::Playlists, "Playlist", r.playlists.len()),
+                    (Cat::All, tr("Tutto"), 1),
+                    (Cat::Songs, tr("Brani"), songs),
+                    (Cat::Videos, tr("Video"), videos),
+                    (Cat::Artists, tr("Artisti"), r.artists.len()),
+                    (Cat::Albums, tr("Album#plurale"), r.albums.len()),
+                    (Cat::Playlists, tr("Playlist#plurale"), r.playlists.len()),
                 ]
                 .into_iter()
                 .filter(|c| c.2 > 0)
@@ -652,7 +661,7 @@ impl Render for Search {
             .flex()
             .flex_col()
             .gap(px(16.))
-            .child(div().text_size(px((w * 0.036).clamp(30., 44.))).font_weight(FontWeight::EXTRA_BOLD).child("Cerca"))
+            .child(div().text_size(px((w * 0.036).clamp(30., 44.))).font_weight(FontWeight::EXTRA_BOLD).child(tr("Cerca")))
             .child(div().relative().max_w(px(640.)).child(field).children(sugg))
             .children(chips);
 
@@ -681,11 +690,11 @@ impl Render for Search {
                             .cursor_pointer()
                             .on_click(move |_, window, cx| {
                                 let _ = me.update(cx, |this, cx| {
-                                    this.input.update(cx, |i, cx| i.set_value(q, window, cx));
-                                    this.pick(q.to_string(), cx);
+                                    this.input.update(cx, |i, cx| i.set_value(tr(q), window, cx));
+                                    this.pick(tr(q).to_string(), cx);
                                 });
                             })
-                            .child(q)
+                            .child(tr(q))
                             .into_any_element()
                     })
                     .collect();
@@ -696,7 +705,7 @@ impl Render for Search {
                     div()
                         .px(px(24.))
                         .pb(px(32.))
-                        .child(section_title("Sfoglia"))
+                        .child(section_title(tr("Sfoglia")))
                         .child(div().flex().flex_wrap().gap(px(8.)).children(tiles))
                         .into_any_element(),
                 );
@@ -707,7 +716,7 @@ impl Render for Search {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(div().font_weight(FontWeight::BOLD).child("La ricerca non ha funzionato"))
+                    .child(div().font_weight(FontWeight::BOLD).child(tr("La ricerca non ha funzionato")))
                     .child(div().text_color(s.text2).child(e.clone()))
                     .into_any_element(),
             ),
@@ -726,8 +735,8 @@ impl Render for Search {
                             .flex()
                             .flex_col()
                             .gap(px(6.))
-                            .child(div().font_weight(FontWeight::BOLD).child(format!("Nessun risultato per “{}”", self.query)))
-                            .child(div().text_color(s.text2).child("Controlla come è scritto o prova con altre parole."))
+                            .child(div().font_weight(FontWeight::BOLD).child(trf("Nessun risultato per “{0}”", &[&self.query])))
+                            .child(div().text_color(s.text2).child(tr("Controlla come è scritto o prova con altre parole.")))
                             .into_any_element(),
                     );
                 } else if self.cat != Cat::All {
@@ -772,10 +781,10 @@ impl Render for Search {
                         let cover = top.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
                         let round = top.kind == "artist";
                         let kind = match top.kind {
-                            "song" => "Brano",
-                            "album" => "Album",
-                            "playlist" => "Playlist",
-                            _ => "Artista",
+                            "song" => tr("Brano"),
+                            "album" => tr("Album"),
+                            "playlist" => tr("Playlist"),
+                            _ => tr("Artista"),
                         };
                         let (open, play) = (top.clone_item(), top.clone_item());
                         let (core, core2, nav) = (self.core.clone(), self.core.clone(), self.nav.clone());
@@ -785,7 +794,7 @@ impl Render for Search {
                                 .flex_grow(2.)
                                 .flex_basis(relative(0.))
                                 .min_w(px(280.))
-                                .child(section_title("Risultato principale"))
+                                .child(section_title(tr("Risultato principale")))
                                 .child(
                                     div()
                                         .id("top")
@@ -872,7 +881,7 @@ impl Render for Search {
                                         .flex()
                                         .items_baseline()
                                         .justify_between()
-                                        .child(section_title("Brani"))
+                                        .child(section_title(tr("Brani")))
                                         .when(r.songs.len() > 5, |d| {
                                             let me = cx.entity().downgrade();
                                             let to = if r.songs.iter().any(|t| !t.is_video) { Cat::Songs } else { Cat::Videos };
@@ -890,7 +899,7 @@ impl Render for Search {
                                                             cx.notify();
                                                         });
                                                     })
-                                                    .child("Mostra tutti"),
+                                                    .child(tr("Mostra tutti")),
                                             )
                                         }),
                                 )
@@ -904,7 +913,7 @@ impl Render for Search {
                     let remember: std::rc::Rc<dyn Fn(&Item, &mut App)> = std::rc::Rc::new(move |it, cx| {
                         let _ = me.update(cx, |this, _| this.remember_item(it));
                     });
-                    for (key, label, items) in [("s-artists", "Artisti", &r.artists), ("s-albums", "Album", &r.albums), ("s-playlists", "Playlist", &r.playlists)] {
+                    for (key, label, items) in [("s-artists", tr("Artisti"), &r.artists), ("s-albums", tr("Album#plurale"), &r.albums), ("s-playlists", tr("Playlist#plurale"), &r.playlists)] {
                         let items: Vec<Item> = items.iter().map(|i| i.clone_item()).collect();
                         if let Some(shelf) = card_shelf(key, label, &items, (self.page_width - 48.).max(crate::home::CARD_MIN), &self.covers, &s, &self.core, &nav, Some(remember.clone()), cx.entity_id(), cx) {
                             body.push(shelf);
@@ -913,7 +922,7 @@ impl Render for Search {
                     if r.songs.len() > 5 {
                         let more: Vec<Track> = r.songs.iter().skip(5).take(15).cloned().collect();
                         let rows = self.song_rows("more-songs", &more, true, cx);
-                        body.push(div().px(px(24.)).pb(px(32.)).child(section_title("Altri brani")).child(div().mx(px(-16.)).children(rows)).into_any_element());
+                        body.push(div().px(px(24.)).pb(px(32.)).child(section_title(tr("Altri brani"))).child(div().mx(px(-16.)).children(rows)).into_any_element());
                     }
                 }
             }

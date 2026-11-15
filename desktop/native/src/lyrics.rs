@@ -22,6 +22,8 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_core::pages;
 use serde_json::Value;
 
@@ -528,7 +530,7 @@ impl Render for Lyrics {
         };
 
         let Some(track) = track else {
-            return div().p(px(24.)).px(px(PAD_X)).text_size(px(15.)).text_color(ink(0.7)).child("Fai partire un brano per vederne il testo.").into_any_element();
+            return div().p(px(24.)).px(px(PAD_X)).text_size(px(15.)).text_color(ink(0.7)).child(tr("Fai partire un brano per vederne il testo.")).into_any_element();
         };
         match self.status {
             Status::Loading => {
@@ -551,7 +553,7 @@ impl Render for Lyrics {
                     .text_size(px(15.))
                     .text_color(ink(0.7))
                     .child(icon("lyrics", 30., ink(0.7)))
-                    .child(format!("Nessun testo trovato per “{}”.", track.title))
+                    .child(trf("Nessun testo trovato per “{0}”.", &[&track.title]))
                     .into_any_element()
             }
             Status::Ready => {}
@@ -568,7 +570,7 @@ impl Render for Lyrics {
                 .child(div().text_size(px(size * 0.7)).line_height(px(size * 0.7 * 1.55)).font_weight(FontWeight::BOLD).children(
                     lyrics.plain.clone().unwrap_or_default().lines().map(|l| div().min_h(px(size * 0.7 * 1.55)).child(l.to_string())).collect::<Vec<_>>(),
                 ))
-                .when(show_source, |d| d.child(div().mt(px(24.)).text_size(px(12.)).text_color(ink(0.5)).child(format!("Testo da {}", lyrics.source))))
+                .when(show_source, |d| d.child(div().mt(px(24.)).text_size(px(12.)).text_color(ink(0.5)).child(trf("Testo da {0}", &[&lyrics.source]))))
                 .child(div().h(relative(0.4)))
                 .into_any_element();
         };
@@ -593,7 +595,7 @@ impl Render for Lyrics {
         let epoch = self.epoch;
         let offset = self.offset;
         let generation = self.generation;
-        let source: SharedString = format!("Testo da {}", lyrics.source).into();
+        let source: SharedString = trf("Testo da {0}", &[&lyrics.source]).into();
         let weak = cx.entity().downgrade();
         // In front: 60 frames a second. Behind the focus but on screen (beside the window in
         // use), 30: still smooth. Not presented at all (minimized, suspended), four.
@@ -942,7 +944,7 @@ impl Render for Lyrics {
         let (m1, m2, m3) = (self.motion.clone(), self.motion.clone(), self.motion.clone());
         let offset_label = {
             let sign = if self.offset > 0. { "+" } else if self.offset < 0. { "−" } else { "±" };
-            format!("{sign}{:.1} s", self.offset.abs() / 1000.).replace('.', ",")
+            format!("{sign}{} s", crate::i18n::decimal(self.offset.abs() / 1000., 1))
         };
         let nudge = |id: &'static str, label: SharedString, ms: f64, min_w: f32, moved: bool| {
             let me = me.clone();

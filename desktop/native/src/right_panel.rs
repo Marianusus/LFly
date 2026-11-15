@@ -7,6 +7,8 @@ use std::time::Instant;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_connect::protocol;
 
 use crate::core::Core;
@@ -122,7 +124,7 @@ impl RightPanel {
         let Some(now) = current else {
             return div().flex().flex_col().items_center().gap(px(10.)).py(px(48.)).px(px(20.)).text_color(s.text2).child(
                 div().size(px(56.)).rounded_full().flex().items_center().justify_center().bg(s.glass_tint).border_1().border_color(s.glass_border).child(icon("queue", 26., s.text2)),
-            ).child(div().text_center().line_height(px(20.)).child("La coda è vuota. Fai partire un brano o una playlist."));
+            ).child(div().text_center().line_height(px(20.)).child(tr("La coda è vuota. Fai partire un brano o una playlist.")));
         };
         let art = |image: Option<Arc<Image>>, size: f32, radius: f32| {
             div().size(px(size)).flex_none().rounded(px(radius)).bg(s.text.opacity(0.08)).children(image.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(radius)))))
@@ -141,11 +143,11 @@ impl RightPanel {
         let mut out = div()
             .flex()
             .flex_col()
-            .child(heading("IN RIPRODUZIONE".into(), s))
+            .child(heading(tr("In riproduzione").to_uppercase(), s))
             .child(lit_card(s, 20.).child(art(cover(&now.cover_url), 56., 12.)).child(text_col(now.title.clone(), now.artist.clone(), true)).when(playing, |d| d.child(eq(s))))
-            .child(heading(if upcoming.is_empty() { "PROSSIMI BRANI".into() } else { format!("PROSSIMI BRANI  {}", upcoming.len()) }, s));
+            .child(heading(if upcoming.is_empty() { tr("Prossimi brani").to_uppercase() } else { format!("{}  {}", tr("Prossimi brani").to_uppercase(), upcoming.len()) }, s));
         if upcoming.is_empty() {
-            return out.child(div().mx(px(10.)).my(px(8.)).text_color(s.text2).child("Niente in coda dopo questo brano."));
+            return out.child(div().mx(px(10.)).my(px(8.)).text_color(s.text2).child(tr("Niente in coda dopo questo brano.")));
         }
         for (i, t) in upcoming {
             let group: SharedString = format!("rq-{i}").into();
@@ -234,11 +236,11 @@ impl RightPanel {
             (c.following.clone(), c.connecting.clone(), c.devices.clone(), c.controllers, c.online)
         };
         let here_sub = if following.is_some() {
-            "La musica suona altrove".to_string()
+            tr("La musica suona altrove").to_string()
         } else if controllers > 0 {
-            format!("In ascolto qui · {} ti {}", if controllers == 1 { "1 dispositivo".to_string() } else { format!("{controllers} dispositivi") }, if controllers == 1 { "controlla" } else { "controllano" })
+            if controllers == 1 { tr("In ascolto qui · 1 dispositivo ti controlla").to_string() } else { trf("In ascolto qui · {0} dispositivi ti controllano", &[&controllers]) }
         } else {
-            "In ascolto qui".to_string()
+            tr("In ascolto qui").to_string()
         };
         let text_col = |name: String, sub: String| {
             div()
@@ -271,7 +273,7 @@ impl RightPanel {
         let mut col = div().flex().flex_col().child(
             here.mt(px(6.))
                 .child(d_icon("desktop", here_on))
-                .child(text_col("Questo computer".into(), here_sub))
+                .child(text_col(tr("Questo computer").into(), here_sub))
                 .when(following.is_some(), |d| {
                     d.child(
                         div()
@@ -288,7 +290,7 @@ impl RightPanel {
                             .font_weight(FontWeight::SEMIBOLD)
                             .cursor_pointer()
                             .on_click(move |_, _, cx| c1.update(cx, |c, cx| c.play_here(cx)))
-                            .child("Ascolta qui"),
+                            .child(tr("Ascolta qui")),
                     )
                 })
                 .when(here_on && playing, |d| d.child(eq(s))),
@@ -306,20 +308,20 @@ impl RightPanel {
                     .cursor_pointer()
                     .hover(|d| d.text_color(s.text))
                     .on_click(move |_, _, cx| c2.update(cx, |c, cx| c.disconnect(cx)))
-                    .child(format!("Smetti di controllare {}", f.name)),
+                    .child(trf("Smetti di controllare {0}", &[&f.name])),
             );
         }
-        col = col.child(heading("ALTRI DISPOSITIVI".into(), s));
+        col = col.child(heading(tr("Altri dispositivi").to_uppercase(), s));
         if devices.is_empty() {
-            let hint = if online { "Cerco LFly nella rete…" } else { "LFly Connect è spento in questa prova." };
+            let hint = if online { tr("Cerco LFly nella rete…") } else { tr("LFly Connect è spento in questa prova.") };
             col = col
                 .child(div().mx(px(10.)).my(px(8.)).flex().items_center().gap(px(10.)).text_color(s.text2).child(div().size(px(8.)).flex_none().rounded_full().bg(a)).child(div().flex_1().min_w_0().line_height(px(19.)).child(hint)))
-                .child(div().mx(px(10.)).text_size(px(12.)).line_height(px(17.4)).text_color(s.text3).child("Apri LFly su un telefono o un computer collegato allo stesso Wi-Fi."));
+                .child(div().mx(px(10.)).text_size(px(12.)).line_height(px(17.4)).text_color(s.text3).child(tr("Apri LFly su un telefono o un computer collegato allo stesso Wi-Fi.")));
         } else {
             for (k, d) in devices.into_iter().enumerate() {
                 let on = following.as_ref().is_some_and(|f| f.id == d.id);
                 let busy = connecting.as_deref() == Some(d.id.as_str());
-                let sub = format!("{}{}", crate::connect::kind_label(&d.kind), if d.same_account { " · il tuo account" } else { "" });
+                let sub = format!("{}{}", tr(crate::connect::kind_label(&d.kind)), if d.same_account { format!(" · {}", tr("il tuo account")) } else { String::new() });
                 let c3 = connect.clone();
                 let dev = d.clone();
                 col = col.child(
@@ -335,7 +337,7 @@ impl RightPanel {
                         .on_click(move |_, _, cx| c3.update(cx, |c, cx| if on { c.disconnect(cx) } else { c.follow(dev.clone(), cx) }))
                         .child(d_icon(crate::connect::kind_icon(&d.kind), on))
                         .child(text_col(d.name.clone(), sub))
-                        .when(busy, |r| r.child(div().text_size(px(12.)).text_color(s.text2).child("Collego…")))
+                        .when(busy, |r| r.child(div().text_size(px(12.)).text_color(s.text2).child(tr("Collego…"))))
                         .when(on && !busy, |r| r.child(icon("check", 14., a))),
                 );
             }
@@ -441,9 +443,9 @@ impl Render for RightPanel {
                                 div()
                                     .relative()
                                     .flex()
-                                    .child(tab("rp-queue", "Coda", SidePanel::Queue))
-                                    .child(tab("rp-lyrics", "Testo", SidePanel::Lyrics))
-                                    .child(tab("rp-devices", "Dispositivi", SidePanel::Devices)),
+                                    .child(tab("rp-queue", tr("Coda"), SidePanel::Queue))
+                                    .child(tab("rp-lyrics", tr("Testo"), SidePanel::Lyrics))
+                                    .child(tab("rp-devices", tr("Dispositivi"), SidePanel::Devices)),
                             ),
                     )
                     .child(

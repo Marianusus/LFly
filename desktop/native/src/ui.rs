@@ -82,10 +82,9 @@ impl Ui {
     }
 }
 
-/// "1 brano", "12 brani".
+/// "1 brano", "12 brani" (in the window's language).
 pub fn brani(n: impl Into<u64>) -> String {
-    let n = n.into();
-    if n == 1 { "1 brano".into() } else { format!("{n} brani") }
+    crate::i18n::songs(n.into())
 }
 
 /// The window's text fields (search, a playlist's new name, this computer's name, a Spotify

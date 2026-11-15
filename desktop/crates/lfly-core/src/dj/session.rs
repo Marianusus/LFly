@@ -272,7 +272,7 @@ impl Actor {
             if first {
                 self.stop();
                 (self.sink)(DjState {
-                    notice: Some("Il DJ non ha trovato abbastanza brani: metti il cuore a qualche canzone e riprova".into()),
+                    notice: Some(crate::lang::pick("Il DJ non ha trovato abbastanza brani: metti il cuore a qualche canzone e riprova", "The DJ found too few songs: heart a few and try again", "DJ-ul nu a găsit destule melodii: dă inimă câtorva și încearcă din nou").into()),
                     ..Default::default()
                 });
             }
@@ -305,7 +305,7 @@ impl Actor {
         }
         let Some(block) = self.s.pending.take() else { return };
         let first = self.s.first_block_start.as_deref() == Some(block.tracks[0].id.as_str());
-        let line = self.s.script.line(&block, self.language, first, &mut self.rng);
+        let line = self.s.script.line(&block, crate::lang::get().unwrap_or(self.language), first, &mut self.rng);
         log::info!("DJ says: {line}");
         self.s.lines += 1;
         self.s.line = Some((line, self.s.lines));

@@ -12,6 +12,7 @@ use gpui_kit::*;
 use crate::core::Core;
 use crate::covers::Covers;
 use crate::glass;
+use crate::i18n::{t, tr, trf};
 use crate::icons::icon;
 use crate::library_model::LibraryModel;
 use crate::look::Look;
@@ -34,15 +35,36 @@ pub enum Section {
     About,
 }
 
+/// The lyrics sources' names and captions (lfly-yt `lyrics/order.rs`, in Italian), looked up where
+/// Settings shows them; listed here so the translation table's test knows them.
+#[allow(dead_code)]
+const SOURCE_WORDS: [&str; 15] = [
+    t("Tempi di Apple per registrazione, sillaba per sillaba"),
+    t("Tempi di Apple abbinati alla registrazione stessa"),
+    t("Tempi di Apple Music, parola per parola"),
+    t("Tempi karaoke di QQ Music tramite BetterLyrics"),
+    t("Testi di Spotify; serve la chiave PaxSenix"),
+    t("Tempi di Musixmatch; serve la chiave PaxSenix"),
+    t("Sillaba per sillaba, su mirror della comunità"),
+    t("Scritti dagli ascoltatori: ha anche ciò che nessuno ha licenziato"),
+    t("Sottotitoli a tempo del video che suona"),
+    t("La scheda Testo del video che suona"),
+    t("Righe intere, forte fuori dal catalogo inglese"),
+    t("Solo righe intere, e sempre in linea"),
+    t("Righe intere, dal catalogo di testi più grande"),
+    t("Solo testo, se nessun'altra fonte ha i tempi"),
+    t("Sottotitoli di YouTube"),
+];
+
 const TABS: [(Section, &str); 8] = [
-    (Section::General, "Generale"),
-    (Section::Appearance, "Aspetto"),
-    (Section::Sound, "Riproduzione"),
-    (Section::Lyrics, "Testi"),
-    (Section::Devices, "Dispositivi"),
-    (Section::Account, "Account"),
-    (Section::Storage, "Spazio e privacy"),
-    (Section::About, "Informazioni"),
+    (Section::General, t("Generale")),
+    (Section::Appearance, t("Aspetto")),
+    (Section::Sound, t("Riproduzione")),
+    (Section::Lyrics, t("Testi")),
+    (Section::Devices, t("Dispositivi")),
+    (Section::Account, t("Account")),
+    (Section::Storage, t("Spazio e privacy")),
+    (Section::About, t("Informazioni")),
 ];
 
 /// The colours of the shared pieces (apply.ts): cards, fills, the separator.
@@ -118,13 +140,13 @@ pub struct SettingsPage {
 /// SettingsExtra `size`: 1,2 GB, 340 MB, 12 kB, "vuota".
 fn size(b: u64) -> String {
     if b >= 1_000_000_000 {
-        format!("{:.1} GB", b as f64 / 1e9).replace('.', ",")
+        format!("{} GB", crate::i18n::decimal(b as f64 / 1e9, 1))
     } else if b >= 1_000_000 {
         format!("{} MB", (b as f64 / 1e6).round())
     } else if b > 0 {
         format!("{} kB", ((b as f64 / 1e3).round() as u64).max(1))
     } else {
-        "vuota".into()
+        tr("vuota").into()
     }
 }
 
@@ -343,7 +365,8 @@ fn seg<T: Clone + PartialEq + 'static>(id: &str, value: &T, options: &[(T, &str)
                 })
                 .when(!on, |d| d.hover(|d| d.text_color(i.s_text)))
                 .on_click(move |_, _, cx| pick(v.clone(), cx))
-                .child(text.to_string())
+                // Labels may come marked (t) from a const: shown in the window's language.
+                .child(tr(text).to_string())
         }))
 }
 
@@ -527,7 +550,7 @@ impl SettingsPage {
         let modes = div().flex().flex_wrap().gap_x(px(16.)).gap_y(px(20.)).children(MODES.iter().map(|(m, _, title, sub)| {
             let look = look.clone();
             let m = *m;
-            mode_card(m, title, sub, mode == m, card_w, accent, cover, cover_img.clone(), i, move |cx| look.update(cx, |l, cx| l.set_mode(m, cx)))
+            mode_card(m, tr(title), tr(sub), mode == m, card_w, accent, cover, cover_img.clone(), i, move |cx| look.update(cx, |l, cx| l.set_mode(m, cx)))
         }));
 
         let followed = mode.dynamic() && cover.is_some();
@@ -568,8 +591,8 @@ impl SettingsPage {
                 swatches.into_any_element(),
                 row()
                     .child(div().size(px(12.)).rounded_full().bg(accent.hsla(1.)))
-                    .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(name.to_string()))
-                    .child(div().text_size(px(12.)).text_color(i.text2).child(if premium { "Premium" } else { "Classico" }))
+                    .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(tr(name).to_string()))
+                    .child(div().text_size(px(12.)).text_color(i.text2).child(if premium { "Premium" } else { tr("Classico") }))
                     .into_any_element(),
             ],
             i,
@@ -639,7 +662,7 @@ impl SettingsPage {
                             .flex_col()
                             .gap(px(2.))
                             .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(i.text2).child("VETRO"))
-                            .child(div().font_weight(FontWeight::BOLD).child(if glass_on && lens { "Lente attiva" } else if glass_on { "Solo sfocatura" } else { "Superficie piena" })),
+                            .child(div().font_weight(FontWeight::BOLD).child(if glass_on && lens { tr("Lente attiva") } else if glass_on { tr("Solo sfocatura") } else { tr("Superficie piena") })),
                     ),
             );
         let (l1, l2, l3, l4) = (look.clone(), look.clone(), look.clone(), look.clone());
@@ -651,21 +674,21 @@ impl SettingsPage {
                     .child(tile("expand", 0x4d8dff, 0x2f6bf0))
                     .child(label(
                         "Liquid Glass",
-                        Some(if crate::look::GLASS_RENDERER { "Vetro traslucido sulle superfici che galleggiano sopra i contenuti." } else { "Su Mac arriva più avanti: per ora le superfici sono piene." }.into()),
+                        Some(if crate::look::GLASS_RENDERER { tr("Vetro traslucido sulle superfici che galleggiano sopra i contenuti.") } else { tr("Su Mac arriva più avanti: per ora le superfici sono piene.") }.into()),
                         i,
                     ))
                     .child(switch("sw-glass", glass_on, !crate::look::GLASS_RENDERER, i, move |cx| l1.update(cx, |l, cx| l.set_glass(Some(!glass_on), None, None, cx))))
                     .into_any_element(),
                 row()
                     .child(tile("lyrics", 0xa173ff, 0x7c4dff))
-                    .child(label("Effetto lente", Some("Rifrazione ai bordi, dispersione cromatica e riflessi che seguono il puntatore. Usa più GPU.".into()), i))
+                    .child(label(tr("Effetto lente"), Some(tr("Rifrazione ai bordi, dispersione cromatica e riflessi che seguono il puntatore. Usa più GPU.").into()), i))
                     .child(switch("sw-lens", lens, !glass_on, i, move |cx| l2.update(cx, |l, cx| l.set_glass(None, Some(!lens), None, cx))))
                     .into_any_element(),
                 row()
                     .flex_wrap()
                     .child(tile("volume", 0x8e8e93, 0x636366))
-                    .child(label("Intensità", Some("Da più solido a più trasparente, con una lente più marcata.".into()), i))
-                    .child(div().ml_auto().text_size(px(12.)).text_color(i.text2).child("Solido"))
+                    .child(label(tr("Intensità"), Some(tr("Da più solido a più trasparente, con una lente più marcata.").into()), i))
+                    .child(div().ml_auto().text_size(px(12.)).text_color(i.text2).child(tr("Solido")))
                     .child(div().w(px((avail * 0.4).min(220.))).flex().child(slider(
                         "glass-strength",
                         k,
@@ -688,29 +711,29 @@ impl SettingsPage {
                             });
                         },
                     )))
-                    .child(div().text_size(px(12.)).text_color(i.text2).child("Chiaro"))
+                    .child(div().text_size(px(12.)).text_color(i.text2).child(tr("Chiaro")))
                     .into_any_element(),
             ],
             i,
         );
         let _ = l4;
         vec![
-            group("Aspetto", Some("Canvas Liquid Glass e animazioni, come sul telefono."), i).child(modes).into_any_element(),
+            group(tr("Aspetto"), Some(tr("Canvas Liquid Glass e animazioni, come sul telefono.")), i).child(modes).into_any_element(),
             group(
-                "Colore accento",
+                tr("Colore accento"),
                 Some(if followed {
-                    "Si applica a tutti i temi; nei temi dinamici segue la copertina quando disponibile. Ora segue la copertina."
+                    tr("Si applica a tutti i temi; nei temi dinamici segue la copertina quando disponibile. Ora segue la copertina.")
                 } else {
-                    "Si applica a tutti i temi; nei temi dinamici segue la copertina quando disponibile."
+                    tr("Si applica a tutti i temi; nei temi dinamici segue la copertina quando disponibile.")
                 }),
                 i,
             )
             .child(accents)
             .into_any_element(),
-            group("Liquid Glass", Some("Vetro con rifrazione reale su barre, pannelli e pulsanti."), i).child(stage).child(glass_list).into_any_element(),
+            group("Liquid Glass", Some(tr("Vetro con rifrazione reale su barre, pannelli e pulsanti.")), i).child(stage).child(glass_list).into_any_element(),
             group(
-                "Temi personalizzati",
-                Some("I temi tuoi, quelli di Spicetify e il Marketplace non sono ancora nella versione nativa: per ora si creano e si usano nell'app LFly classica."),
+                tr("Temi personalizzati"),
+                Some(tr("I temi tuoi, quelli di Spicetify e il Marketplace non sono ancora nella versione nativa: per ora si creano e si usano nell'app LFly classica.")),
                 i,
             )
             .into_any_element(),
@@ -723,22 +746,38 @@ impl SettingsPage {
         let prefs = Prefs::entity(cx);
         let (p1, p2) = (prefs.clone(), prefs);
         const KEYS: [(&str, &str); 9] = [
-            ("Spazio", "Riproduci o metti in pausa"),
-            ("Ctrl + →  /  Ctrl + ←", "Brano successivo / precedente"),
-            ("Maiusc + →  /  Maiusc + ←", "Avanti / indietro di 10 secondi"),
-            ("Ctrl + ↑  /  Ctrl + ↓", "Alza / abbassa il volume"),
-            ("Ctrl + S", "Riproduzione casuale"),
-            ("Ctrl + R", "Ripeti: tutto, un brano, niente"),
-            ("Ctrl + K", "Cerca"),
-            ("Alt + ←  /  Alt + →", "Pagina precedente / successiva"),
-            ("Esc", "Chiudi il player a schermo intero"),
+            (t("Spazio#tasto"), t("Riproduci o metti in pausa")),
+            ("Ctrl + →  /  Ctrl + ←", t("Brano successivo / precedente")),
+            (t("Maiusc + →  /  Maiusc + ←"), t("Avanti / indietro di 10 secondi")),
+            ("Ctrl + ↑  /  Ctrl + ↓", t("Alza / abbassa il volume")),
+            ("Ctrl + S", t("Riproduzione casuale")),
+            ("Ctrl + R", t("Ripeti: tutto, un brano, niente")),
+            ("Ctrl + K", t("Cerca")),
+            ("Alt + ←  /  Alt + →", t("Pagina precedente / successiva")),
+            ("Esc", t("Chiudi il player a schermo intero")),
         ];
+        let lang = crate::i18n::lang();
+        let options: Vec<(crate::i18n::Lang, &str)> = crate::i18n::Lang::ALL.iter().map(|l| (*l, l.name())).collect();
         vec![
-            group("Avvio", None, i)
+            group(tr("Lingua"), None, i)
+                .child(list(
+                    vec![row()
+                        .child(label(tr("Lingua dell'app"), Some(tr("Testi, messaggi e le frasi del DJ.").into()), i))
+                        .child(seg("lang", &lang, &options, i, |l, cx| {
+                            crate::i18n::set_lang(l);
+                            crate::i18n::save(l);
+                            // Every view draws again, cached or not, in the new language.
+                            cx.refresh_windows();
+                        }))
+                        .into_any_element()],
+                    i,
+                ))
+                .into_any_element(),
+            group(tr("Avvio"), None, i)
                 .child(list(
                     vec![
                         row()
-                            .child(label("Apri LFly all'accesso", Some("Si avvia quando entri nel computer, pronto con la tua musica.".into()), i))
+                            .child(label(tr("Apri LFly all'accesso"), Some(tr("Si avvia quando entri nel computer, pronto con la tua musica.").into()), i))
                             .child(switch("sw-autostart", autostart, false, i, move |cx| {
                                 match lfly_core::settings::set_autostart(!autostart) {
                                     Ok(on) => {
@@ -747,16 +786,16 @@ impl SettingsPage {
                                             cx.notify();
                                         });
                                     }
-                                    Err(e) => Toasts::say(format!("Avvio automatico non cambiato: {e}"), cx),
+                                    Err(e) => Toasts::say(trf("Avvio automatico non cambiato: {0}", &[&e]), cx),
                                 }
                             }))
                             .into_any_element(),
                         row()
-                            .child(label("Pagina iniziale", Some("Dove si apre LFly.".into()), i))
+                            .child(label(tr("Pagina iniziale"), Some(tr("Dove si apre LFly.").into()), i))
                             .child(seg(
                                 "start",
                                 &p.start_page,
-                                &[("home".to_string(), "Home"), ("library".to_string(), "Libreria"), ("liked".to_string(), "Preferiti"), ("search".to_string(), "Cerca")],
+                                &[("home".to_string(), tr("Home")), ("library".to_string(), tr("Libreria")), ("liked".to_string(), tr("Preferiti")), ("search".to_string(), tr("Cerca"))],
                                 i,
                                 move |v, cx| p1.update(cx, |p, cx| p.update(|d| d.start_page = v, cx)),
                             ))
@@ -765,14 +804,14 @@ impl SettingsPage {
                     i,
                 ))
                 .into_any_element(),
-            group("Movimento", None, i)
+            group(tr("Movimento"), None, i)
                 .child(list(
                     vec![row()
-                        .child(label("Animazioni", Some("Ridotte: niente scorrimenti, copertina dinamica ferma, cambi istantanei.".into()), i))
+                        .child(label(tr("Animazioni"), Some(tr("Ridotte: niente scorrimenti, copertina dinamica ferma, cambi istantanei.").into()), i))
                         .child(seg(
                             "motion",
                             &p.motion,
-                            &[("system".to_string(), "Come il sistema"), ("full".to_string(), "Complete"), ("reduce".to_string(), "Ridotte")],
+                            &[("system".to_string(), tr("Come il sistema")), ("full".to_string(), tr("Complete")), ("reduce".to_string(), tr("Ridotte"))],
                             i,
                             move |v, cx| p2.update(cx, |p, cx| p.update(|d| d.motion = v, cx)),
                         ))
@@ -780,13 +819,13 @@ impl SettingsPage {
                     i,
                 ))
                 .into_any_element(),
-            group("Scorciatoie da tastiera", None, i)
+            group(tr("Scorciatoie da tastiera"), None, i)
                 .child(list(
                     KEYS.iter()
                         .map(|(k, what)| {
                             row()
-                                .child(div().flex_1().child(what.to_string()))
-                                .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).px(px(9.)).py(px(6.)).rounded(px(8.)).text_color(i.text2).bg(i.s_text.opacity(0.08)).child(k.to_string()))
+                                .child(div().flex_1().child(tr(what).to_string()))
+                                .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).px(px(9.)).py(px(6.)).rounded(px(8.)).text_color(i.text2).bg(i.s_text.opacity(0.08)).child(tr(k).to_string()))
                                 .into_any_element()
                         })
                         .collect(),
@@ -800,19 +839,19 @@ impl SettingsPage {
         let pb = self.playback.clone();
         let (me1, me2, me3) = (cx.entity().downgrade(), cx.entity().downgrade(), cx.entity().downgrade());
         vec![
-            group("Riproduzione", None, i)
+            group(tr("Riproduzione"), None, i)
                 .child(list(
                     vec![
                         row()
-                            .child(label("Continua con brani simili", Some("Finita la coda, la musica va avanti con brani come l'ultimo, come la radio di YouTube Music.".into()), i))
+                            .child(label(tr("Continua con brani simili"), Some(tr("Finita la coda, la musica va avanti con brani come l'ultimo, come la radio di YouTube Music.").into()), i))
                             .child(switch("sw-autoplay", pb.autoplay, false, i, move |cx| {
                                 let _ = me1.update(cx, |this, cx| this.set_playback(|p| p.autoplay = !p.autoplay, cx));
                             }))
                             .into_any_element(),
                         row()
                             .child(label(
-                                "Formato audio",
-                                Some("AAC (fino a 256 kbps) suona ovunque; Opus (fino a 160 kbps) occupa meno a parità di qualità. Vale dal prossimo brano.".into()),
+                                tr("Formato audio"),
+                                Some(tr("AAC (fino a 256 kbps) suona ovunque; Opus (fino a 160 kbps) occupa meno a parità di qualità. Vale dal prossimo brano.").into()),
                                 i,
                             ))
                             .child(seg("format", &pb.format, &[("aac".to_string(), "AAC"), ("opus".to_string(), "Opus")], i, move |v, cx| {
@@ -821,9 +860,9 @@ impl SettingsPage {
                             .into_any_element(),
                         row()
                             .child(label(
-                                "Da dove suona",
+                                tr("Da dove suona"),
                                 Some(
-                                    "Automatico, come sul telefono: YouTube Music e Monochrome cercano insieme e vince il primo; Monochrome (qualità più alta) vince anche se arriva entro un secondo e mezzo da YouTube. Le altre scelte provano prima quella e poi l'altra. Vale per i brani non ancora caricati; i download usano sempre YouTube Music."
+                                    tr("Automatico, come sul telefono: YouTube Music e Monochrome cercano insieme e vince il primo; Monochrome (qualità più alta) vince anche se arriva entro un secondo e mezzo da YouTube. Le altre scelte provano prima quella e poi l'altra. Vale per i brani non ancora caricati; i download usano sempre YouTube Music.")
                                         .into(),
                                 ),
                                 i,
@@ -831,7 +870,7 @@ impl SettingsPage {
                             .child(seg(
                                 "source",
                                 &pb.source,
-                                &[("AUTO".to_string(), "Automatico"), ("YOUTUBE_MUSIC".to_string(), "YouTube Music"), ("MONOCHROME".to_string(), "Monochrome")],
+                                &[("AUTO".to_string(), tr("Automatico")), ("YOUTUBE_MUSIC".to_string(), "YouTube Music"), ("MONOCHROME".to_string(), "Monochrome")],
                                 i,
                                 move |v, cx| {
                                     let _ = me3.update(cx, |this, cx| this.set_playback(|p| p.source = v, cx));
@@ -866,7 +905,7 @@ impl SettingsPage {
             .flex()
             .items_center()
             .justify_between()
-            .child(h2("Equalizzatore"))
+            .child(h2(tr("Equalizzatore")))
             .child(
                 div()
                     .flex()
@@ -874,7 +913,7 @@ impl SettingsPage {
                     .gap(px(10.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(i.text2)
-                    .child(if enabled { "Attivo" } else { "Spento" })
+                    .child(if enabled { tr("Attivo") } else { tr("Spento") })
                     .child(switch("eq-on", enabled, false, i, move |cx| au.update(cx, |a, cx| a.set_enabled(!enabled, cx)))),
             );
         let presets = div().mt(px(16.)).flex().flex_wrap().gap(px(6.)).children(PRESETS.iter().map(|(name, _, _)| {
@@ -894,10 +933,10 @@ impl SettingsPage {
                 .when(on, |d| d.bg(i.accent).text_color(i.on_accent))
                 .when(!on, |d| d.bg(i.s_text.opacity(0.08)).hover(|d| d.bg(i.s_text.opacity(0.14))).active(|d| d.bg(i.s_text.opacity(0.25))))
                 .on_click(move |_, _, cx| au.update(cx, |a, cx| a.use_preset(name, cx)))
-                .child(name)
+                .child(tr(name))
         }))
         .when(preset == "Personalizzato", |d| {
-            d.child(div().h(px(30.)).px(px(14.)).flex().items_center().rounded_full().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).bg(i.accent).text_color(i.on_accent).child("Personalizzato"))
+            d.child(div().h(px(30.)).px(px(14.)).flex().items_center().rounded_full().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).bg(i.accent).text_color(i.on_accent).child(tr("Personalizzato")))
         });
         let bands = div()
             .relative()
@@ -929,7 +968,7 @@ impl SettingsPage {
                             .text_size(px(11.))
                             .text_color(if db != 0. { i.accent } else { text3 })
                             .when(db != 0., |d| d.font_weight(FontWeight::SEMIBOLD))
-                            .child(format!("{}{:.1} dB", if db > 0. { "+" } else { "" }, db).replace('.', ",")),
+                            .child(format!("{}{} dB", if db > 0. { "+" } else { "" }, crate::i18n::decimal(db as f64, 1))),
                     )
                     .child(crate::slider::vslider(
                         ("band", k),
@@ -950,7 +989,7 @@ impl SettingsPage {
             .flex_col()
             .gap(px(8.))
             .text_color(i.text2)
-            .child(div().flex().gap(px(4.)).child("Potenziamento bassi:").child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(format!("{}%", eq.bass_boost / 10))))
+            .child(div().flex().gap(px(4.)).child(tr("Potenziamento bassi:")).child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(format!("{}%", eq.bass_boost / 10))))
             .child(crate::slider::hslider(
                 "bass",
                 eq.bass_boost as f32 / 1000.,
@@ -961,7 +1000,7 @@ impl SettingsPage {
             ));
         let eq_card = card()
             .child(head)
-            .child(help("Lo stesso equalizzatore del telefono, dentro il player: suona uguale su casse, cuffie e DAC. Quando è piatto l'audio passa intatto, bit per bit."))
+            .child(help(tr("Lo stesso equalizzatore del telefono, dentro il player: suona uguale su casse, cuffie e DAC. Quando è piatto l'audio passa intatto, bit per bit.")))
             .child(presets)
             .child(bands)
             .child(bass);
@@ -980,8 +1019,8 @@ impl SettingsPage {
                         div()
                             .flex()
                             .gap(px(4.))
-                            .child("Dissolvenza tra i brani:")
-                            .child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(if crossfade > 0 { format!("{crossfade} s") } else { "spenta".into() })),
+                            .child(tr("Dissolvenza tra i brani:"))
+                            .child(div().font_weight(FontWeight::BOLD).text_color(i.s_text).child(if crossfade > 0 { format!("{crossfade} s") } else { tr("spenta").into() })),
                     )
                     .child(crate::slider::hslider(
                         "crossfade",
@@ -992,7 +1031,7 @@ impl SettingsPage {
                         move |f, _, cx| au5.update(cx, |a, cx| a.set_crossfade(f * 12., cx)),
                     )),
             )
-            .child(help("Ogni brano sfuma nel successivo. Con la dissolvenza spenta i brani si susseguono senza pause, come negli album dal vivo."))
+            .child(help(tr("Ogni brano sfuma nel successivo. Con la dissolvenza spenta i brani si susseguono senza pause, come negli album dal vivo.")))
             .child({
                 let (au6, au7) = (audio.clone(), audio.clone());
                 let usable = lfly_core::automix::available();
@@ -1007,12 +1046,12 @@ impl SettingsPage {
                             .items_center()
                             .gap(px(12.))
                             .child(label(
-                                "Mixa a tempo",
+                                tr("Mixa a tempo"),
                                 Some(if usable {
-                                    "Come sul telefono: trova le battute alla fine di un brano e all'inizio del successivo, li porta allo stesso tempo e li mixa su una battuta, con EQ e filtri. Se due brani non si possono mixare a tempo, sfumano (5 s se la dissolvenza è spenta)."
+                                    tr("Come sul telefono: trova le battute alla fine di un brano e all'inizio del successivo, li porta allo stesso tempo e li mixa su una battuta, con EQ e filtri. Se due brani non si possono mixare a tempo, sfumano (5 s se la dissolvenza è spenta).")
                                         .into()
                                 } else {
-                                    "Non disponibile in questa versione: serve il modello delle battute.".into()
+                                    tr("Non disponibile in questa versione: serve il modello delle battute.").into()
                                 }),
                                 i,
                             ))
@@ -1023,12 +1062,12 @@ impl SettingsPage {
                             "automix-style",
                             &automix_style,
                             &[
-                                ("AUTO".to_string(), "Automatico"),
+                                ("AUTO".to_string(), tr("Automatico")),
                                 ("BASS_SWAP".to_string(), "Bass swap"),
                                 ("EQ_SWAP".to_string(), "EQ"),
-                                ("FILTER".to_string(), "Filtro"),
+                                ("FILTER".to_string(), tr("Filtro")),
                                 ("RISE".to_string(), "Rise"),
-                                ("FADE".to_string(), "Dissolvenza"),
+                                ("FADE".to_string(), tr("Dissolvenza")),
                             ],
                             i,
                             move |v, cx| au7.update(cx, |a, cx| a.set_automix(true, Some(&v), cx)),
@@ -1037,9 +1076,9 @@ impl SettingsPage {
             });
 
         // `<select>`: the system's default, then each device; the chosen one ticked.
-        let mut options: Vec<(Option<String>, String)> = vec![(None, "Predefinita del sistema".into())];
-        options.extend(devices.iter().filter(|d| d.id != crate::audio::SYSTEM_DEFAULT).map(|d| (Some(d.id.clone()), format!("{}{}", d.name, if d.is_default { " (predefinita)" } else { "" }))));
-        let output = card().child(h2("Uscita audio")).child(
+        let mut options: Vec<(Option<String>, String)> = vec![(None, tr("Predefinita del sistema").into())];
+        options.extend(devices.iter().filter(|d| d.id != crate::audio::SYSTEM_DEFAULT).map(|d| (Some(d.id.clone()), format!("{}{}", d.name, if d.is_default { format!(" ({})", tr("predefinita")) } else { String::new() }))));
+        let output = card().child(h2(tr("Uscita audio"))).child(
             div().mt(px(8.)).flex().flex_col().gap(px(2.)).children(options.into_iter().enumerate().map(|(k, (id, name))| {
                 let on = id == device;
                 let au = audio.clone();
@@ -1068,34 +1107,34 @@ impl SettingsPage {
         let (p1, p2, p3, p4) = (prefs.clone(), prefs.clone(), prefs.clone(), prefs);
         let (words, source) = (p.lyrics_words, p.lyrics_source);
         let data = self.lyrics.clone();
-        vec![group("Testi", None, i)
+        vec![group(tr("Testi"), None, i)
             .child(list(
                 vec![
                     row()
-                        .child(label("Parola per parola", Some("Ogni sillaba si accende mentre la canti, quando la fonte ha i tempi delle parole. Spento: righe intere.".into()), i))
+                        .child(label(tr("Parola per parola"), Some(tr("Ogni sillaba si accende mentre la canti, quando la fonte ha i tempi delle parole. Spento: righe intere.").into()), i))
                         .child(switch("sw-words", words, false, i, move |cx| p1.update(cx, |p, cx| p.update(|d| d.lyrics_words = !words, cx))))
                         .into_any_element(),
                     row()
-                        .child(label("Dimensione", None, i))
-                        .child(seg("lsize", &p.lyrics_size, &[("s".to_string(), "Piccola"), ("m".to_string(), "Media"), ("l".to_string(), "Grande")], i, move |v, cx| {
+                        .child(label(tr("Dimensione"), None, i))
+                        .child(seg("lsize", &p.lyrics_size, &[("s".to_string(), tr("Piccola")), ("m".to_string(), tr("Media")), ("l".to_string(), tr("Grande"))], i, move |v, cx| {
                             p2.update(cx, |p, cx| p.update(|d| d.lyrics_size = v, cx))
                         }))
                         .into_any_element(),
                     row()
-                        .child(label("Allineamento", None, i))
-                        .child(seg("lalign", &p.lyrics_center, &[(false, "A sinistra"), (true, "Al centro")], i, move |v, cx| {
+                        .child(label(tr("Allineamento"), None, i))
+                        .child(seg("lalign", &p.lyrics_center, &[(false, tr("A sinistra")), (true, tr("Al centro"))], i, move |v, cx| {
                             p3.update(cx, |p, cx| p.update(|d| d.lyrics_center = v, cx))
                         }))
                         .into_any_element(),
                     row()
-                        .child(label("Mostra la fonte", Some("\"Testo da …\" in fondo al testo.".into()), i))
+                        .child(label(tr("Mostra la fonte"), Some(tr("\"Testo da …\" in fondo al testo.").into()), i))
                         .child(switch("sw-source", source, false, i, move |cx| p4.update(cx, |p, cx| p.update(|d| d.lyrics_source = !source, cx))))
                         .into_any_element(),
                     row()
-                        .child(label("Sincronie salvate", Some("Le correzioni di tempo (− e +) che hai fatto canzone per canzone.".into()), i))
-                        .child(button("reset-offsets", "Azzera", false, false, i).on_click(move |_, _, cx| {
+                        .child(label(tr("Sincronie salvate"), Some(tr("Le correzioni di tempo (− e +) che hai fatto canzone per canzone.").into()), i))
+                        .child(button("reset-offsets", tr("Azzera"), false, false, i).on_click(move |_, _, cx| {
                             data.update(cx, |d, cx| d.reset_offsets(cx));
-                            Toasts::say("Sincronie dei testi azzerate (vale dal prossimo brano)", cx);
+                            Toasts::say(tr("Sincronie dei testi azzerate (vale dal prossimo brano)"), cx);
                         }))
                         .into_any_element(),
                 ],
@@ -1135,9 +1174,9 @@ impl SettingsPage {
             .enumerate()
             .map(|(k, s)| {
                 let on = !p.lyrics_off.iter().any(|o| o == s.id);
-                let mut caption = s.detail.to_string();
+                let mut caption = tr(s.detail).to_string();
                 if s.needs_key && !has_key {
-                    caption.push_str(" · manca la chiave");
+                    caption.push_str(&format!(" · {}", tr("manca la chiave")));
                 }
                 let mv = |to: usize| {
                     let (prefs, ids) = (prefs.clone(), ids.clone());
@@ -1151,7 +1190,7 @@ impl SettingsPage {
                 let (pt, id) = (prefs.clone(), s.id);
                 row()
                     .child(div().w(px(18.)).flex_none().text_color(i.text2).text_size(px(12.)).child(format!("{}", k + 1)))
-                    .child(label(s.label, Some(caption), i))
+                    .child(label(tr(s.label), Some(caption), i))
                     .child(small(format!("lsrc-up-{id}").into(), "chevron-up", k > 0, i).when(k > 0, |d| d.on_click(mv(k - 1))))
                     .child(small(format!("lsrc-down-{id}").into(), "chevron-down", k + 1 < n, i).when(k + 1 < n, |d| d.on_click(mv(k + 1))))
                     .child(switch(SharedString::from(format!("lsrc-{id}")), on, false, i, move |cx| {
@@ -1175,14 +1214,14 @@ impl SettingsPage {
         let input = match self.pax_input.clone() {
             Some(input) => input,
             None => {
-                let input = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("Incolla la chiave").default_value(p.paxsenix_key.clone()));
+                let input = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder(tr("Incolla la chiave")).default_value(p.paxsenix_key.clone()));
                 crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
                 let pr = prefs.clone();
                 self._subs.push(cx.subscribe(&input, move |_, state, ev: &gpui_kit::component::input::InputEvent, cx| {
                     if matches!(ev, gpui_kit::component::input::InputEvent::PressEnter { .. }) {
                         let key = state.read(cx).value().trim().trim_start_matches("Bearer ").trim().to_string();
                         pr.update(cx, |p, cx| p.update(|d| d.paxsenix_key = key, cx));
-                        Toasts::say("Chiave PaxSenix salvata", cx);
+                        Toasts::say(tr("Chiave PaxSenix salvata"), cx);
                     }
                     cx.notify();
                 }));
@@ -1197,12 +1236,12 @@ impl SettingsPage {
         let reset = prefs.clone();
         vec![
             group(
-                "Fonti dei testi",
-                Some("Come sul telefono: le fonti accese partono tutte insieme e le risposte si leggono in quest'ordine. Vince la prima con i tempi parola per parola, oppure la prima con le righe a tempo; Genius solo se nessuna ha i tempi."),
+                tr("Fonti dei testi"),
+                Some(tr("Come sul telefono: le fonti accese partono tutte insieme e le risposte si leggono in quest'ordine. Vince la prima con i tempi parola per parola, oppure la prima con le righe a tempo; Genius solo se nessuna ha i tempi.")),
                 i,
             )
             .child(list(rows, i))
-            .child(div().mt(px(10.)).flex().justify_end().child(button("lsrc-reset", "Ordine predefinito", false, p.lyrics_order.is_empty() && p.lyrics_off.is_empty(), i).on_click(move |_, _, cx| {
+            .child(div().mt(px(10.)).flex().justify_end().child(button("lsrc-reset", tr("Ordine predefinito"), false, p.lyrics_order.is_empty() && p.lyrics_off.is_empty(), i).on_click(move |_, _, cx| {
                 reset.update(cx, |p, cx| {
                     p.update(
                         |d| {
@@ -1214,22 +1253,22 @@ impl SettingsPage {
                 })
             })))
             .into_any_element(),
-            group("Priorità", None, i)
+            group(tr("Priorità"), None, i)
                 .child(list(
                     vec![
                         row()
-                            .child(label("Prima il parola per parola", Some("Aspetta una fonte con i tempi delle parole anche se un'altra, prima nell'ordine, ha solo le righe.".into()), i))
+                            .child(label(tr("Prima il parola per parola"), Some(tr("Aspetta una fonte con i tempi delle parole anche se un'altra, prima nell'ordine, ha solo le righe.").into()), i))
                             .child(switch("sw-words-first", words_first, false, i, move |cx| pw.update(cx, |p, cx| p.update(|d| d.lyrics_words_first = !words_first, cx))))
                             .into_any_element(),
                         row()
-                            .child(label("Chiave PaxSenix", Some("Per le fonti PaxSenix: Spotify e Musixmatch. Resta su questo computer.".into()), i))
+                            .child(label(tr("Chiave PaxSenix"), Some(tr("Per le fonti PaxSenix: Spotify e Musixmatch. Resta su questo computer.").into()), i))
                             .child(div().w(px(220.)).h(px(34.)).px(px(12.)).flex().items_center().rounded_full().bg(i.fill).border_1().border_color(i.border.opacity(0.5)).child(Input::new(&input).appearance(false)))
-                            .child(button("pax-save", if typed.is_empty() && !p.paxsenix_key.is_empty() { "Togli" } else { "Salva" }, false, !can_save, i).when(can_save, |b| {
+                            .child(button("pax-save", if typed.is_empty() && !p.paxsenix_key.is_empty() { tr("Togli") } else { tr("Salva") }, false, !can_save, i).when(can_save, |b| {
                                 b.on_click(move |_, _, cx| {
                                     let key = input2.read(cx).value().trim().trim_start_matches("Bearer ").trim().to_string();
                                     let gone = key.is_empty();
                                     pk.update(cx, |p, cx| p.update(|d| d.paxsenix_key = key, cx));
-                                    Toasts::say(if gone { "Chiave PaxSenix tolta" } else { "Chiave PaxSenix salvata" }, cx);
+                                    Toasts::say(if gone { tr("Chiave PaxSenix tolta") } else { tr("Chiave PaxSenix salvata") }, cx);
                                 })
                             }))
                             .into_any_element(),
@@ -1250,7 +1289,7 @@ impl SettingsPage {
         let ask_cache = self.asking("cache");
         let ask_history = self.asking("history");
         vec![
-            group("Spazio", None, i)
+            group(tr("Spazio"), None, i)
                 .child(list(
                     vec![
                         {
@@ -1262,11 +1301,11 @@ impl SettingsPage {
                             let ask = self.asking("downloads");
                             let me3 = cx.entity().downgrade();
                             row()
-                                .child(label("Brani scaricati", Some(format!("{} · {}", crate::ui::brani(n as u64), size(bytes))), i))
+                                .child(label(tr("Brani scaricati"), Some(format!("{} · {}", crate::ui::brani(n as u64), size(bytes))), i))
                                 .when_some(folder, |r, f| {
-                                    r.child(button("open-dl", "Apri cartella", false, false, i).on_click(move |_, _, cx| cx.open_with_system(&f)))
+                                    r.child(button("open-dl", tr("Apri cartella"), false, false, i).on_click(move |_, _, cx| cx.open_with_system(&f)))
                                 })
-                                .child(button("clear-dl", if ask { "Sicuro? Elimina" } else { "Elimina tutti" }, ask, n == 0, i).when(n > 0, |b| {
+                                .child(button("clear-dl", if ask { tr("Sicuro? Elimina") } else { tr("Elimina tutti") }, ask, n == 0, i).when(n > 0, |b| {
                                     b.on_click(move |_, _, cx| {
                                         let dl = dl.clone();
                                         let _ = me3.update(cx, |this, cx| {
@@ -1276,7 +1315,7 @@ impl SettingsPage {
                                                     let ids = m.list.tracks.iter().map(|t| t.id.clone()).collect();
                                                     m.remove(ids, cx)
                                                 });
-                                                Toasts::say("Download eliminati", cx);
+                                                Toasts::say(tr("Download eliminati"), cx);
                                             } else {
                                                 this.confirm = Some(Confirm { what: "downloads", at: Instant::now() });
                                             }
@@ -1291,7 +1330,7 @@ impl SettingsPage {
                             let on = p.download_lyrics;
                             let prefs2 = prefs.clone();
                             row()
-                                .child(label("Scarica anche i testi", Some("Con ogni brano scaricato, per leggerli senza connessione".into()), i))
+                                .child(label(tr("Scarica anche i testi"), Some(tr("Con ogni brano scaricato, per leggerli senza connessione").into()), i))
                                 .child(switch("sw-dl-lyrics", on, false, i, move |cx| prefs2.update(cx, |p, cx| p.update(|d| d.download_lyrics = !on, cx))))
                                 .into_any_element()
                         },
@@ -1302,26 +1341,26 @@ impl SettingsPage {
                                 (d.list.tracks.len(), d.missing_lyrics, d.lyrics_progress)
                             };
                             let caption = match progress {
-                                Some((done, total)) => format!("Cerco i testi… {done} di {total}"),
-                                None if n == 0 => "Nessun brano scaricato".to_string(),
-                                None => format!("{} di {} con il testo salvato", n - missing, crate::ui::brani(n as u64)),
+                                Some((done, total)) => trf("Cerco i testi… {0} di {1}", &[&done, &total]),
+                                None if n == 0 => tr("Nessun brano scaricato").to_string(),
+                                None => trf("{0} di {1} con il testo salvato", &[&(n - missing), &crate::ui::brani(n as u64)]),
                             };
                             let ask = self.asking("lyrics");
                             let (dl2, me4) = (dl.clone(), cx.entity().downgrade());
                             row()
-                                .child(label("Testi offline", Some(caption), i))
+                                .child(label(tr("Testi offline"), Some(caption), i))
                                 .child(
-                                    button("dl-lyrics", if missing > 0 { format!("Scarica mancanti ({missing})") } else { "Scarica mancanti".to_string() }, false, missing == 0 || progress.is_some(), i)
+                                    button("dl-lyrics", if missing > 0 { format!("{} ({missing})", tr("Scarica mancanti")) } else { tr("Scarica mancanti").to_string() }, false, missing == 0 || progress.is_some(), i)
                                         .when(missing > 0 && progress.is_none(), |b| b.on_click(move |_, _, cx| dl.update(cx, |m, cx| m.fetch_missing_lyrics(cx)))),
                                 )
-                                .child(button("rm-lyrics", if ask { "Sicuro? Elimina" } else { "Elimina testi" }, ask, n == missing || progress.is_some(), i).when(n > missing && progress.is_none(), |b| {
+                                .child(button("rm-lyrics", if ask { tr("Sicuro? Elimina") } else { tr("Elimina testi") }, ask, n == missing || progress.is_some(), i).when(n > missing && progress.is_none(), |b| {
                                     b.on_click(move |_, _, cx| {
                                         let dl = dl2.clone();
                                         let _ = me4.update(cx, |this, cx| {
                                             if this.asking("lyrics") {
                                                 this.confirm = None;
                                                 dl.update(cx, |m, cx| m.remove_lyrics(cx));
-                                                Toasts::say("Testi offline eliminati", cx);
+                                                Toasts::say(tr("Testi offline eliminati"), cx);
                                             } else {
                                                 this.confirm = Some(Confirm { what: "lyrics", at: Instant::now() });
                                             }
@@ -1333,11 +1372,11 @@ impl SettingsPage {
                         },
                         row()
                             .child(label(
-                                "Cache audio",
-                                Some(format!("I brani ascoltati da poco, per ripartire subito e senza rete: {}", self.cache_size.map_or("…".to_string(), size))),
+                                tr("Cache audio"),
+                                Some(trf("I brani ascoltati da poco, per ripartire subito e senza rete: {0}", &[&self.cache_size.map_or("…".to_string(), size)])),
                                 i,
                             ))
-                            .child(button("clear-cache", if ask_cache { "Sicuro? Svuota" } else { "Svuota" }, ask_cache, false, i).on_click(move |_, _, cx| {
+                            .child(button("clear-cache", if ask_cache { tr("Sicuro? Svuota") } else { tr("Svuota") }, ask_cache, false, i).on_click(move |_, _, cx| {
                                 let _ = me.update(cx, |this, cx| {
                                     if this.asking("cache") {
                                         this.confirm = None;
@@ -1348,7 +1387,7 @@ impl SettingsPage {
                                                 let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
                                             }
                                         }
-                                        Toasts::say("Cache audio svuotata", cx);
+                                        Toasts::say(tr("Cache audio svuotata"), cx);
                                         this.refresh(cx);
                                     } else {
                                         this.confirm = Some(Confirm { what: "cache", at: Instant::now() });
@@ -1361,22 +1400,22 @@ impl SettingsPage {
                     i,
                 ))
                 .into_any_element(),
-            group("Privacy", None, i)
+            group(tr("Privacy"), None, i)
                 .child(list(
                     vec![
                         row()
-                            .child(label("Metti in pausa la cronologia", Some("I brani che ascolti non finiscono in \"Ascoltati di recente\" né nei suggerimenti.".into()), i))
+                            .child(label(tr("Metti in pausa la cronologia"), Some(tr("I brani che ascolti non finiscono in \"Ascoltati di recente\" né nei suggerimenti.").into()), i))
                             .child(switch("sw-pause", paused, false, i, move |cx| prefs.update(cx, |p, cx| p.update(|d| d.pause_history = !paused, cx))))
                             .into_any_element(),
                         row()
-                            .child(label("Cronologia di ascolto", Some(crate::ui::brani(history as u64)), i))
-                            .child(button("clear-history", if ask_history { "Sicuro? Cancella" } else { "Cancella" }, ask_history, history == 0, i).when(history > 0, |b| {
+                            .child(label(tr("Cronologia di ascolto"), Some(crate::ui::brani(history as u64)), i))
+                            .child(button("clear-history", if ask_history { tr("Sicuro? Cancella") } else { tr("Cancella") }, ask_history, history == 0, i).when(history > 0, |b| {
                                 b.on_click(move |_, _, cx| {
                                     let _ = me2.update(cx, |this, cx| {
                                         if this.asking("history") {
                                             this.confirm = None;
                                             library.update(cx, |l, cx| l.clear_history(cx));
-                                            Toasts::say("Cronologia cancellata", cx);
+                                            Toasts::say(tr("Cronologia cancellata"), cx);
                                         } else {
                                             this.confirm = Some(Confirm { what: "history", at: Instant::now() });
                                         }
@@ -1386,10 +1425,10 @@ impl SettingsPage {
                             }))
                             .into_any_element(),
                         row()
-                            .child(label("Ricerche recenti", None, i))
-                            .child(button("clear-recents", "Cancella", false, false, i).on_click(|_, _, cx| {
+                            .child(label(tr("Ricerche recenti"), None, i))
+                            .child(button("clear-recents", tr("Cancella"), false, false, i).on_click(|_, _, cx| {
                                 crate::search::Search::clear_recents(cx);
-                                Toasts::say("Ricerche recenti cancellate", cx);
+                                Toasts::say(tr("Ricerche recenti cancellate"), cx);
                             }))
                             .into_any_element(),
                     ],
@@ -1408,15 +1447,15 @@ impl SettingsPage {
             (m.device.clone(), m.learning, m.mapping.clone())
         };
         let mut rows = vec![row()
-            .child(label("Console", Some(device.as_deref().map(crate::midi::display_name).unwrap_or_else(|| "Nessuna console collegata. Collegala con l'USB: LFly la trova da solo.".into())), i))
+            .child(label(tr("Console"), Some(device.as_deref().map(crate::midi::display_name).unwrap_or_else(|| tr("Nessuna console collegata. Collegala con l'USB: LFly la trova da solo.").into())), i))
             .into_any_element()];
         for action in Action::ALL {
             let bound = mapping.control_for(action);
             let listening = learning == Some(action);
             let caption = if listening {
-                if action.is_fader() { "Muovi il fader o la manopola sulla console…".to_string() } else { "Premi il tasto sulla console…".to_string() }
+                if action.is_fader() { tr("Muovi il fader o la manopola sulla console…").to_string() } else { tr("Premi il tasto sulla console…").to_string() }
             } else {
-                bound.map_or("Non assegnato".to_string(), |c| c.describe())
+                bound.map_or(tr("Non assegnato").to_string(), |c| c.describe())
             };
             let (m1, m2) = (midi.clone(), midi.clone());
             // Waiting for the console: the caption breathes until a control arrives.
@@ -1430,10 +1469,10 @@ impl SettingsPage {
                 row()
                     .child(text)
                     .when(bound.is_some() && !listening, |r| {
-                        r.child(button(SharedString::from(format!("midi-forget-{action:?}")), "Togli", false, false, i).on_click(move |_, _, cx| m1.update(cx, |m, cx| m.forget(action, cx))))
+                        r.child(button(SharedString::from(format!("midi-forget-{action:?}")), tr("Togli"), false, false, i).on_click(move |_, _, cx| m1.update(cx, |m, cx| m.forget(action, cx))))
                     })
                     .child(
-                        button(SharedString::from(format!("midi-learn-{action:?}")), if listening { "Annulla" } else { "Impara" }, false, device.is_none() && !listening, i).when(
+                        button(SharedString::from(format!("midi-learn-{action:?}")), if listening { tr("Annulla") } else { tr("Impara") }, false, device.is_none() && !listening, i).when(
                             device.is_some() || listening,
                             |b| b.on_click(move |_, _, cx| m2.update(cx, |m, cx| m.learn(if listening { None } else { Some(action) }, cx))),
                         ),
@@ -1441,9 +1480,9 @@ impl SettingsPage {
                     .into_any_element(),
             );
         }
-        group("Console DJ", None, i)
+        group(tr("Console DJ"), None, i)
             .child(list(rows, i))
-            .child(foot("Premi Impara accanto a un'azione, poi il tasto o il fader della console. Il volume e il tempo prendono il comando quando il fader raggiunge il valore attuale, così la musica non salta.", i))
+            .child(foot(tr("Premi Impara accanto a un'azione, poi il tasto o il fader della console. Il volume e il tempo prendono il comando quando il fader raggiunge il valore attuale, così la musica non salta."), i))
             .into_any_element()
     }
 
@@ -1466,7 +1505,7 @@ impl SettingsPage {
                         let name = state.read(cx).value().to_string();
                         if !name.trim().is_empty() {
                             c.update(cx, |c, cx| c.rename(&name, cx));
-                            Toasts::say("Nome salvato", cx);
+                            Toasts::say(tr("Nome salvato"), cx);
                         }
                     }
                     cx.notify();
@@ -1478,49 +1517,49 @@ impl SettingsPage {
         let typed = input.read(cx).value().trim().to_string();
         let can_save = !typed.is_empty() && typed != me;
         let l = self.library.read(cx);
-        let counts = format!("{} playlist, {} preferiti, {} brani ascoltati.", l.playlists.len(), l.favorites.len(), l.history.len());
+        let counts = trf("{0} playlist, {1} preferiti, {2} brani ascoltati.", &[&l.playlists.len(), &l.favorites.len(), &l.history.len()]);
         let fact = |k: &str, v: String| row().child(div().flex_1().child(k.to_string())).child(div().font_weight(FontWeight::BOLD).child(v)).into_any_element();
         let (c1, c2) = (connect.clone(), connect);
         let input2 = input.clone();
         vec![
             group(
                 "LFly Connect",
-                Some("I telefoni, gli orologi e gli altri computer con LFly sulla stessa rete Wi-Fi si vedono a vicenda. La prima volta un dispositivo con un altro account chiede di confermare un codice di quattro cifre."),
+                Some(tr("I telefoni, gli orologi e gli altri computer con LFly sulla stessa rete Wi-Fi si vedono a vicenda. La prima volta un dispositivo con un altro account chiede di confermare un codice di quattro cifre.")),
                 i,
             )
-            .child(list(vec![fact("Questo computer", me.clone()), fact("Dispositivi in rete", n.to_string()), fact("Controlli ora", following.unwrap_or_else(|| "Nessuno".into()))], i))
+            .child(list(vec![fact(tr("Questo computer"), me.clone()), fact(tr("Dispositivi in rete"), n.to_string()), fact(tr("Controlli ora"), following.unwrap_or_else(|| tr("Nessuno").into()))], i))
             .into_any_element(),
-            group("Questo computer", None, i)
+            group(tr("Questo computer"), None, i)
                 .child(list(
                     vec![
                         row()
-                            .child(label("Nome", Some("Come lo vedono il telefono e l'orologio.".into()), i))
+                            .child(label(tr("Nome"), Some(tr("Come lo vedono il telefono e l'orologio.").into()), i))
                             .child(div().w(px(220.)).h(px(34.)).px(px(12.)).flex().items_center().rounded_full().bg(i.fill).border_1().border_color(i.border.opacity(0.5)).child(Input::new(&input).appearance(false)))
-                            .child(button("rename", "Salva", false, !can_save, i).when(can_save, |b| {
+                            .child(button("rename", tr("Salva"), false, !can_save, i).when(can_save, |b| {
                                 b.on_click(move |_, _, cx| {
                                     let name = input2.read(cx).value().to_string();
                                     c1.update(cx, |c, cx| c.rename(&name, cx));
-                                    Toasts::say("Nome salvato", cx);
+                                    Toasts::say(tr("Nome salvato"), cx);
                                 })
                             }))
                             .into_any_element(),
                         row()
                             .child(label(
-                                "Dispositivi abbinati con il codice",
-                                Some("Quelli di altri account che hai accettato una volta. I tuoi si collegano sempre senza codice.".into()),
+                                tr("Dispositivi abbinati con il codice"),
+                                Some(tr("Quelli di altri account che hai accettato una volta. I tuoi si collegano sempre senza codice.").into()),
                                 i,
                             ))
-                            .child(button("forget", "Dimentica", false, false, i).on_click(move |_, _, cx| c2.update(cx, |c, cx| c.forget_paired(cx))))
+                            .child(button("forget", tr("Dimentica"), false, false, i).on_click(move |_, _, cx| c2.update(cx, |c, cx| c.forget_paired(cx))))
                             .into_any_element(),
                     ],
                     i,
                 ))
-                .child(foot("Se il telefono non trova questo computer o non riesce a comandarlo, il firewall potrebbe bloccarlo: LFly Connect usa la porta TCP 45780 e mDNS (UDP 5353) sulla rete locale.", i))
+                .child(foot(tr("Se il telefono non trova questo computer o non riesce a comandarlo, il firewall potrebbe bloccarlo: LFly Connect usa la porta TCP 45780 e mDNS (UDP 5353) sulla rete locale."), i))
                 .into_any_element(),
             self.console(i, cx),
             self.sync_local(i, cx),
             self.sync_drive(i, cx),
-            group("Libreria", None, i).child(list(vec![row().child(div().flex_1().child(counts)).into_any_element()], i)).into_any_element(),
+            group(tr("Libreria"), None, i).child(list(vec![row().child(div().flex_1().child(counts)).into_any_element()], i)).into_any_element(),
         ]
     }
 
@@ -1533,29 +1572,29 @@ impl SettingsPage {
             (m.active(), m.local.clone(), m.local_busy)
         };
         let caption = if !active {
-            "Spenta in questa sessione di prova.".to_string()
+            tr("Spenta in questa sessione di prova.").to_string()
         } else if !signed_in {
-            "Accedi a YouTube Music con lo stesso account del telefono: la sincronizzazione parte da sola.".to_string()
+            tr("Accedi a YouTube Music con lo stesso account del telefono: la sincronizzazione parte da sola.").to_string()
         } else if let Some(t) = st.last_sync {
-            format!("Ultima volta alle {}", crate::sync::clock(t))
+            trf("Ultima volta alle {0}", &[&crate::sync::clock(t)])
         } else {
-            "Preferiti, playlist e cronologia si allineano con i telefoni del tuo account aperti sulla stessa rete.".to_string()
+            tr("Preferiti, playlist e cronologia si allineano con i telefoni del tuo account aperti sulla stessa rete.").to_string()
         };
         let (s1, s2) = (sync.clone(), sync);
         let on = st.enabled;
         let mut rows = vec![row()
-            .child(label("Sulla stessa rete Wi-Fi", Some(caption), i))
+            .child(label(tr("Sulla stessa rete Wi-Fi"), Some(caption), i))
             .child(switch("sw-libsync", on, busy || !active, i, move |cx| s1.update(cx, |m, cx| m.set_local(!on, cx))))
             .into_any_element()];
         if on && signed_in && active {
             rows.push(
                 row()
-                    .child(div().flex_1().min_w_0().text_color(i.text2).child("Ogni minuto e mezzo e subito dopo ogni modifica, senza configurare niente."))
-                    .child(button("libsync-now", if busy { "Sincronizzo…" } else { "Sincronizza ora" }, false, busy, i).when(!busy, |b| b.on_click(move |_, _, cx| s2.update(cx, |m, cx| m.sync_local_now(cx)))))
+                    .child(div().flex_1().min_w_0().text_color(i.text2).child(tr("Ogni minuto e mezzo e subito dopo ogni modifica, senza configurare niente.")))
+                    .child(button("libsync-now", if busy { tr("Sincronizzo…") } else { tr("Sincronizza ora") }, false, busy, i).when(!busy, |b| b.on_click(move |_, _, cx| s2.update(cx, |m, cx| m.sync_local_now(cx)))))
                     .into_any_element(),
             );
         }
-        group("Sincronizza con il telefono", None, i).child(list(rows, i)).into_any_element()
+        group(tr("Sincronizza con il telefono"), None, i).child(list(rows, i)).into_any_element()
     }
 
     /// Settings.svelte "Anche da lontano: Google Drive".
@@ -1566,20 +1605,20 @@ impl SettingsPage {
             (m.active(), m.drive.clone(), m.drive_busy, m.drive_error.clone())
         };
         let (s1, s2, s3, s4) = (sync.clone(), sync.clone(), sync.clone(), sync);
-        let mut g = group("Anche da lontano: Google Drive", None, i);
+        let mut g = group(tr("Anche da lontano: Google Drive"), None, i);
         if st.signed_in {
             let on = st.enabled;
-            let when = st.last_sync.map_or("mai sincronizzato".to_string(), |t| format!("ultima volta alle {}", crate::sync::clock(t)));
+            let when = st.last_sync.map_or(tr("mai sincronizzato").to_string(), |t| trf("ultima volta alle {0}", &[&crate::sync::clock(t)]));
             g = g.child(list(
                 vec![
                     row()
-                        .child(label("Sincronizza tramite Google Drive", Some(format!("{} · {when}", st.email.clone().unwrap_or_else(|| "Account Google".into()))), i))
+                        .child(label(tr("Sincronizza tramite Google Drive"), Some(format!("{} · {when}", st.email.clone().unwrap_or_else(|| tr("Account Google").into()))), i))
                         .child(switch("sw-drive", on, busy || !active, i, move |cx| s1.update(cx, |m, cx| m.drive_set_enabled(!on, cx))))
                         .into_any_element(),
                     row()
-                        .child(div().flex_1().min_w_0().text_color(i.text2).child("Preferiti, playlist e cronologia si allineano da soli ogni pochi minuti e dopo ogni modifica."))
-                        .child(button("drive-now", if busy { "Sincronizzo…" } else { "Sincronizza ora" }, false, busy || !on || !active, i).when(!busy && on && active, |b| b.on_click(move |_, _, cx| s2.update(cx, |m, cx| m.drive_sync_now(cx)))))
-                        .child(button("drive-out", "Scollega", false, busy || !active, i).when(!busy && active, |b| b.on_click(move |_, _, cx| s3.update(cx, |m, cx| m.drive_sign_out(cx)))))
+                        .child(div().flex_1().min_w_0().text_color(i.text2).child(tr("Preferiti, playlist e cronologia si allineano da soli ogni pochi minuti e dopo ogni modifica.")))
+                        .child(button("drive-now", if busy { tr("Sincronizzo…") } else { tr("Sincronizza ora") }, false, busy || !on || !active, i).when(!busy && on && active, |b| b.on_click(move |_, _, cx| s2.update(cx, |m, cx| m.drive_sync_now(cx)))))
+                        .child(button("drive-out", tr("Scollega"), false, busy || !active, i).when(!busy && active, |b| b.on_click(move |_, _, cx| s3.update(cx, |m, cx| m.drive_sign_out(cx)))))
                         .into_any_element(),
                 ],
                 i,
@@ -1589,18 +1628,18 @@ impl SettingsPage {
             g = g.child(list(
                 vec![row()
                     .child(div().flex_1().min_w_0().text_color(i.text2).child(
-                        "Per allinearli anche quando non sono sulla stessa rete: la libreria passa da una cartella nascosta del tuo Google Drive, visibile solo a LFly. Va configurato una volta; attivalo anche sul telefono.",
+                        tr("Per allinearli anche quando non sono sulla stessa rete: la libreria passa da una cartella nascosta del tuo Google Drive, visibile solo a LFly. Va configurato una volta; attivalo anche sul telefono."),
                     ))
-                    .child(button("drive-in", if busy { "Aspetto Google…" } else { "Collega Google Drive" }, true, !can, i).when(can, |b| b.on_click(move |_, _, cx| s4.update(cx, |m, cx| m.drive_sign_in(cx)))))
+                    .child(button("drive-in", if busy { tr("Aspetto Google…") } else { tr("Collega Google Drive") }, true, !can, i).when(can, |b| b.on_click(move |_, _, cx| s4.update(cx, |m, cx| m.drive_sign_in(cx)))))
                     .into_any_element()],
                 i,
             ));
             if !st.configured && active {
-                g = g.child(foot("Manca il client OAuth di LFly: salva il file JSON del client \"App desktop\" del progetto Google Cloud di LFly come ~/.config/lfly/google-oauth.json.", i));
+                g = g.child(foot(tr("Manca il client OAuth di LFly: salva il file JSON del client \"App desktop\" del progetto Google Cloud di LFly come ~/.config/lfly/google-oauth.json."), i));
             }
         }
         if !active {
-            g = g.child(foot("Spenta in questa sessione di prova.", i));
+            g = g.child(foot(tr("Spenta in questa sessione di prova."), i));
         }
         if !error.is_empty() {
             g = g.child(div().mt(px(8.)).text_size(px(12.5)).text_color(rgb(0xff6b6b)).child(error));
@@ -1620,7 +1659,7 @@ impl SettingsPage {
                 let me = cx.entity().downgrade();
                 group(
                     "YouTube Music",
-                    Some("La Home e le playlist sono quelle del tuo account, e i \"mi piace\" arrivano anche su YouTube Music. Uscire vale anche per l'app LFly classica."),
+                    Some(tr("La Home e le playlist sono quelle del tuo account, e i \"mi piace\" arrivano anche su YouTube Music. Uscire vale anche per l'app LFly classica.")),
                     i,
                 )
                 .child(list(
@@ -1634,7 +1673,7 @@ impl SettingsPage {
                                 .children(avatar.map(|a| img(a).size_full().object_fit(ObjectFit::Cover).rounded_full())),
                         )
                         .child(label(&who.name, Some(if who.email.is_empty() { who.handle.clone() } else { who.email.clone() }), i))
-                        .child(button("signout", if ask { "Sicuro? Esci" } else { "Esci" }, ask, false, i).on_click(move |_, _, cx| {
+                        .child(button("signout", if ask { tr("Sicuro? Esci") } else { tr("Esci") }, ask, false, i).on_click(move |_, _, cx| {
                             let account = account.clone();
                             let _ = me.update(cx, |this, cx| {
                                 if this.asking("signout") {
@@ -1652,7 +1691,7 @@ impl SettingsPage {
             }
             None => group(
                 "YouTube Music",
-                Some("Accedi con Google dall'app LFly classica (Impostazioni › Account): questa la ritrova da sola. Senza account, la Home e le playlist sono quelle pubbliche."),
+                Some(tr("Accedi con Google dall'app LFly classica (Impostazioni › Account): questa la ritrova da sola. Senza account, la Home e le playlist sono quelle pubbliche.")),
                 i,
             ),
         };
@@ -1662,8 +1701,8 @@ impl SettingsPage {
                 .child(list(
                     vec![row()
                         .child(label(
-                            "Mostra cosa ascolti",
-                            Some("Con l'app Discord aperta su questo computer, il tuo stato diventa \"Sta ascoltando\" con il brano. Si toglie quando metti in pausa.".into()),
+                            tr("Mostra cosa ascolti"),
+                            Some(tr("Con l'app Discord aperta su questo computer, il tuo stato diventa \"Sta ascoltando\" con il brano. Si toglie quando metti in pausa.").into()),
                             i,
                         ))
                         .child(switch("sw-discord", on, false, i, move |cx| media.update(cx, |m, cx| m.set_discord(!on, cx))))
@@ -1677,7 +1716,7 @@ impl SettingsPage {
     fn about(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let me = cx.entity().downgrade();
         let rows: Vec<AnyElement> = if self.health.iter().all(|h| h.last_checked_ms.is_none()) {
-            vec![row().child(div().flex_1().min_w_0().text_color(i.text2).child("Nessun servizio usato finora.")).into_any_element()]
+            vec![row().child(div().flex_1().min_w_0().text_color(i.text2).child(tr("Nessun servizio usato finora."))).into_any_element()]
         } else {
             self.health
                 .iter()
@@ -1685,9 +1724,9 @@ impl SettingsPage {
                 .map(|h| {
                     use lfly_yt::HealthStatus::*;
                     let (dot, word) = match h.status {
-                        Online => (0x30d158, "Attivo"),
-                        Degraded => (0xffd60a, "Lento"),
-                        Offline => (0xff453a, "Non risponde"),
+                        Online => (0x30d158, tr("Attivo")),
+                        Degraded => (0xffd60a, tr("Lento")),
+                        Offline => (0xff453a, tr("Non risponde")),
                     };
                     let latency = h.latency_ms.filter(|_| !matches!(h.status, Offline)).map_or(String::new(), |ms| format!(" · {ms} ms"));
                     row()
@@ -1708,8 +1747,8 @@ impl SettingsPage {
                         .flex()
                         .items_end()
                         .justify_between()
-                        .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child("Stato dei servizi"))
-                        .child(button("health", "Aggiorna", false, false, i).on_click(move |_, _, cx| {
+                        .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(tr("Stato dei servizi")))
+                        .child(button("health", tr("Aggiorna"), false, false, i).on_click(move |_, _, cx| {
                             let _ = me.update(cx, |this, cx| {
                                 this.health = lfly_core::pages::health(&this.core.yt);
                                 cx.notify();
@@ -1717,19 +1756,19 @@ impl SettingsPage {
                         })),
                 )
                 .child(list(rows, i))
-                .child(foot("Se una fonte non risponde, LFly passa da sola alla successiva e la riprova più tardi.", i))
+                .child(foot(tr("Se una fonte non risponde, LFly passa da sola alla successiva e la riprova più tardi."), i))
                 .into_any_element(),
-            group("LFly per computer", None, i)
+            group(tr("LFly per computer"), None, i)
                 .child(list(
                     vec![
-                        row().child(div().flex_1().child("Versione")).child(div().font_weight(FontWeight::BOLD).child(format!("{} (nativa)", env!("CARGO_PKG_VERSION")))).into_any_element(),
-                        row().child(div().flex_1().child("Sistemi")).child(div().text_color(i.text2).child("Linux e Windows")).into_any_element(),
-                        row().child(div().flex_1().child("Licenza")).child(div().text_color(i.text2).child("GPL-3.0, software libero")).into_any_element(),
+                        row().child(div().flex_1().child(tr("Versione"))).child(div().font_weight(FontWeight::BOLD).child(format!("{} ({})", env!("CARGO_PKG_VERSION"), tr("nativa")))).into_any_element(),
+                        row().child(div().flex_1().child(tr("Sistemi"))).child(div().text_color(i.text2).child(tr("Linux e Windows"))).into_any_element(),
+                        row().child(div().flex_1().child(tr("Licenza"))).child(div().text_color(i.text2).child(tr("GPL-3.0, software libero"))).into_any_element(),
                     ],
                     i,
                 ))
                 .child(foot(
-                    "Disegnata con GPUI (Apache 2.0). Il Liquid Glass porta sul computer la lente di Kyant0/backdrop (Apache 2.0), la stessa dell'app per telefono. Il carattere Inter è di Rasmus Andersson (SIL Open Font License).",
+                    tr("Disegnata con GPUI (Apache 2.0). Il Liquid Glass porta sul computer la lente di Kyant0/backdrop (Apache 2.0), la stessa dell'app per telefono. Il carattere Inter è di Rasmus Andersson (SIL Open Font License)."),
                     i,
                 ))
                 .into_any_element(),
@@ -1775,7 +1814,7 @@ impl Render for SettingsPage {
                     .pb(px(56. + 104.))
                     .text_size(px(14.))
                     .text_color(i.s_text)
-                    .child(div().mt(px(4.)).mb(px(18.)).text_size(px(32.)).line_height(px(35.)).font_weight(FontWeight::BOLD).child("Impostazioni"))
+                    .child(div().mt(px(4.)).mb(px(18.)).text_size(px(32.)).line_height(px(35.)).font_weight(FontWeight::BOLD).child(tr("Impostazioni")))
                     .child(div().mb(px(8.)).w_full().flex().child(tabs))
                     .children(body),
             )

@@ -22,6 +22,7 @@ use serde_json::Value;
 
 use crate::core::Core;
 use crate::covers::Covers;
+use crate::i18n::tr;
 use crate::icons::icon;
 use crate::library_model::LibraryModel;
 use crate::player_model::PlayerModel;
@@ -29,20 +30,20 @@ use crate::player_model::PlayerModel;
 /// The few words in Italian, in one place for the translations to come. DJ terms (CUE, SYNC,
 /// GAIN, FILTER, IN, OUT) stay as every console prints them.
 mod words {
-    pub const EMPTY: &str = "Nessun brano";
-    pub const ELAPSED: &str = "TRASCORSO";
-    pub const REMAIN: &str = "RIMANENTE";
-    pub const LIKED: &str = "Brani che ti piacciono";
-    pub const DOWNLOADS: &str = "Scaricati";
-    pub const HISTORY: &str = "Cronologia";
-    pub const PLAYLISTS: &str = "Playlist";
-    pub const TITLE: &str = "Titolo";
-    pub const ARTIST: &str = "Artista";
-    pub const ALBUM: &str = "Album";
-    pub const LENGTH: &str = "Durata";
-    pub const UP_NEXT: &str = "IN CODA";
-    pub const NOTHING_NEXT: &str = "Niente in coda";
-    pub const NO_SONGS: &str = "Nessun brano qui";
+    pub const EMPTY: &str = crate::i18n::t("Nessun brano");
+    pub const ELAPSED: &str = crate::i18n::t("TRASCORSO");
+    pub const REMAIN: &str = crate::i18n::t("RIMANENTE");
+    pub const LIKED: &str = crate::i18n::t("Brani che ti piacciono");
+    pub const DOWNLOADS: &str = crate::i18n::t("Scaricati");
+    pub const HISTORY: &str = crate::i18n::t("Cronologia");
+    pub const PLAYLISTS: &str = crate::i18n::t("Playlist#plurale");
+    pub const TITLE: &str = crate::i18n::t("Titolo");
+    pub const ARTIST: &str = crate::i18n::t("Artista");
+    pub const ALBUM: &str = crate::i18n::t("Album");
+    pub const LENGTH: &str = crate::i18n::t("Durata");
+    pub const UP_NEXT: &str = crate::i18n::t("IN CODA");
+    pub const NOTHING_NEXT: &str = crate::i18n::t("Niente in coda");
+    pub const NO_SONGS: &str = crate::i18n::t("Nessun brano qui");
 }
 
 // ---- The console's own dark palette (DJ software is dark whatever the theme) ----
@@ -361,7 +362,7 @@ fn head(d: &DeckView, deck: usize, cover: Option<Arc<Image>>, w: f32) -> impl In
         .text_color(if d.live { c(0x000000) } else { c(TEXT) })
         .child(if deck == 0 { "A" } else { "B" });
     let art = div().size(px(34.)).flex_none().rounded(px(3.)).bg(c(PANEL2)).children(cover.map(|i| img(i).size_full().rounded(px(3.)).object_fit(ObjectFit::Cover)));
-    let (title, artist) = d.track.as_ref().map_or((words::EMPTY.to_string(), String::new()), |t| (t.title.clone(), t.artist.clone()));
+    let (title, artist) = d.track.as_ref().map_or((tr(words::EMPTY).to_string(), String::new()), |t| (t.title.clone(), t.artist.clone()));
     let names = div()
         .flex_1()
         .min_w_0()
@@ -402,8 +403,8 @@ fn head(d: &DeckView, deck: usize, cover: Option<Arc<Image>>, w: f32) -> impl In
                 .flex()
                 .gap(px(8.))
                 .when(w < 330., |d| d.hidden())
-                .child(stat(words::ELAPSED, tenths(elapsed)))
-                .child(stat(words::REMAIN, tenths(remain))),
+                .child(stat(tr(words::ELAPSED), tenths(elapsed)))
+                .child(stat(tr(words::REMAIN), tenths(remain))),
         );
     div()
         .w(px(w))
@@ -825,10 +826,10 @@ impl Render for Browser {
             .border_r_1()
             .border_color(c(LINE))
             .bg(c(0x16181b))
-            .child(folder_row("cf-liked".into(), words::LIKED.into(), "heart", Folder::Liked, self.folder == Folder::Liked))
-            .child(folder_row("cf-dl".into(), words::DOWNLOADS.into(), "download", Folder::Downloads, self.folder == Folder::Downloads))
-            .child(folder_row("cf-history".into(), words::HISTORY.into(), "clock", Folder::History, self.folder == Folder::History))
-            .child(div().pt(px(10.)).pb(px(4.)).px(px(8.)).text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT3)).child(words::PLAYLISTS.to_uppercase()))
+            .child(folder_row("cf-liked".into(), tr(words::LIKED).into(), "heart", Folder::Liked, self.folder == Folder::Liked))
+            .child(folder_row("cf-dl".into(), tr(words::DOWNLOADS).into(), "download", Folder::Downloads, self.folder == Folder::Downloads))
+            .child(folder_row("cf-history".into(), tr(words::HISTORY).into(), "clock", Folder::History, self.folder == Folder::History))
+            .child(div().pt(px(10.)).pb(px(4.)).px(px(8.)).text_size(px(9.)).font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT3)).child(tr(words::PLAYLISTS).to_uppercase()))
             .children(playlists.into_iter().map(|p| {
                 let on = self.folder == Folder::Playlist(p.id.clone());
                 folder_row(format!("cf-pl-{}", p.id).into(), p.name.clone(), "music", Folder::Playlist(p.id.clone()), on)
@@ -852,11 +853,11 @@ impl Render for Browser {
             .text_size(px(9.5))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(c(TEXT3))
-            .child(div().flex_1().min_w_0().child(words::TITLE))
-            .child(div().w(px(artist_w)).flex_none().child(words::ARTIST))
-            .when(album_w > 0., |d| d.child(div().w(px(album_w)).flex_none().child(words::ALBUM)))
+            .child(div().flex_1().min_w_0().child(tr(words::TITLE)))
+            .child(div().w(px(artist_w)).flex_none().child(tr(words::ARTIST)))
+            .when(album_w > 0., |d| d.child(div().w(px(album_w)).flex_none().child(tr(words::ALBUM))))
             .child(div().w(px(40.)).flex_none().text_right().child("BPM"))
-            .child(div().w(px(46.)).flex_none().text_right().child(words::LENGTH));
+            .child(div().w(px(46.)).flex_none().text_right().child(tr(words::LENGTH)));
         let list_this = this.clone();
         let list = uniform_list("console-list", count, move |range: Range<usize>, _, _| {
             range
@@ -908,7 +909,7 @@ impl Render for Browser {
             .flex()
             .flex_col()
             .child(header)
-            .when(count == 0, |d| d.child(div().p(px(16.)).text_size(px(12.)).text_color(c(TEXT3)).child(words::NO_SONGS)))
+            .when(count == 0, |d| d.child(div().p(px(16.)).text_size(px(12.)).text_color(c(TEXT3)).child(tr(words::NO_SONGS))))
             .child(list)
             .child(
                 div()
@@ -938,8 +939,8 @@ impl Render for Browser {
             .border_l_1()
             .border_color(c(LINE))
             .bg(c(0x16181b))
-            .child(div().h(px(22.)).flex_none().flex().items_center().px(px(10.)).bg(c(0x1e2024)).border_b_1().border_color(c(LINE)).text_size(px(9.5)).font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT3)).child(words::UP_NEXT))
-            .when(coming.is_empty(), |d| d.child(div().p(px(10.)).text_size(px(11.)).text_color(c(TEXT3)).child(words::NOTHING_NEXT)))
+            .child(div().h(px(22.)).flex_none().flex().items_center().px(px(10.)).bg(c(0x1e2024)).border_b_1().border_color(c(LINE)).text_size(px(9.5)).font_weight(FontWeight::SEMIBOLD).text_color(c(TEXT3)).child(tr(words::UP_NEXT)))
+            .when(coming.is_empty(), |d| d.child(div().p(px(10.)).text_size(px(11.)).text_color(c(TEXT3)).child(tr(words::NOTHING_NEXT))))
             .child(div().id("console-queue-list").flex_1().min_h_0().overflow_y_scroll().children(coming.into_iter().map(|(i, t)| {
                 let model = model.clone();
                 div()

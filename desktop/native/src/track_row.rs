@@ -59,8 +59,8 @@ pub fn columns(show_album: bool, s: &Scheme) -> impl IntoElement {
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(s.text3)
         .child(div().w(px(36.)).flex_none().text_center().child("#"))
-        .child(div().flex_grow(t).flex_basis(relative(0.)).min_w_0().child("TITOLO"))
-        .when(show_album, |d| d.child(div().flex_grow(a).flex_basis(relative(0.)).min_w_0().child("ALBUM")))
+        .child(div().flex_grow(t).flex_basis(relative(0.)).min_w_0().child(crate::i18n::tr("Titolo").to_uppercase()))
+        .when(show_album, |d| d.child(div().flex_grow(a).flex_basis(relative(0.)).min_w_0().child(crate::i18n::tr("Album").to_uppercase())))
         .child(div().w(px(96.)).flex_none().flex().justify_center().child(icon("clock", 14., s.text3)))
 }
 
@@ -167,7 +167,7 @@ pub fn track_row(
                                 .text_size(px(12.5))
                                 .text_color(s.text2)
                                 .when(d.is_video, |r| {
-                                    r.child(div().px(px(5.)).rounded(px(4.)).bg(s.text.opacity(0.12)).text_size(px(10.)).font_weight(FontWeight::BOLD).child("Video"))
+                                    r.child(div().px(px(5.)).rounded(px(4.)).bg(s.text.opacity(0.12)).text_size(px(10.)).font_weight(FontWeight::BOLD).child(crate::i18n::tr("Video")))
                                 })
                                 .when(d.downloaded, |r| {
                                     r.child(div().size(px(15.)).flex_none().rounded_full().flex().items_center().justify_center().bg(accent).child(icon("download", 11., s.on_accent.hsla(1.))))

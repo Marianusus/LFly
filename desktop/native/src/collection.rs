@@ -8,6 +8,8 @@ use std::sync::Arc;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_yt::Track;
 use serde_json::Value;
 
@@ -171,8 +173,8 @@ impl Collection {
             Source::Liked => {
                 let tracks = tracks_of(&lib.favorites);
                 self.header = Header {
-                    kind: "Playlist".into(),
-                    title: "Brani che ti piacciono".into(),
+                    kind: tr("Playlist").into(),
+                    title: tr("Brani che ti piacciono").into(),
                     meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
                     ..Default::default()
                 };
@@ -189,17 +191,17 @@ impl Collection {
                         let tracks = tracks_of(p.get("tracks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]));
                         let str_of = |k: &str| p.get(k).and_then(Value::as_str).map(str::to_string);
                         self.header = Header {
-                            kind: "Playlist".into(),
+                            kind: tr("Playlist").into(),
                             title: str_of("name").unwrap_or_default().into(),
                             meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
-                            byline: Some(("La tua playlist".into(), None)),
+                            byline: Some((tr("La tua playlist").into(), None)),
                             description: str_of("description").filter(|d| !d.trim().is_empty()).map(Into::into),
                             cover_url: str_of("coverUrl").or_else(|| tracks.first().and_then(|t| t.cover_url.clone())),
                             ..Default::default()
                         };
                         self.set_tracks(tracks, cx);
                     }
-                    None => self.error = Some("Questa playlist non c'è più.".into()),
+                    None => self.error = Some(tr("Questa playlist non c'è più.").into()),
                 }
             }
             Source::Downloads => {
@@ -207,11 +209,11 @@ impl Collection {
                 let list = dl.read(cx).list.clone();
                 let tracks: Vec<Track> = list.tracks.iter().filter_map(crate::core::track_of).collect();
                 let b = list.bytes as f64;
-                let size = if b > 1e9 { format!("{:.1} GB", b / 1e9).replace('.', ",") } else { format!("{} MB", (b / 1e6).round()) };
+                let size = if b > 1e9 { format!("{} GB", crate::i18n::decimal(b / 1e9, 1)) } else { format!("{} MB", (b / 1e6).round()) };
                 self.header = Header {
-                    kind: "Sul computer".into(),
-                    title: "Scaricati".into(),
-                    byline: Some(("Disponibili anche offline".into(), None)),
+                    kind: tr("Sul computer").into(),
+                    title: tr("Scaricati").into(),
+                    byline: Some((tr("Disponibili anche offline").into(), None)),
                     meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks), size].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
                     ..Default::default()
                 };
@@ -237,7 +239,7 @@ impl Collection {
                             .join(" · ");
                         let route = p.artist_id.clone().map(|id| Route::Artist { id, name: p.artist.clone() });
                         this.header = Header {
-                            kind: "Album".into(),
+                            kind: tr("Album").into(),
                             title: p.title.into(),
                             byline: Some((p.artist.into(), route)),
                             meta: meta.into(),
@@ -265,7 +267,7 @@ impl Collection {
                     Ok(p) => {
                         let meta = [crate::ui::brani(p.tracks.len() as u64), minutes(&p.tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
                         this.header = Header {
-                            kind: "Playlist".into(),
+                            kind: tr("Playlist").into(),
                             title: p.title.into(),
                             byline: p.author.map(|a| (a.into(), None)),
                             meta: meta.into(),
@@ -398,7 +400,7 @@ impl Collection {
                                     .when(!playable, |d| d.opacity(0.45))
                                     .when(playable, |d| d.cursor_pointer().on_click(move |_, _, _| core.play(&tracks, 0)))
                                     .child(icon("play", 16., s.on_accent.hsla(1.)))
-                                    .child("Riproduci"),
+                                    .child(tr("Riproduci")),
                             )
                             .child(
                                 div()
@@ -427,7 +429,7 @@ impl Collection {
                                         })
                                     })
                                     .child(icon("shuffle", 16., s.text))
-                                    .child("Casuale"),
+                                    .child(tr("Casuale")),
                             )
                             .child(actions),
                     ),
@@ -505,7 +507,7 @@ impl Collection {
                             nav.update(cx, |n, cx| n.go(Route::Library, cx));
                         })
                         .child(icon("trash", 15., white()))
-                        .child("Elimina? Non si può annullare")
+                        .child(tr("Elimina? Non si può annullare"))
                 } else {
                     hero_icon("delete", "trash").on_click(move |_, _, cx| {
                         let _ = me.update(cx, |this, cx| {
@@ -527,7 +529,7 @@ impl Collection {
                             title,
                             tracks,
                             cover,
-                            move |_, name, cx| crate::toast::Toasts::say(if album { format!("\"{name}\" salvato nella libreria") } else { format!("\"{name}\" salvata nella libreria") }, cx),
+                            move |_, name, cx| crate::toast::Toasts::say(if album { trf("“{0}” salvato nella libreria", &[&name]) } else { trf("“{0}” salvata nella libreria", &[&name]) }, cx),
                             cx,
                         )
                     });
@@ -570,14 +572,14 @@ impl Collection {
                                 this.mixed = want;
                                 cx.notify();
                             });
-                            crate::toast::Toasts::say(if want { "Playlist mixata: transizioni da DJ tra i brani" } else { "Mix tolto" }.to_string(), cx);
+                            crate::toast::Toasts::say(if want { tr("Playlist mixata: transizioni da DJ tra i brani") } else { tr("Mix tolto") }.to_string(), cx);
                         }
-                        Err(e) => crate::toast::Toasts::say(format!("Impossibile salvare il mix: {e}"), cx),
+                        Err(e) => crate::toast::Toasts::say(trf("Impossibile salvare il mix: {0}", &[&e]), cx),
                     }
                 })
             })
             .child(icon("sparkles", 15., fg))
-            .child(if on { "Mixata" } else { "Mixa" })
+            .child(if on { tr("Mixata") } else { tr("Mixa") })
             // A short fade-in of the new state when it flips.
             .with_animation(("hero-mix-flip", on as u64), Animation::new(std::time::Duration::from_millis(220)).with_easing(ease_out_quint()), move |d, t| {
                 d.opacity(if can { 0.55 + 0.45 * t } else { 0.45 })
@@ -657,18 +659,18 @@ impl Render for Collection {
                     };
                     let local = matches!(this.source, Source::Local(_));
                     if let (Some(_), true) = (&this.error, local) {
-                        d = d.child(empty("Questa playlist non c'è più", None, "Vai alla libreria", "library", Route::Library, this.nav.clone()));
+                        d = d.child(empty(tr("Questa playlist non c'è più"), None, tr("Vai alla libreria"), "library", Route::Library, this.nav.clone()));
                     } else if let Some(e) = &this.error {
                         d = d.child(div().px(px(24.)).py(px(8.)).text_color(s.text2).child(e.clone()));
                     } else if !this.loading && this.tracks.is_empty() && local {
-                        d = d.child(empty("Playlist vuota", Some("Aggiungi brani dal menu ⋯ di qualsiasi canzone."), "Cerca qualcosa da aggiungere", "search", Route::Search, this.nav.clone()));
+                        d = d.child(empty(tr("Playlist vuota"), Some(tr("Aggiungi brani dal menu ⋯ di qualsiasi canzone.")), tr("Cerca qualcosa da aggiungere"), "search", Route::Search, this.nav.clone()));
                     } else if !this.loading && this.tracks.is_empty() && this.source == Source::Liked {
-                        d = d.child(empty("Ancora nessun brano", Some("I brani a cui metti il cuore compaiono qui."), "Cerca qualcosa da ascoltare", "search", Route::Search, this.nav.clone()));
+                        d = d.child(empty(tr("Ancora nessun brano"), Some(tr("I brani a cui metti il cuore compaiono qui.")), tr("Cerca qualcosa da ascoltare"), "search", Route::Search, this.nav.clone()));
                     } else if !this.loading && this.tracks.is_empty() && this.source == Source::Downloads {
                         d = d.child(empty(
-                            "Nessun brano scaricato",
-                            Some("Scarica album, playlist o singoli brani (tasto destro › Scarica) per ascoltarli anche senza connessione."),
-                            "Vai alla libreria",
+                            tr("Nessun brano scaricato"),
+                            Some(tr("Scarica album, playlist o singoli brani (tasto destro › Scarica) per ascoltarli anche senza connessione.")),
+                            tr("Vai alla libreria"),
                             "library",
                             Route::Library,
                             this.nav.clone(),

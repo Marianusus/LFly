@@ -65,7 +65,7 @@ impl AccountModel {
         if let Some(c) = crate::connect::ConnectModel::try_entity(cx) {
             c.update(cx, |c, cx| c.set_account(None, cx));
         }
-        crate::toast::Toasts::say("Sei uscito dall'account YouTube Music", cx);
+        crate::toast::Toasts::say(crate::i18n::tr("Sei uscito dall'account YouTube Music"), cx);
         cx.notify();
     }
 
@@ -77,8 +77,8 @@ impl AccountModel {
         let liked = Item {
             kind: "playlist",
             id: "LM".into(),
-            title: "Mi piace".into(),
-            subtitle: Some("I brani a cui hai messo mi piace su YouTube Music".into()),
+            title: crate::i18n::tr("Mi piace").into(),
+            subtitle: Some(crate::i18n::tr("I brani a cui hai messo mi piace su YouTube Music").into()),
             cover_url: None,
             track: None,
         };

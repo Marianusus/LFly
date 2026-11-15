@@ -7,6 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
 use lfly_core::dj::session::DjState;
 use lfly_core::dj::{Block, BlockKind};
 
@@ -102,14 +104,14 @@ impl DjModel {
 /// The phone's `djBlockLabel`: what the block playing is.
 pub fn block_label(block: &Block) -> String {
     match (block.kind, block.subject.as_deref()) {
-        (BlockKind::Flow, _) => "Un flow dai tuoi preferiti".into(),
-        (BlockKind::TopPlayed, _) => "I brani che ascolti di più".into(),
-        (BlockKind::FollowedArtist, Some(s)) => format!("Dedicato a {s}"),
-        (BlockKind::FollowedArtist, None) => "Dagli artisti che segui".into(),
-        (BlockKind::Discovery, _) => "Nuove scoperte per te".into(),
-        (BlockKind::Throwback, _) => "Preferiti che non senti da un po'".into(),
-        (BlockKind::Mix, Some(s)) => format!("Dal mix {s}"),
-        (BlockKind::Mix, None) => "Dai tuoi mix".into(),
+        (BlockKind::Flow, _) => tr("Un flow dai tuoi preferiti").into(),
+        (BlockKind::TopPlayed, _) => tr("I brani che ascolti di più").into(),
+        (BlockKind::FollowedArtist, Some(s)) => trf("Dedicato a {0}", &[&s]),
+        (BlockKind::FollowedArtist, None) => tr("Dagli artisti che segui").into(),
+        (BlockKind::Discovery, _) => tr("Nuove scoperte per te").into(),
+        (BlockKind::Throwback, _) => tr("Preferiti che non senti da un po'").into(),
+        (BlockKind::Mix, Some(s)) => trf("Dal mix {0}", &[&s]),
+        (BlockKind::Mix, None) => tr("Dai tuoi mix").into(),
     }
 }
 

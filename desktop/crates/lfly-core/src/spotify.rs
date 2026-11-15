@@ -123,19 +123,19 @@ async fn find(yt: &YtMusic, want: &Wanted) -> Option<Track> {
 /// Reads the link's songs from Spotify's embed page and finds each on YouTube Music, four at a
 /// time; [progress] hears (done, total) after each.
 pub async fn import(yt: &YtMusic, link: &str, progress: impl Fn(usize, usize) + Send + Sync + 'static) -> Result<Imported, String> {
-    let (kind, id) = parse_link(link).ok_or("Non è un link di Spotify a una playlist, un album o un brano")?;
+    let (kind, id) = parse_link(link).ok_or(crate::lang::pick("Non è un link di Spotify a una playlist, un album o un brano", "Not a Spotify link to a playlist, an album or a song", "Nu este un link Spotify către un playlist, un album sau o melodie"))?;
     let html = reqwest::Client::new()
         .get(format!("https://open.spotify.com/embed/{kind}/{id}"))
         .header("User-Agent", UA)
         .send()
         .await
-        .map_err(|e| format!("Spotify non risponde: {e}"))?
+        .map_err(|e| format!("{}: {e}", crate::lang::pick("Spotify non risponde", "Spotify does not answer", "Spotify nu răspunde")))?
         .error_for_status()
-        .map_err(|_| "Spotify non mostra questo link: è privato o non esiste?".to_string())?
+        .map_err(|_| crate::lang::pick("Spotify non mostra questo link: è privato o non esiste?", "Spotify won't show this link: is it private or gone?", "Spotify nu afișează acest link: e privat sau nu există?").to_string())?
         .text()
         .await
         .map_err(|e| e.to_string())?;
-    let entity = entity(&html).ok_or("Spotify ha cambiato la sua pagina: non riesco a leggerla")?;
+    let entity = entity(&html).ok_or(crate::lang::pick("Spotify ha cambiato la sua pagina: non riesco a leggerla", "Spotify changed its page: I can't read it", "Spotify și-a schimbat pagina: nu o pot citi"))?;
     let name = entity.get("name").or_else(|| entity.get("title")).and_then(Value::as_str).unwrap_or("Da Spotify").to_string();
     let cover_url = entity
         .pointer("/coverArt/sources")
@@ -144,7 +144,7 @@ pub async fn import(yt: &YtMusic, link: &str, progress: impl Fn(usize, usize) + 
         .map(str::to_string);
     let wanted = wanted_of(&entity);
     if wanted.is_empty() {
-        return Err("La playlist è vuota".into());
+        return Err(crate::lang::pick("La playlist è vuota", "The playlist is empty", "Playlistul este gol").into());
     }
     let truncated = kind == "playlist" && wanted.len() >= 100;
 

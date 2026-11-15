@@ -17,12 +17,12 @@ pub const SYSTEM_DEFAULT: &str = "alsa:default";
 /// The phone's presets (EqualizerManager.kt): name, bands, bass boost.
 pub const PRESETS: [(&str, [f32; 5], i32); 7] = [
     ("Flat", [0., 0., 0., 0., 0.], 0),
-    ("Bassi potenti", [7., 5., 2., 0., 0.], 500),
+    (crate::i18n::t("Bassi potenti"), [7., 5., 2., 0., 0.], 500),
     ("Rock", [5., 3., -1., 3., 5.], 200),
     ("Pop", [-1., 2., 5., 3., -1.], 100),
-    ("Elettronica", [6., 4., 0., 2., 5.], 400),
+    (crate::i18n::t("Elettronica"), [6., 4., 0., 2., 5.], 400),
     ("Jazz", [3., 2., -1., 2., 4.], 150),
-    ("Voce in primo piano", [-4., 0., 6., 4., 1.], 0),
+    (crate::i18n::t("Voce in primo piano"), [-4., 0., 6., 4., 1.], 0),
 ];
 
 pub struct AudioModel {
@@ -53,7 +53,7 @@ impl AudioModel {
         PRESETS
             .iter()
             .find(|(_, b, bass)| *bass == eq.bass_boost && b.iter().zip(eq.bands_db.iter()).all(|(x, y)| (x - y).abs() < 0.05))
-            .map_or("Personalizzato", |p| p.0)
+            .map_or(crate::i18n::t("Personalizzato"), |p| p.0)
     }
 
     /// The output devices, read off the UI thread (enumerating ALSA takes a moment).
@@ -63,7 +63,7 @@ impl AudioModel {
             let mut list = cx.background_executor().spawn(async move { core.player.devices() }).await;
             // ALSA's "Default ALSA Output (currently PipeWire Media Server)": the system's choice.
             for d in list.iter_mut().filter(|d| d.id == SYSTEM_DEFAULT) {
-                d.name = "Predefinita del sistema".into();
+                d.name = crate::i18n::tr("Predefinita del sistema").into();
             }
             let _ = this.update(cx, |this, cx| {
                 this.devices = list;

@@ -149,7 +149,7 @@ impl LibraryModel {
     ) {
         let now = now_ms();
         let id = uuid::Uuid::new_v4().to_string();
-        let name = if name.trim().is_empty() { "La mia playlist".to_string() } else { name.trim().to_string() };
+        let name = if name.trim().is_empty() { crate::i18n::tr("La mia playlist").to_string() } else { name.trim().to_string() };
         let mut p = serde_json::json!({ "id": id, "name": name, "tracks": tracks, "schemaVersion": 2, "createdAt": now, "updatedAt": now });
         if let Some(c) = cover_url {
             p["coverUrl"] = Value::from(c);

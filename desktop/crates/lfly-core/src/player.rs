@@ -574,7 +574,7 @@ impl LocalPlayer {
                         now.loading = None;
                     }
                     log::warn!("No stream for '{}': {e}", track.title);
-                    me.say(&format!("Impossibile riprodurre “{}”: passo al prossimo", track.title));
+                    me.say(&crate::lang::pick("Impossibile riprodurre “{}”: passo al prossimo", "Can't play “{}”: skipping to the next one", "Nu pot reda „{}”: trec la următoarea").replacen("{}", &track.title, 1));
                     me.skip_failed();
                 }
             }
@@ -783,7 +783,7 @@ impl LocalPlayer {
                 let Some(track) = track else { return };
                 log::warn!("Playback of '{}' failed: {message}", track.title);
                 if retried {
-                    self.say(&format!("Impossibile riprodurre “{}”: passo al prossimo", track.title));
+                    self.say(&crate::lang::pick("Impossibile riprodurre “{}”: passo al prossimo", "Can't play “{}”: skipping to the next one", "Nu pot reda „{}”: trec la următoarea").replacen("{}", &track.title, 1));
                     self.skip_failed();
                     return;
                 }
