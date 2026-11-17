@@ -5,6 +5,22 @@
 //! Built without the `onnx` feature, [`track`] always answers `None`: a missing grid only means a
 //! plain crossfade.
 
+pub mod stems;
+
+/// ONNX Runtime's one environment of the process (the beat model and the stems model share it:
+/// a second one is refused), kept for the process's life.
+#[cfg(feature = "onnx")]
+pub(crate) fn env() -> ort::Result<ort::environment::Environment> {
+    static ENV: std::sync::Mutex<Option<ort::environment::Environment>> = std::sync::Mutex::new(None);
+    let mut guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(e) = guard.as_ref() {
+        return Ok(e.clone());
+    }
+    let e = ort::init().with_name("lfly").build()?;
+    *guard = Some(e.clone());
+    Ok(e)
+}
+
 use lfly_mix::beat_grid::BeatGrid;
 use lfly_mix::mel;
 
@@ -35,7 +51,7 @@ fn logits(spec: &mel::LogMel) -> Option<(Vec<f32>, Vec<f32>)> {
 
     let session = SESSION.get_or_init(|| {
         let made = (|| -> ort::Result<ort::session::Session> {
-            let env = ort::init().with_name("lfly-beat").build()?;
+            let env = env()?;
             ort::session::Session::builder(&env)?.with_intra_threads(2)?.commit_from_memory(MODEL)
         })();
         match made {

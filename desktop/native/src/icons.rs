@@ -30,6 +30,8 @@ const PATHS: &[(&str, &str)] = &[
     ("headphones", "M4 14v-2a8 8 0 0 1 16 0v2M4 14h3.5v6.5H5a1 1 0 0 1-1-1V14ZM20 14h-3.5v6.5H19a1 1 0 0 0 1-1V14Z"),
     // Two platters and a crossfader on a console.
     ("console", "M3.5 5.5h17a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1ZM7.5 14a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 14a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM10.5 16h3"),
+    // An airliner seen from above, as on an autopilot's button.
+    ("autopilot", "M12 2.5c.9 0 1.5 1 1.5 2.2V9l7 4v2l-7-2v4.5l2.5 2V21L12 20l-4 1v-1.5l2.5-2V13l-7 2v-2l7-4V4.7c0-1.2.6-2.2 1.5-2.2Z"),
     ("heart", "M12 20.5s-7.5-4.4-9-9.3C1.9 7.6 4.3 4.5 7.6 4.5c1.9 0 3.4 1 4.4 2.5 1-1.5 2.5-2.5 4.4-2.5 3.3 0 5.7 3.1 4.6 6.7-1.5 4.9-9 9.3-9 9.3Z"),
     ("plus", "M12 5v14M5 12h14"),
     ("queue", "M3.5 5.5h13M3.5 10.5h13M3.5 15.5h7M15.5 14v6.5l5-3.25-5-3.25Z"),

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::*;
-use lfly_audio::decks::{Curve, FxKind, Mixer, TrackBuf, FX_SLOTS, SAMPLES};
+use lfly_audio::decks::{Curve, FxKind, Mixer, Stems, TrackBuf, FX_SLOTS, SAMPLES};
 use lfly_connect::protocol::{self, TrackRef};
 use lfly_core::decks::{Analysis, Grid};
 use lfly_mix::key::MusicalKey;
@@ -23,6 +23,8 @@ use crate::player_model::PlayerModel;
 use crate::toast::Toasts;
 
 pub const HOT_CUES: usize = 8;
+/// Effect slots on a deck (the engine's).
+pub const FX_COUNT: usize = FX_SLOTS;
 /// Waveform columns per second of song.
 pub const PEAKS_PER_SECOND: u32 = 100;
 /// Pitch fader ranges, as shares of the tempo.
@@ -157,7 +159,7 @@ pub struct Deck {
     pub status: Status,
     /// Bumped on each load: work for an older load is dropped.
     seq: u64,
-    pub peaks: Arc<Vec<[u8; 2]>>,
+    pub peaks: Arc<Vec<[u8; 4]>>,
     pub grid: Option<Grid>,
     pub key: Option<MusicalKey>,
     pub analysing: bool,
@@ -221,6 +223,9 @@ pub struct Deck {
     pub bend: f32,
     /// The platter held: when, and how far it turned since.
     jog: Option<Instant>,
+    /// The song's parts (STEMS), once split, and their levels: vocals, drums, bass, melody.
+    pub stems: Option<Arc<Stems>>,
+    pub stem_gain: [f32; 4],
 }
 
 impl Deck {
@@ -300,6 +305,8 @@ impl Deck {
             volume: 1.,
             bend: 1.,
             jog: None,
+            stems: None,
+            stem_gain: [1.; 4],
         }
     }
 
@@ -363,6 +370,18 @@ pub struct DjDecks {
     player_playing: bool,
     /// A gradual pitch reset going on, per deck.
     resetting: [bool; 2],
+    /// A song asked onto a deck that is playing: the page asks whether to stop it for this one.
+    pub pending: Option<(usize, TrackRef)>,
+    /// UP NEXT: the songs the DJ keeps ready (the browser shows them; the autopilot plays them,
+    /// taking each off as it loads), kept across sessions; [upnext_rev] counts its changes.
+    pub upnext: Vec<TrackRef>,
+    pub upnext_rev: u64,
+    /// AUTOPILOT, when engaged (`autopilot.rs`).
+    pub autopilot: Option<crate::autopilot::Autopilot>,
+    /// The autopilot is moving the controls itself (they do not disengage it).
+    pub(crate) ap_driving: bool,
+    /// When the autopilot last pressed each control (lit on the page for a moment).
+    pub(crate) lamps: HashMap<(usize, crate::autopilot::Lamp), Instant>,
 }
 
 struct DecksGlobal(Entity<DjDecks>);
@@ -407,6 +426,15 @@ fn save_points(id: &str, cues: &[Option<f64>; HOT_CUES], loops: &[Option<(f64, f
     if let Err(e) = lfly_core::store::set(STORE_CUES, &all) {
         log::warn!("console cues not saved: {e}");
     }
+}
+
+const STORE_UPNEXT_SONGS: &str = "console-upnext-songs";
+
+/// Up Next's songs as kept (once in the browser's own key, read from there the first time).
+fn saved_upnext() -> Vec<TrackRef> {
+    let mine = lfly_core::store::get(STORE_UPNEXT_SONGS).ok().flatten();
+    let old = || lfly_core::store::get("console-upnext").ok().flatten().and_then(|v| v.get("tracks").cloned());
+    mine.or_else(old).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
 }
 
 /// A local file as the decks take it: its id is `file:` and the path.
@@ -461,6 +489,12 @@ impl DjDecks {
                 analyses: HashMap::new(),
                 player_playing: false,
                 resetting: [false; 2],
+                pending: None,
+                upnext: if test_run() { Vec::new() } else { saved_upnext() },
+                upnext_rev: 0,
+                autopilot: None,
+                ap_driving: false,
+                lamps: HashMap::new(),
             }
         });
         cx.set_global(DecksGlobal(e.clone()));
@@ -519,6 +553,18 @@ impl DjDecks {
                         "cuenext" => me.cue_step(d, 1, cx),
                         "cueprev" => me.cue_step(d, -1, cx),
                         "playpause" => me.play_pause(d, cx),
+                        "stems" => me.prepare_stems(d, cx),
+                        "apup" => me.autopilot_start(Vec::new(), "Up Next".into(), cx),
+                        a if a.starts_with("upadd") => {
+                            if let Some(t) = me.browse.get(pad("upadd")).cloned() {
+                                me.upnext_add(t, None, cx);
+                            }
+                        }
+                        "novox" => me.toggle_stem(d, 0, cx),
+                        "ap" => {
+                            let list = me.browse.to_vec();
+                            me.autopilot_start(list, "test".into(), cx);
+                        }
                         a if a.starts_with("opt") => me.pad_down_in(d, PadMode::Options, pad("opt"), cx),
                         a if a.starts_with("manual") => me.pad_down_in(d, PadMode::Manual, pad("manual"), cx),
                         a if a.starts_with("grid") && a != "gridbeat" => me.pad_down_in(d, PadMode::Grid, pad("grid"), cx),
@@ -534,6 +580,11 @@ impl DjDecks {
                         _ => {}
                     }
                     let phase = |me: &DjDecks, d: usize| me.decks[d].grid.map(|g| g.beat_at(me.position(d)));
+                    log::info!("upnext: {:?}", me.upnext.iter().map(|t| t.title.clone()).collect::<Vec<_>>());
+                    log::info!("stems: A {:?} {:?} | B {:?} {:?}", me.decks[0].stems.is_some(), me.decks[0].stem_gain, me.decks[1].stems.is_some(), me.decks[1].stem_gain);
+                    if let Some(ap) = &me.autopilot {
+                        log::info!("autopilot state: live {} phase {:?} plan {:?} xf {:.2} low {:.2} {:.2} vol {:.2} {:.2} filter {:.2} {:.2}", ap.live, ap.phase, ap.plan.map(|p| (p.start, p.span, p.matched, p.style, p.bars, p.entry)), me.xfader, me.decks[0].knobs[3], me.decks[1].knobs[3], me.decks[0].volume, me.decks[1].volume, me.decks[0].knobs[4], me.decks[1].knobs[4]);
+                    }
                     log::info!(
                         "console step {action} on {d}: A {:.3} s {} beat {:?} | B {:.3} s {} beat {:?} | tempo {:.4} {:.4} | loop {:?} {:?} | vu {:.2} {:.2} | phrase {:?} {:?} | samples {:?} | keylock {} {} | fader {:.2} {:.2} | tracks {:?} {:?} | grid {:?} | options {:?} {} {} {:?} {} {} {} | lock {} ham {} mfx {}",
                         me.position(0),
@@ -614,11 +665,22 @@ impl DjDecks {
         self.mixer.clone()
     }
 
+    /// A song's tempo and key (Camelot) if a deck has analysed it this session.
+    pub fn known(&self, id: &str) -> Option<(Option<f64>, Option<String>)> {
+        let a = self.analyses.get(id)?;
+        Some((a.grid.map(|g| g.bpm), a.key.map(|k| k.camelot())))
+    }
+
+    /// What the analysis found for the song on deck [d] (tracked beats, energy, loudness).
+    pub(crate) fn analysis_of(&self, d: usize) -> Option<&Analysis> {
+        self.decks[d].track.as_ref().and_then(|t| self.analyses.get(&t.id))
+    }
+
     pub fn engine(&self) -> Option<&Arc<Mixer>> {
         self.mixer.as_ref()
     }
 
-    fn apply_mixer(&self, d: usize) {
+    pub(crate) fn apply_mixer(&self, d: usize) {
         let Some(m) = &self.mixer else { return };
         let deck = &self.decks[d];
         let st = m.deck(d);
@@ -648,6 +710,9 @@ impl DjDecks {
         // Unassigned in the model means the deck's own side (A left, B right).
         st.assign.store(if deck.assign == 3 { 0 } else if deck.assign == 0 { d as u8 + 1 } else { deck.assign }, Relaxed);
         st.color.store(deck.color, Relaxed);
+        for k in 0..4 {
+            st.stems[k].set(deck.stem_gain[k]);
+        }
     }
 
     fn apply_master(&self) {
@@ -704,12 +769,28 @@ impl DjDecks {
 
     // ---- Loading ----
 
-    /// Loads [track] on deck [d] (stopped there, at its cue).
+    /// Loads [track] on deck [d] (stopped there, at its cue). On a deck that is playing the page
+    /// asks first ([`Self::confirm_load`]).
     pub fn load(&mut self, d: usize, track: TrackRef, cx: &mut Context<Self>) {
+        self.user_touch(cx);
         if self.is_playing(d) {
-            Toasts::say(tr("Ferma il deck prima di caricare un altro brano"), cx);
+            self.pending = Some((d, track));
+            cx.notify();
             return;
         }
+        self.load_now(d, track, cx);
+    }
+
+    /// The answer to "load on a deck that is playing?": yes stops it and loads the song.
+    pub fn confirm_load(&mut self, yes: bool, cx: &mut Context<Self>) {
+        let Some((d, track)) = self.pending.take() else { return };
+        if yes {
+            self.load_now(d, track, cx);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn load_now(&mut self, d: usize, track: TrackRef, cx: &mut Context<Self>) {
         let Some(mixer) = self.mixer() else {
             Toasts::say(tr("La console non trova un'uscita audio"), cx);
             return;
@@ -791,6 +872,21 @@ impl DjDecks {
         let Some(mixer) = self.mixer() else { return };
         let cue = self.decks[d].cue;
         mixer.load(d, buf.clone(), cue * buf.rate() as f64);
+        // Stems split before: read back from the disk and on the deck in a moment.
+        if let Some(id) = self.decks[d].track.as_ref().map(|t| t.id.clone()).filter(|id| lfly_core::stems::cached(id)) {
+            cx.spawn(async move |this, cx| {
+                let id2 = id.clone();
+                let st = cx.background_executor().spawn(async move { lfly_core::stems::load(&id2) }).await;
+                if let Some(st) = st {
+                    let _ = this.update(cx, |me, cx| {
+                        if me.decks[d].seq == seq {
+                            me.attach_stems(d, st, cx);
+                        }
+                    });
+                }
+            })
+            .detach();
+        }
         self.decks[d].buf = Some(buf.clone());
         self.decks[d].status = Status::Ready;
         self.apply_mixer(d);
@@ -861,6 +957,52 @@ impl DjDecks {
         .detach();
     }
 
+    /// The deck's song's stems in place: its stem buttons now act.
+    pub(crate) fn attach_stems(&mut self, d: usize, st: Arc<Stems>, cx: &mut Context<Self>) {
+        if let Some(m) = self.mixer() {
+            m.set_stems(d, Some(st.clone()));
+        }
+        self.decks[d].stems = Some(st);
+        self.apply_mixer(d);
+        cx.notify();
+    }
+
+    /// A song's stems are split: on every deck holding it.
+    pub fn stems_ready(&mut self, id: &str, st: Arc<Stems>, cx: &mut Context<Self>) {
+        for d in 0..2 {
+            if self.decks[d].stems.is_none() && self.decks[d].track.as_ref().is_some_and(|t| t.id == id) {
+                self.attach_stems(d, st.clone(), cx);
+            }
+        }
+    }
+
+    /// A stem button: the part out, or back in. Without stems yet, the song's are asked for first.
+    pub fn toggle_stem(&mut self, d: usize, k: usize, cx: &mut Context<Self>) {
+        if self.decks[d].stems.is_none() {
+            self.prepare_stems(d, cx);
+            return;
+        }
+        let g = &mut self.decks[d].stem_gain[k.min(3)];
+        *g = if *g > 0.5 { 0. } else { 1. };
+        self.apply_mixer(d);
+        cx.notify();
+    }
+
+    /// A stem's level (0..1), set by the autopilot.
+    pub(crate) fn set_stem(&mut self, d: usize, k: usize, v: f32) {
+        self.decks[d].stem_gain[k.min(3)] = v.clamp(0., 1.);
+        self.apply_mixer(d);
+    }
+
+    /// The deck's song to the stems list, first in line.
+    pub fn prepare_stems(&mut self, d: usize, cx: &mut Context<Self>) {
+        let Some(t) = self.decks[d].track.clone() else { return };
+        let buf = self.decks[d].buf.clone();
+        let stems = crate::stems_model::StemsModel::entity(cx);
+        stems.update(cx, |s, cx| s.prepare_from(t, true, buf, cx));
+        cx.notify();
+    }
+
     pub fn eject(&mut self, d: usize, cx: &mut Context<Self>) {
         if let Some(m) = &self.mixer {
             m.eject(d);
@@ -880,6 +1022,58 @@ impl DjDecks {
         if !shared {
             buf.cancel();
         }
+    }
+
+    // ---- Up Next ----
+
+    pub(crate) fn upnext_changed(&mut self, cx: &mut Context<Self>) {
+        self.upnext_rev += 1;
+        if !test_run() {
+            if let Ok(v) = serde_json::to_value(&self.upnext) {
+                if let Err(e) = lfly_core::store::set(STORE_UPNEXT_SONGS, &v) {
+                    log::warn!("up next not saved: {e}");
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// [track] into Up Next before place [at] (the end without one); a song already there moves.
+    pub fn upnext_add(&mut self, track: TrackRef, at: Option<usize>, cx: &mut Context<Self>) {
+        let mut at = at.unwrap_or(self.upnext.len()).min(self.upnext.len());
+        if let Some(i) = self.upnext.iter().position(|t| t.id == track.id) {
+            self.upnext.remove(i);
+            if i < at {
+                at -= 1;
+            }
+        }
+        self.upnext.insert(at.min(self.upnext.len()), track);
+        self.upnext_changed(cx);
+    }
+
+    pub fn upnext_remove(&mut self, i: usize, cx: &mut Context<Self>) {
+        if i < self.upnext.len() {
+            self.upnext.remove(i);
+            self.upnext_changed(cx);
+        }
+    }
+
+    pub fn upnext_clear(&mut self, cx: &mut Context<Self>) {
+        self.upnext.clear();
+        self.upnext_changed(cx);
+    }
+
+    /// Up Next's first song not on a deck, taken off the list (the autopilot plays it).
+    pub(crate) fn upnext_take(&mut self, cx: &mut Context<Self>) -> Option<TrackRef> {
+        let on: Vec<String> = self.decks.iter().filter_map(|d| d.track.as_ref().map(|t| t.id.clone())).collect();
+        // Songs already on a deck leave the list (they are playing or ready).
+        let before = self.upnext.len();
+        self.upnext.retain(|t| !on.contains(&t.id));
+        let t = (!self.upnext.is_empty()).then(|| self.upnext.remove(0));
+        if t.is_some() || self.upnext.len() != before {
+            self.upnext_changed(cx);
+        }
+        t
     }
 
     // ---- Transport ----
@@ -902,6 +1096,7 @@ impl DjDecks {
     }
 
     pub fn play_pause(&mut self, d: usize, cx: &mut Context<Self>) {
+        self.user_touch(cx);
         if self.decks[d].cue_preview {
             // PLAY while CUE is held: it goes on playing when CUE is let go.
             self.decks[d].cue_preview = false;
@@ -929,6 +1124,7 @@ impl DjDecks {
     /// elsewhere, the cue moves here; stopped on it, it plays while held. Inverted: back to the
     /// cue and held there, playing on when let go.
     pub fn cue_down(&mut self, d: usize, cx: &mut Context<Self>) {
+        self.user_touch(cx);
         if self.decks[d].buf.is_none() {
             return;
         }
@@ -976,9 +1172,10 @@ impl DjDecks {
         cx.notify();
     }
 
-    /// STOP: playing, stopped at the start; stopped, on to the next hot cue; on an empty deck,
+    /// STOP: playing, stopped back on the cue; stopped, on to the next hot cue; on an empty deck,
     /// the other deck's song cloned there, at its place and playing as it does.
     pub fn stop(&mut self, d: usize, cx: &mut Context<Self>) {
+        self.user_touch(cx);
         if self.decks[d].buf.is_none() {
             self.clone_from(d, cx);
             return;
@@ -986,7 +1183,7 @@ impl DjDecks {
         let Some(m) = self.mixer() else { return };
         if self.is_playing(d) {
             m.play(d, false);
-            m.jump(d, 0.);
+            m.jump(d, self.decks[d].cue * self.decks[d].rate());
         } else {
             self.cue_step(d, 1, cx);
         }
@@ -1013,8 +1210,13 @@ impl DjDecks {
         deck.cue = other.cue;
         deck.range = other.range;
         deck.fader = other.fader;
+        let stems = other.stems.clone();
         let rate = buf.rate() as f64;
         m.load(d, buf, self.position(o) * rate);
+        if let Some(st) = stems {
+            m.set_stems(d, Some(st.clone()));
+            self.decks[d].stems = Some(st);
+        }
         self.apply_mixer(d);
         if self.is_playing(o) {
             m.play(d, true);
@@ -1070,6 +1272,11 @@ impl DjDecks {
 
     /// The pitch back to 0 over a second and a half (the arrow by the fader).
     pub fn pitch_reset(&mut self, d: usize, cx: &mut Context<Self>) {
+        self.pitch_glide(d, 1.5, cx);
+    }
+
+    /// The pitch back to 0 over [secs].
+    pub(crate) fn pitch_glide(&mut self, d: usize, secs: f32, cx: &mut Context<Self>) {
         if self.resetting[d] || self.decks[d].fader == 0. {
             return;
         }
@@ -1083,7 +1290,7 @@ impl DjDecks {
                     if !me.resetting[d] {
                         return false;
                     }
-                    let k = (started.elapsed().as_secs_f32() / 1.5).min(1.);
+                    let k = (started.elapsed().as_secs_f32() / secs.max(0.1)).min(1.);
                     me.decks[d].fader = from * (1. - k);
                     me.apply_mixer(d);
                     cx.notify();
@@ -1103,14 +1310,25 @@ impl DjDecks {
     /// MATCH: the other deck's tempo, the phase left alone.
     pub fn match_tempo(&mut self, d: usize, cx: &mut Context<Self>) {
         let (Some(g), Some(target)) = (self.decks[d].grid, self.decks[1 - d].bpm()) else { return };
+        self.set_ratio(d, target / g.bpm);
+        cx.notify();
+    }
+
+    /// The pitch fader set for a tempo ratio, half or double time when that is closer (a 70 BPM
+    /// song against a 140 one), the range widened when the ratio is past it.
+    pub(crate) fn set_ratio(&mut self, d: usize, mut target: f64) {
+        for k in [0.5, 2.] {
+            if (target * k - 1.).abs() < (target - 1.).abs() {
+                target *= k;
+            }
+        }
         let deck = &mut self.decks[d];
-        let need = (target / g.bpm - 1.) as f32;
+        let need = (target - 1.) as f32;
         if need.abs() > deck.range {
             deck.range = RANGES.iter().copied().find(|r| *r >= need.abs()).unwrap_or(1.);
         }
         deck.fader = (need / deck.range).clamp(-1., 1.);
         self.apply_mixer(d);
-        cx.notify();
     }
 
     /// A song's grid is known: with auto BPM on, its tempo goes to the other deck's.
@@ -1152,6 +1370,7 @@ impl DjDecks {
 
     /// SYNC: the other deck's tempo, and its beat phase.
     pub fn sync(&mut self, d: usize, cx: &mut Context<Self>) {
+        self.user_touch(cx);
         let o = 1 - d;
         let (Some(g), Some(og)) = (self.decks[d].grid, self.decks[o].grid) else {
             Toasts::say(tr("SYNC: serve il tempo di entrambi i deck"), cx);
@@ -1160,20 +1379,7 @@ impl DjDecks {
         if self.decks[o].buf.is_none() {
             return;
         }
-        let mut target = og.bpm * self.decks[o].ratio() / g.bpm;
-        // Half or double time when that is closer (a 70 BPM song against a 140 one).
-        for k in [0.5, 2.] {
-            if (target * k - 1.).abs() < (target - 1.).abs() {
-                target *= k;
-            }
-        }
-        let deck = &mut self.decks[d];
-        let need = (target - 1.).abs() as f32;
-        if need > deck.range {
-            deck.range = RANGES.iter().copied().find(|r| *r >= need).unwrap_or(1.);
-        }
-        deck.fader = (((target - 1.) as f32) / deck.range).clamp(-1., 1.);
-        self.apply_mixer(d);
+        self.set_ratio(d, og.bpm * self.decks[o].ratio() / g.bpm);
         // The phase: the beat fraction of each deck, read from the same block of the engine.
         let (here, there) = (self.position(d), self.position(o));
         let mine = g.beat_at(here);
@@ -1199,8 +1405,14 @@ impl DjDecks {
     pub fn tap(&mut self, d: usize, cx: &mut Context<Self>) {
         let now = Instant::now();
         let deck = &mut self.decks[d];
-        deck.taps.retain(|t| now.duration_since(*t) < Duration::from_secs(2));
+        // A pause of 2 s starts over; the last eight taps count (a 70 BPM song can be tapped too).
+        if deck.taps.last().is_some_and(|t| now.duration_since(*t) > Duration::from_secs(2)) {
+            deck.taps.clear();
+        }
         deck.taps.push(now);
+        if deck.taps.len() > 8 {
+            deck.taps.remove(0);
+        }
         if deck.taps.len() >= 4 {
             let n = deck.taps.len();
             let span = deck.taps[n - 1].duration_since(deck.taps[0]).as_secs_f64();
@@ -1379,9 +1591,9 @@ impl DjDecks {
 
     pub fn loop_size(&mut self, d: usize, up: bool, cx: &mut Context<Self>) {
         let deck = &mut self.decks[d];
-        let i = LOOP_SIZES.iter().position(|s| (*s - deck.loop_beats).abs() < 1e-9).unwrap_or(7);
-        let j = if up { (i + 1).min(LOOP_SIZES.len() - 1) } else { i.saturating_sub(1) };
-        deck.loop_beats = LOOP_SIZES[j];
+        // Halved or doubled as it is (a 3-beat manual loop becomes 1.5 or 6).
+        let (lo, hi) = (LOOP_SIZES[0], LOOP_SIZES[LOOP_SIZES.len() - 1]);
+        deck.loop_beats = (deck.loop_beats * if up { 2. } else { 0.5 }).clamp(lo, hi);
         if let Some((a, _)) = deck.looped {
             let b = a + deck.loop_beats * deck.beat();
             self.engage(d, Some((a, b)), cx);
@@ -1449,8 +1661,10 @@ impl DjDecks {
     /// the deck is in.
     fn slice(&self, d: usize, i: usize) -> Option<(f64, f64)> {
         let g = self.decks[d].grid?;
-        let at = g.beat_at(self.position(d));
-        let first = (at / 8.).floor() * 8.;
+        // Counted from a bar's first beat, not from the grid's first beat.
+        let bar = g.first_in_bar as f64;
+        let at = g.beat_at(self.position(d)) + bar;
+        let first = (at / 8.).floor() * 8. - bar;
         let a = g.time_of(first + i as f64);
         Some((a.max(0.), g.time_of(first + i as f64 + 1.)))
     }
@@ -1458,7 +1672,7 @@ impl DjDecks {
     /// The SLICER's step playing now (0..8), lit on its pad.
     pub fn slice_now(&self, d: usize) -> Option<usize> {
         let g = self.decks[d].grid?;
-        Some(g.beat_at(self.position(d)).rem_euclid(8.) as usize)
+        Some((g.beat_at(self.position(d)) + g.first_in_bar as f64).rem_euclid(8.) as usize)
     }
 
     fn roll_on(&mut self, d: usize, a: f64, b: f64, held: (PadMode, usize), cx: &mut Context<Self>) {
@@ -1472,6 +1686,10 @@ impl DjDecks {
 
     /// A pad pressed ([alt]: the right button, which deletes a cue, a loop or a sample).
     pub fn pad_down(&mut self, d: usize, i: usize, alt: bool, cx: &mut Context<Self>) {
+        // The OPTIONS page changes settings, not the music: the autopilot stays.
+        if self.decks[d].pads != PadMode::Options {
+            self.user_touch(cx);
+        }
         let loaded = self.decks[d].buf.is_some();
         match self.decks[d].pads {
             PadMode::HotCue => self.hot_cue(d, i, alt, cx),
@@ -1838,7 +2056,7 @@ impl DjDecks {
         let k = g.beat_at(here);
         let bpm = (g.bpm + delta).clamp(40., 250.);
         let first = here - k * 60. / bpm;
-        self.decks[d].grid = Some(Grid { bpm, first_beat: first.rem_euclid(60. / bpm), first_in_bar: ((g.first_in_bar as i64 + (first / (60. / bpm)).floor() as i64).rem_euclid(4)) as u32 });
+        self.decks[d].grid = Some(Grid { bpm, first_beat: first.rem_euclid(60. / bpm), first_in_bar: ((g.first_in_bar as i64 - (first / (60. / bpm)).floor() as i64).rem_euclid(4)) as u32 });
         self.remember_grid(d);
         self.apply_mixer(d);
         cx.notify();
@@ -2111,15 +2329,7 @@ impl DjDecks {
         cx.notify();
     }
 
-    pub fn master_fx_label(&self) -> &'static str {
-        FxKind::from_u8(self.master_fx).map_or("NONE", FxKind::name)
-    }
 
-    pub fn set_master_fx_amount(&mut self, v: f32, cx: &mut Context<Self>) {
-        self.master_fx_amount = v.clamp(0., 1.);
-        self.apply_master();
-        cx.notify();
-    }
 
     pub fn toggle_hamster(&mut self, cx: &mut Context<Self>) {
         self.hamster = !self.hamster;
@@ -2136,10 +2346,14 @@ impl DjDecks {
 
 /// "1/4", "2", as loop sizes read.
 pub fn beats_label(b: f64) -> String {
-    if b >= 1. {
-        format!("{}", b as u32)
-    } else {
+    let whole = |x: f64| (x - x.round()).abs() < 1e-6;
+    if b >= 1. && whole(b) {
+        format!("{}", b.round() as u32)
+    } else if b < 1. && whole(1. / b) {
         format!("1/{}", (1. / b).round() as u32)
+    } else {
+        // A loop set by hand: 1.5, 0.75.
+        format!("{b:.2}").trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }
 
@@ -2152,5 +2366,7 @@ mod tests {
         assert_eq!(beats_label(0.25), "1/4");
         assert_eq!(beats_label(1. / 32.), "1/32");
         assert_eq!(beats_label(16.), "16");
+        assert_eq!(beats_label(1.5), "1.5");
+        assert_eq!(beats_label(0.75), "0.75");
     }
 }

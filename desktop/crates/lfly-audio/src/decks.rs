@@ -122,9 +122,9 @@ impl TrackBuf {
         let rate = dec.sample_rate().max(1);
         let cap = MAX_SECONDS * rate as usize;
         let expected = dec.duration_ms().map_or(0, |ms| (ms as u128 * rate as u128 / 1000) as usize);
-        // A little room past what the container says: durations are often a few frames short.
-        let room = if expected > 0 { (expected + rate as usize * 2).min(cap) } else { cap };
-        let buf = Arc::new(TrackBuf::empty(rate, room, ctl, expected.min(cap)));
+        // Room for the longest song whatever the container says (a wrong length must not cut the
+        // song short): a slot is a pointer, its samples are allocated as decoding fills it.
+        let buf = Arc::new(TrackBuf::empty(rate, cap, ctl, expected.min(cap)));
         let b = buf.clone();
         std::thread::Builder::new()
             .name("lfly-deck-decode".into())
@@ -209,6 +209,53 @@ impl TrackBuf {
 
     pub fn rate(&self) -> u32 {
         self.rate
+    }
+
+    /// A finished buffer from 16-bit interleaved stereo (stems read back from the disk).
+    pub fn from_i16(rate: u32, samples: Vec<i16>) -> Arc<TrackBuf> {
+        let frames = samples.len() / 2;
+        let buf = TrackBuf::empty(rate, frames.max(1), ReaderCtl::detached(), frames);
+        for (slot, part) in samples.chunks(CHUNK * 2).enumerate() {
+            let _ = buf.chunks[slot].set(part.to_vec().into_boxed_slice());
+        }
+        buf.ready.store(frames, Ordering::Release);
+        buf.done.store(true, Ordering::Release);
+        Arc::new(buf)
+    }
+
+    /// The song as interleaved stereo at [rate] (the stems model's input), as far as decoded.
+    pub fn stereo(&self, rate: u32) -> Vec<f32> {
+        let ready = self.ready();
+        let mut rs = Resample::new(self.rate, rate);
+        let mut out = Vec::with_capacity((ready as u64 * rate as u64 / self.rate as u64) as usize * 2 + 8192);
+        let mut part = Vec::with_capacity(CHUNK * 2);
+        let mut start = 0;
+        while start < ready {
+            let end = (start + CHUNK).min(ready);
+            part.clear();
+            for i in start..end {
+                let [l, r] = self.frame(i as i64, ready);
+                part.push(l);
+                part.push(r);
+            }
+            rs.process(&part, &mut out);
+            start = end;
+        }
+        rs.flush(&mut out);
+        out
+    }
+
+    /// The whole buffer as stored: 16-bit interleaved stereo (stems written to the disk).
+    pub fn raw(&self) -> Vec<i16> {
+        let ready = self.ready();
+        let mut out = Vec::with_capacity(ready * 2);
+        for c in 0..ready.div_ceil(CHUNK) {
+            if let Some(chunk) = self.chunks[c].get() {
+                let want = ((ready - c * CHUNK).min(CHUNK)) * 2;
+                out.extend_from_slice(&chunk[..want.min(chunk.len())]);
+            }
+        }
+        out
     }
 
     /// Frames [start]..[end] as a buffer of their own (a sample: it must not keep the whole song
@@ -339,31 +386,66 @@ impl TrackBuf {
     }
 
     /// The waveform, [per_second] columns a second of the song: each the loudest sample (0..255)
-    /// and how much of it is bass (0..255), for drawing it as DJ software does.
-    pub fn peaks(&self, per_second: u32) -> Vec<[u8; 2]> {
+    /// and how its energy splits between lows (under ~200 Hz), mids and highs (over ~2.5 kHz),
+    /// each 0..255, for a waveform coloured by frequency as DJ software draws it.
+    pub fn peaks(&self, per_second: u32) -> Vec<[u8; 4]> {
         let ready = self.ready();
         let step = (self.rate / per_second.max(1)).max(1) as usize;
-        let k = 1. - (-2. * std::f32::consts::PI * 200. / self.rate as f32).exp();
-        let mut lp = 0f32;
+        let one_pole = |hz: f32| 1. - (-2. * std::f32::consts::PI * hz / self.rate as f32).exp();
+        let (k_low, k_high) = (one_pole(200.), one_pole(2_500.));
+        let (mut lp, mut lp_high) = (0f32, 0f32);
         let mut out = Vec::with_capacity(ready / step + 1);
         let mut i = 0;
         while i < ready {
             let end = (i + step).min(ready);
-            let (mut peak, mut all, mut low) = (0f32, 0f32, 0f32);
+            let (mut peak, mut all, mut low, mut high) = (0f32, 0f32, 0f32, 0f32);
             for j in i..end {
                 let [l, r] = self.frame(j as i64, ready);
                 let m = (l + r) * 0.5;
-                lp += k * (m - lp);
+                lp += k_low * (m - lp);
+                lp_high += k_high * (m - lp_high);
+                let h = m - lp_high;
                 peak = peak.max(l.abs()).max(r.abs());
                 all += m * m;
                 low += lp * lp;
+                high += h * h;
             }
-            let bass = if all > 1e-9 { (low / all).clamp(0., 1.) } else { 0. };
-            out.push([(peak.min(1.) * 255.) as u8, (bass * 255.) as u8]);
+            let share = |x: f32| if all > 1e-9 { (x / all).clamp(0., 1.) } else { 0. };
+            let (lo, hi) = (share(low), share(high));
+            let mid = (1. - lo - hi).clamp(0., 1.);
+            out.push([(peak.min(1.) * 255.) as u8, (lo * 255.) as u8, (mid * 255.) as u8, (hi * 255.) as u8]);
             i = end;
         }
         out
     }
+}
+
+/// A song's parts, frame for frame with it (same rate and length): what the mixer's stem knobs
+/// take out of it or leave. The fourth part ("other": melody, keys, the rest) is the song less
+/// these three.
+pub struct Stems {
+    pub vocals: Arc<TrackBuf>,
+    pub drums: Arc<TrackBuf>,
+    pub bass: Arc<TrackBuf>,
+}
+
+/// The song at [pos], its parts weighed by [g] (vocals, drums, bass, other; 1 each = as it is).
+#[inline]
+fn read(buf: &TrackBuf, stems: Option<&Stems>, g: [f32; 4], pos: f64, ready: usize) -> [f32; 2] {
+    let mix = buf.at(pos, ready);
+    let Some(st) = stems else { return mix };
+    if g.iter().all(|x| (*x - 1.).abs() < 1e-4) {
+        return mix;
+    }
+    let other = g[3];
+    let v = st.vocals.at(pos, st.vocals.ready());
+    let d = st.drums.at(pos, st.drums.ready());
+    let b = st.bass.at(pos, st.bass.ready());
+    let mut out = [0.; 2];
+    for c in 0..2 {
+        out[c] = mix[c] * other + v[c] * (g[0] - other) + d[c] * (g[1] - other) + b[c] * (g[2] - other);
+    }
+    out
 }
 
 // ---- Filters ----
@@ -797,6 +879,9 @@ pub struct DeckState {
     pub assign: AtomicU8,
     /// What the filter knob does: 0 the filter, else an effect (Color FX).
     pub color: AtomicU8,
+    /// The stems' levels: vocals, drums, bass, other (1 as recorded, 0 gone). Heard only once the
+    /// deck has its song's stems.
+    pub stems: [AF32; 4],
 
     /// Set by the callback.
     pub position: AF64,
@@ -828,6 +913,7 @@ impl DeckState {
             keylock: AtomicBool::new(false),
             assign: AtomicU8::new(side),
             color: AtomicU8::new(0),
+            stems: [AF32::new(1.), AF32::new(1.), AF32::new(1.), AF32::new(1.)],
             position: AF64::new(0.),
             playing: AtomicBool::new(false),
             shadow: AF64::new(0.),
@@ -963,6 +1049,8 @@ enum Cmd {
     Sample(usize, Option<(Arc<TrackBuf>, f64, f64, bool)>),
     /// A sampler slot starts from its beginning (true) or stops.
     Trigger(usize, bool),
+    /// The deck's song's stems (its knobs then act), or none.
+    Stems(usize, Option<Arc<Stems>>),
 }
 
 // ---- The callback's side ----
@@ -1025,6 +1113,9 @@ struct DeckRt {
     vol: f32,
     gain: f32,
     buf_l: Vec<[f32; 2]>,
+    stems: Option<Arc<Stems>>,
+    /// The stems' levels, eased toward the knobs block by block.
+    stem_g: [f32; 4],
 }
 
 impl DeckRt {
@@ -1065,6 +1156,8 @@ impl DeckRt {
             vol: 1.,
             gain: 1.,
             buf_l: vec![[0.; 2]; BLOCK],
+            stems: None,
+            stem_g: [1.; 4],
         }
     }
 
@@ -1073,10 +1166,13 @@ impl DeckRt {
     }
 
     fn jump(&mut self, to: f64) {
-        if self.level > 0. {
+        if self.level > 0. && !self.ks_live {
             self.fade_from = Some((self.pos, DECLICK));
         }
         self.pos = to.max(0.);
+        // Under master tempo what the stretch read ahead is from the old place: dropped, so a
+        // loop, a roll or a slip return is heard now and not a moment later.
+        self.ks_live = false;
     }
 
     /// Back to where the song would be, if slip kept count.
@@ -1159,8 +1255,27 @@ impl MixRender {
         }
     }
 
+    /// Lets go of a deck's stems: their buffers freed on the control side, never here.
+    fn throw_stems(&mut self, old: Option<Arc<Stems>>) {
+        if let Some(old) = old {
+            match Arc::try_unwrap(old) {
+                Ok(st) => {
+                    self.throw(st.vocals);
+                    self.throw(st.drums);
+                    self.throw(st.bass);
+                }
+                // The control side still holds them: only a count goes down here.
+                Err(shared) => drop(shared),
+            }
+        }
+    }
+
     fn command(&mut self, cmd: Cmd) {
         match cmd {
+            Cmd::Stems(deck, stems) => {
+                let old = std::mem::replace(&mut self.decks[deck].stems, stems);
+                self.throw_stems(old);
+            }
             Cmd::Load { deck, buf, at } => {
                 let d = &mut self.decks[deck];
                 let old = d.buf.replace(buf);
@@ -1186,6 +1301,8 @@ impl MixRender {
                 if let Some(old) = old {
                     self.throw(old);
                 }
+                let st = self.decks[deck].stems.take();
+                self.throw_stems(st);
             }
             Cmd::Eject(deck) => {
                 let d = &mut self.decks[deck];
@@ -1204,6 +1321,8 @@ impl MixRender {
                 if let Some(old) = d.buf.take() {
                     self.throw(old);
                 }
+                let st = self.decks[deck].stems.take();
+                self.throw_stems(st);
                 self.state.decks[deck].loads.fetch_add(1, Ordering::Release);
             }
             Cmd::Play(deck, on) => {
@@ -1389,6 +1508,16 @@ impl MixRender {
             let ease = 1. / (0.004 * rate) as f64;
             let fade_step = 1. / (0.004 * rate);
             let out = &mut d.buf_l[..frames];
+            // The stem knobs, eased (about 30 ms) so a part never clicks in or out.
+            for k in 0..4 {
+                let t = sh.stems[k].get().clamp(0., 1.5);
+                d.stem_g[k] += (t - d.stem_g[k]) * 0.35;
+                if (d.stem_g[k] - t).abs() < 1e-3 {
+                    d.stem_g[k] = t;
+                }
+            }
+            let stems = d.stems.clone();
+            let sg = d.stem_g;
 
             // Master tempo: while plainly playing (no hand on the platter, no reverse or brake).
             let keylock = sh.keylock.load(Ordering::Relaxed) && d.playing && d.scratch.is_none() && !d.reverse && d.stop.is_none() && tempo > 0.05;
@@ -1414,7 +1543,7 @@ impl MixRender {
                 while (d.ks_out.len() - d.ks_at) / 2 < frames && !held {
                     d.ks_in.clear();
                     for _ in 0..KS_FEED {
-                        let s = buf.at(d.pos, ready);
+                        let s = read(&buf, stems.as_deref(), sg, d.pos, ready);
                         d.ks_in.push(s[0]);
                         d.ks_in.push(s[1]);
                         let mut p = d.pos + base;
@@ -1498,9 +1627,9 @@ impl MixRender {
                     *f = [0.; 2];
                     continue;
                 }
-                let mut s = buf.at(d.pos, ready);
+                let mut s = read(&buf, stems.as_deref(), sg, d.pos, ready);
                 if let Some((old, left)) = d.fade_from.as_mut() {
-                    let o = buf.at(*old, ready);
+                    let o = read(&buf, stems.as_deref(), sg, *old, ready);
                     let k = *left as f32 / DECLICK as f32;
                     s = [s[0] * (1. - k) + o[0] * k, s[1] * (1. - k) + o[1] * k];
                     *old += d.speed * base;
@@ -1538,6 +1667,10 @@ impl MixRender {
                     }
                 } else if p < 0. {
                     p = 0.;
+                    // Played backwards to the start: the deck stops there (a hand may go on).
+                    if d.playing && d.scratch.is_none() && d.stop.is_none() && !d.censor {
+                        d.playing = false;
+                    }
                 }
                 d.pos = p;
             }
@@ -1950,6 +2083,11 @@ impl Mixer {
     pub fn set_sample(&self, slot: usize, sample: Option<(Arc<TrackBuf>, f64, f64, bool)>) {
         self.send(Cmd::Sample(slot.min(SAMPLES - 1), sample))
     }
+    /// The deck's song's stems (none: the stem knobs do nothing).
+    pub fn set_stems(&self, deck: usize, stems: Option<Arc<Stems>>) {
+        self.send(Cmd::Stems(deck.min(DECKS - 1), stems))
+    }
+
     /// Starts sampler slot [slot] from its beginning, or stops it.
     pub fn trigger(&self, slot: usize, on: bool) {
         self.send(Cmd::Trigger(slot.min(SAMPLES - 1), on))
@@ -2252,6 +2390,31 @@ mod tests {
         fn rms(v: &[f32]) -> f32 {
             (v.iter().map(|s| s * s).sum::<f32>() / v.len().max(1) as f32).sqrt()
         }
+    }
+
+    #[test]
+    fn a_stem_turned_down_leaves_the_rest_of_the_song() {
+        // The song: a voice (440 Hz) over a bass (110 Hz); the stems split them.
+        let voice = tone(440., 1., 0.3);
+        let bass = tone(110., 1., 0.3);
+        let song: Vec<f32> = voice.iter().zip(&bass).map(|(a, b)| a + b).collect();
+        let silent = vec![0f32; song.len()];
+        let mut rig = Rig::new();
+        rig.cmd(Cmd::Load { deck: 0, buf: TrackBuf::from_samples(RATE, &song), at: 0. });
+        rig.cmd(Cmd::Stems(0, Some(Arc::new(Stems { vocals: TrackBuf::from_samples(RATE, &voice), drums: TrackBuf::from_samples(RATE, &silent), bass: TrackBuf::from_samples(RATE, &bass) }))));
+        rig.cmd(Cmd::Play(0, true));
+        rig.state.decks[0].stems[0].set(0.);
+        rig.run(4800);
+        let out = rig.run(9600);
+        // What is left correlates with the bass, not with the voice.
+        let at = rig.pos(0) as usize - 9600;
+        let dot = |x: &[f32]| out.iter().step_by(2).zip(x.iter().step_by(2).skip(at)).map(|(a, b)| a * b).sum::<f32>();
+        let (v, b) = (dot(&voice), dot(&bass));
+        assert!(b > 10. * v.abs(), "bass {b} voice {v}");
+        // Back up: the whole song.
+        rig.state.decks[0].stems[0].set(1.);
+        rig.run(4800);
+        assert!(Rig::rms(&rig.run(4800)) > 0.25);
     }
 
     #[test]

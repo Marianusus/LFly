@@ -65,6 +65,12 @@ impl Grid {
 pub struct Analysis {
     pub grid: Option<Grid>,
     pub key: Option<MusicalKey>,
+    /// The beats as tracked (the Automix planner's input: its bars, downbeats, confidence).
+    pub beats: Option<BeatGrid>,
+    /// Bar by bar loudness: where the intro opens up, where the outro starts, whether it is calm.
+    pub energy: Option<lfly_mix::energy::EnergyProfile>,
+    /// Integrated loudness, to bring two songs to one level while they mix.
+    pub lufs: Option<f64>,
 }
 
 /// Tempo, grid and key of the song in [buf] (as much as is decoded). Takes a few seconds of CPU
@@ -73,8 +79,11 @@ pub struct Analysis {
 pub fn analyse(buf: &TrackBuf) -> Analysis {
     let started = std::time::Instant::now();
     let mono = buf.mono(mel::SAMPLE_RATE);
-    let grid = lfly_beat::track(&mono, 0.).as_ref().and_then(constant);
+    let beats = lfly_beat::track(&mono, 0.);
+    let grid = beats.as_ref().and_then(constant);
     let key = lfly_mix::key::detect(&mono, mel::SAMPLE_RATE);
+    let energy = beats.as_ref().and_then(|g| lfly_mix::energy::EnergyProfile::compute(&mono, mel::SAMPLE_RATE, 0., g));
+    let lufs = lfly_mix::loudness::lufs(&mono, mel::SAMPLE_RATE);
     log::info!(
         "deck analysis: {} s of audio, {} , key {} in {} ms",
         mono.len() / mel::SAMPLE_RATE as usize,
@@ -82,7 +91,11 @@ pub fn analyse(buf: &TrackBuf) -> Analysis {
         key.map_or("?".to_string(), |k| k.name()),
         started.elapsed().as_millis()
     );
-    Analysis { grid, key }
+    log::info!(
+        "deck energy: {}",
+        energy.as_ref().map_or("n/a".to_string(), |e| format!("{} bars{}, outro {:?}, rise {:?}, {:.1} LUFS", e.bar_starts.len(), if e.is_calm { " calm" } else { "" }, e.outro_start, e.first_rise, lufs.unwrap_or(0.)))
+    );
+    Analysis { grid, key, beats, energy, lufs }
 }
 
 /// How well a fixed grid of [period] fits [beats]: the length of their mean phase vector (1 when

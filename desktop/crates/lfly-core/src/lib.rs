@@ -23,4 +23,5 @@ pub mod playlist_mix;
 pub mod queue;
 pub mod settings;
 pub mod spotify;
+pub mod stems;
 pub mod store;

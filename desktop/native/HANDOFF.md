@@ -382,3 +382,54 @@ Notes on these checks:
     (song counts use `i18n::songs`/`count`, which handle it); YouTube Music's own shelf titles come in
     whatever language YouTube sends (`hl` untouched); the Tauri app is Italian only; text a page
     stored at load updates on its next load. Scratchpad snapshots of the diff were taken.
+
+17. **Console round 3 (2026-11-17/18, uncommitted; the user asked, then went to sleep: "do it all").**
+    Installed to `~/Applications/LFly-nativa`. Nothing committed or pushed.
+    - Review fixes (deck_model/decks): TAP under 90 BPM, BPM± bar sign, slicer on bars, MATCH/LOCK
+      half-double aware (`set_ratio`), ½/×2 on any loop, STOP to the cue, `TrackBuf` room = 20 min cap
+      (a short container length no longer cuts songs), jumps under keylock drop the stretch's
+      read-ahead, reverse stops at 0, narrow deck layout (< 330 px: no platter, rows stack).
+    - Wrong songs: Monochrome only for the same recording (`lfly-yt monochrome::same_song`); songs
+      known by name (Spotify imports, id `spotify_*`) matched by `lfly-yt matching.rs` (length, exact
+      title, artist, version words), 2nd query + fallback, never "first result"; their audio cache
+      key is `<id>#match3` (old wrong copies ignored). Phone: `MonochromeApiClient.scoreCandidate`
+      and `StreamResolver.youtubeCandidateMatches` fixed the same way; tests pass; APK NOT installed
+      (no phone attached).
+    - Browser: Online folder (search as you type), Up Next panel (store `console-upnext`; toggle
+      button and header draggable to left/right; drag songs in/reorder), right-click menu (load A/B,
+      Up Next, stems) instead of A/B buttons, "load on a playing deck?" question
+      (`DjDecks.pending`), STEMS folder (the prep list). Master FX removed from the mixer.
+    - AUTOPILOT (`src/autopilot.rs`, bar `ApBar` in console.rs): Automix planner (exit on outro,
+      entry with the rise landing, bars) + `curves::resolve` AUTO styles applied to faders/gain/EQ/
+      filter, send effect on FX slot 0, loop roll (Halving), loudness match, continuous beat lock
+      (~1 ms), crossfader at 0.5; performance moves between mixes (FILTER BUILD before a louder
+      phrase, ECHO THROW, BASS KILL, LOOP ROLL, FILTER WOBBLE); with stems one voice at a time in
+      the mix; prepares the next song's stems if the model is there. Lit controls (`Lamp`), green
+      mix band on waveforms. Any user control disengages it (`user_touch`; `ap_driving` guards).
+    - VIDEO (`src/video.rs`): second window with synced lyrics of the deck heard most; F/double
+      click full screen.
+    - STEMS: HT-Demucs fp16 ONNX (adowu/htdemucs-onnx, MIT, 166 MB, SHA-256 checked) in
+      `~/.local/share/lfly/models/`, downloaded on first use (`lfly-core stems.rs`); split by
+      `lfly-beat stems.rs` (shared ORT environment `lfly_beat::env()`: ORT allows one per process);
+      kept in `~/.cache/lfly/stems` (6 GB LRU, ~0.5 MB/s of song); engine `Stems` + per-deck stem
+      gains (`read()` in decks.rs: mix·other + Σ stem·(g−other)); `stems_model.rs` queue (store
+      `console-stems`). Split speed here: 96 s of song in 32 s (8 threads).
+    - Mixer tidied: EQ, stems row, crossfader, master/Q/REC/VIDEO/⋯ (settings card: color FX,
+      sides, curve, mix FX, hamster, pitch lock, sampler level); tooltips; the side panel closes on
+      the Console and comes back after.
+    - Test hooks added: LFLY_CONSOLE_STEPS actions `ap`, `stems`, `novox`; LFLY_CONSOLE_UPNEXT,
+      LFLY_CONSOLE_VIDEO, LFLY_CONSOLE_MIXMENU (seconds); LFLY_STEMS_MODEL (model path for test runs,
+      whose data folder is a copy). zsh: write `${t}:report` in loops (`$t:r` is a modifier).
+    - Unverified by ear/hand: real songs through the autopilot and stems, mouse drags of the Up
+      Next panel, the video window on a real second screen.
+18. **Round 4 (2026-11-18, uncommitted, installed).** From the user's logs: a perform LOOP ROLL left
+    engaged when a hand disengaged the autopilot (stop now releases rolls and puts moves back; the
+    roll move is gone, moves are rarer and never in the 20 s after engaging or a mix); Up Next now
+    lives in `DjDecks.upnext` (store `console-upnext-songs`; the browser keeps only shown/side in
+    `console-upnext`) and the autopilot reads it live, taking each song off as it loads (songs added
+    while it flies are played); engaging keeps the song waiting on the other deck as the next one
+    instead of ejecting it. Look: waveforms coloured by band (`TrackBuf::peaks` → [peak, low, mid,
+    high]), deck-colour edge on the strips, progress ring round each platter (last 30 s red,
+    blinking), bigger CUE/PLAY/SYNC, KEY column (Camelot) and analysed BPM in the browser. The user
+    asked to "copy VirtualDJ's interface": its skin/art is not copied (EULA, their artwork); the
+    layout conventions are generic DJ software and were kept, drawn with our pieces.
