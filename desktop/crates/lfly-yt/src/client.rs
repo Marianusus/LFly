@@ -774,12 +774,41 @@ impl YtMusic {
         let video_id = match track.video_id() {
             Some(v) => v.to_string(),
             None => {
-                let query = format!("{} {}", track.title, track.artist);
-                let found = self.search_songs(&query, 5).await.unwrap_or_default();
-                found
-                    .iter()
-                    .find_map(|t| t.video_id().map(str::to_string))
-                    .ok_or_else(|| Error::NoStream(format!("no YouTube match for '{}'", query.trim())))?
+                // Known only by name (a Spotify import): the same recording among the results,
+                // not the first one (often a remix); then the same each time this session.
+                if let Some(v) = crate::matching::remembered(&track.id) {
+                    v
+                } else {
+                    let artist = track.artist.split([',', '&']).next().unwrap_or("").trim();
+                    let query = format!("{} {}", track.title, artist);
+                    let mut found = self.search_songs(&query, 10).await.unwrap_or_default();
+                    let first = found.iter().find_map(|t| t.video_id().map(str::to_string));
+                    let mut picked = crate::matching::best(&track.title, &track.artist, track.duration_ms, found.clone());
+                    if picked.is_none() {
+                        // The other order of the words finds other results.
+                        let more = self.search_songs(&format!("{artist} {}", track.title), 10).await.unwrap_or_default();
+                        picked = crate::matching::best(&track.title, &track.artist, track.duration_ms, more.clone());
+                        found.extend(more);
+                    }
+                    if picked.is_none() {
+                        let seen: Vec<String> = found.iter().take(12).map(|t| format!("'{}' by {} ({} s)", t.title, t.artist, t.duration_ms / 1000)).collect();
+                        log::info!("'{}' by {} ({} s): nothing surely it among {}", track.title, track.artist, track.duration_ms / 1000, seen.join("; "));
+                        picked = crate::matching::fallback(&track.title, &track.artist, track.duration_ms, &found);
+                    }
+                    let v = match picked {
+                        Some(t) => {
+                            log::info!("'{}' by {} found as '{}' by {} ({} s)", track.title, track.artist, t.title, t.artist, t.duration_ms / 1000);
+                            t.video_id().map(str::to_string)
+                        }
+                        None => {
+                            log::info!("'{}' by {}: no result is surely it, the first one plays", track.title, track.artist);
+                            first
+                        }
+                    }
+                    .ok_or_else(|| Error::NoStream(format!("no YouTube match for '{}'", query.trim())))?;
+                    crate::matching::remember(&track.id, &v);
+                    v
+                }
             }
         };
 

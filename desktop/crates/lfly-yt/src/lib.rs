@@ -13,6 +13,7 @@ pub mod credits;
 pub mod error;
 pub mod health;
 mod json;
+pub mod matching;
 pub mod lyrics;
 pub mod model;
 mod monochrome;

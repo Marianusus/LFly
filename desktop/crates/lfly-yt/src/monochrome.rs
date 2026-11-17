@@ -206,6 +206,25 @@ pub(crate) fn score(c: &Candidate, title: &str, artist: &str, duration_ms: i64) 
     score
 }
 
+/// Longest gap between the two lengths for the same recording (catalogues round differently).
+const SAME_LENGTH_S: i64 = 4;
+
+/// Whether [c] is surely the song the listener picked, not one like it: the same length (known on
+/// both sides), the same title (whole, or without featurings and tags but with the same version
+/// words), and its artist. Monochrome is searched by name, so anything less may be another song
+/// (a "Sorry" for another "Sorry", the original for a rework): YouTube, by its id, plays then.
+pub(crate) fn same_song(c: &Candidate, title: &str, artist: &str, duration_ms: i64) -> bool {
+    if duration_ms <= 0 || c.duration_ms <= 0 || (duration_ms - c.duration_ms).abs() / 1000 > SAME_LENGTH_S {
+        return false;
+    }
+    let (raw_t, raw_c) = (alnum(title), alnum(&c.title));
+    let (clean_t, clean_c) = (alnum(&clean_title(title)), alnum(&clean_title(&c.title)));
+    let titled = (!raw_t.is_empty() && raw_t == raw_c) || (!clean_t.is_empty() && clean_t == clean_c && has_version(title) == has_version(&c.title));
+    let want = alnum(&clean_artist(artist));
+    let by = !want.is_empty() && c.artists.iter().map(|a| alnum(a)).any(|a| !a.is_empty() && (a == want || a.contains(&want) || want.contains(&a)));
+    titled && by
+}
+
 /// What a Monochrome lookup found.
 #[derive(Debug)]
 pub(crate) enum Outcome {
@@ -289,7 +308,8 @@ pub(crate) async fn resolve(yt: &YtMusic, title: &str, artist: &str, duration_ms
                 Ok(found) => {
                     answered = true;
                     for c in found {
-                        let s = score(&c, title, artist, duration_ms);
+                        // Only the same recording counts; among those, the best scored.
+                        let s = if same_song(&c, title, artist, duration_ms) { score(&c, title, artist, duration_ms) } else { 0 };
                         if best.as_ref().is_none_or(|b| s > b.1) {
                             best = Some((c, s));
                         }
@@ -395,6 +415,23 @@ mod tests {
         assert_eq!(score(&cand("Zitti E Buoni", &["Måneskin"], 194), "Zitti e buoni", "Maneskin", 0), 120 + 50);
         // Unknown length: no guard, no bonus.
         assert_eq!(score(&exact, "Get Lucky", "Daft Punk", 0), 170);
+    }
+
+    #[test]
+    fn only_the_same_recording_is_taken() {
+        let exact = cand("Get Lucky", &["Daft Punk", "Pharrell Williams"], 248);
+        assert!(same_song(&exact, "Get Lucky", "Daft Punk", 249_000));
+        // Unknown length: not sure enough.
+        assert!(!same_song(&exact, "Get Lucky", "Daft Punk", 0));
+        // Another song whose title holds this one's.
+        assert!(!same_song(&cand("Sorry Not Sorry", &["Demi Lovato"], 203), "Sorry", "Demi Lovato", 203_000));
+        // The original for a rework, a studio cut for a live take.
+        assert!(!same_song(&cand("World Hold On", &["Bob Sinclar"], 210), "World Hold On [FISHER Rework]", "Bob Sinclar", 210_000));
+        assert!(!same_song(&cand("Viva La Vida", &["Coldplay"], 242), "Viva La Vida (Live)", "Coldplay", 242_000));
+        // Featurings dropped on both sides still match.
+        assert!(same_song(&cand("Sexy Bitch (feat. Akon)", &["David Guetta"], 195), "Sexy Bitch", "David Guetta", 196_000));
+        // Six seconds apart: another edit.
+        assert!(!same_song(&exact, "Get Lucky", "Daft Punk", 254_000));
     }
 
     #[test]

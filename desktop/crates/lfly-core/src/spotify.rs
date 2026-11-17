@@ -85,39 +85,17 @@ fn wanted_of(entity: &Value) -> Vec<Wanted> {
     }
 }
 
-/// How well a YouTube Music result fits the Spotify song: the length matters most (live and
-/// remixed versions differ), then the title.
+/// How well a YouTube Music result fits the Spotify song: the same recording (length, exact
+/// title, artist; a remix or live take the title does not name loses).
+#[cfg(test)]
 fn score(want: &Wanted, got: &Track) -> i64 {
-    let norm = |s: &str| s.to_lowercase().chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect::<String>();
-    let (wt, gt) = (norm(&want.title), norm(&got.title));
-    let mut score = 0;
-    if want.duration_ms > 0 && got.duration_ms > 0 {
-        let diff = (want.duration_ms - got.duration_ms).abs();
-        score += if diff <= 3_000 { 50 } else if diff <= 10_000 { 20 } else if diff > 30_000 { -40 } else { 0 };
-    }
-    if gt == wt {
-        score += 40;
-    } else if gt.contains(&wt) || wt.contains(&gt) {
-        score += 20;
-    }
-    // Any of the Spotify artists on the result; none at all is most likely someone's re-upload.
-    let got_artist = norm(&got.artist);
-    let artists: Vec<String> = want.artist.split(',').map(|a| norm(a).trim().to_string()).filter(|a| !a.is_empty()).collect();
-    if artists.iter().any(|a| got_artist.contains(a.as_str())) {
-        score += 30;
-    } else if !artists.is_empty() {
-        score -= 25;
-    }
-    if got.is_video {
-        score -= 10;
-    }
-    score
+    lfly_yt::matching::score(&want.title, &want.artist, want.duration_ms, got)
 }
 
 async fn find(yt: &YtMusic, want: &Wanted) -> Option<Track> {
     let artist = want.artist.split(',').next().unwrap_or("").trim();
     let found = yt.search_songs(&format!("{} {}", want.title, artist), 8).await.ok()?;
-    found.into_iter().map(|t| (score(want, &t), t)).filter(|(s, _)| *s >= 30).max_by_key(|(s, _)| *s).map(|(_, t)| t)
+    lfly_yt::matching::best(&want.title, &want.artist, want.duration_ms, found)
 }
 
 /// Reads the link's songs from Spotify's embed page and finds each on YouTube Music, four at a

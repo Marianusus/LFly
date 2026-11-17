@@ -76,6 +76,34 @@ class SpotifyMatchTest {
     }
 
     @Test
+    fun remixWithinEightSecondsRejected() {
+        val matched = youtubeCandidateMatches(
+            wantTitle = normalizeMatchText("Saint Tropez"),
+            wantArtist = normalizeMatchText("Florin Salam"),
+            wantDurationMs = 210_808L,
+            candidateId = "yt_abcdefghijk",
+            candidateTitle = "Florin Salam x Zaksyx Music - Saint Tropez (Remix Nebun)",
+            candidateArtist = "Florin Salam",
+            candidateDurationMs = 206_000L
+        )
+        assertFalse("A remix the wanted title does not name is another recording", matched)
+    }
+
+    @Test
+    fun unknownLengthNeedsTheSameTitle() {
+        val matched = youtubeCandidateMatches(
+            wantTitle = normalizeMatchText("Sorry"),
+            wantArtist = normalizeMatchText("Justin Bieber"),
+            wantDurationMs = 0L,
+            candidateId = "yt_abcdefghijk",
+            candidateTitle = "Sorry Not Sorry",
+            candidateArtist = "Justin Bieber",
+            candidateDurationMs = 0L
+        )
+        assertFalse(matched)
+    }
+
+    @Test
     fun reliableMatchAccepted() {
         val matched = youtubeCandidateMatches(
             wantTitle = normalizeMatchText("O Sticla Doua Trei"),

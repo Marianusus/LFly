@@ -156,7 +156,20 @@ impl LocalPlayer {
         // The audio cache; one engine per folder (the Tauri and GPUI apps may run side by side).
         cache_dir: std::path::PathBuf,
     ) -> Result<Arc<Self>, String> {
-        let audio = lfly_audio::Player::new(cache_dir, 2 * 1024 * 1024 * 1024)?;
+        // Once: songs cached before Monochrome had to be the same recording may hold another
+        // song under this one's id. The cache is emptied (downloads live elsewhere).
+        let marker = cache_dir.join(".same-recording-v1");
+        if cache_dir.is_dir() && !marker.exists() {
+            if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+                }
+            }
+            log::info!("audio cache emptied once: songs must now be the very recording picked");
+        }
+        let audio = lfly_audio::Player::new(cache_dir.clone(), 2 * 1024 * 1024 * 1024)?;
+        let _ = std::fs::write(&marker, b"");
         let player = Arc::new_cyclic(|me| LocalPlayer {
             me: me.clone(),
             sink,
@@ -622,21 +635,22 @@ impl LocalPlayer {
         if let Some(path) = self.sink.downloaded(&track.id) {
             return Ok(Source::file(path));
         }
+        let key = cache_key(track);
         if !fresh {
             let cached = {
                 let urls = self.urls.lock().unwrap();
                 urls.get(&track.id).filter(|r| r.until > Instant::now()).map(|r| (r.url.clone(), r.user_agent.clone()))
             };
             if let Some((url, ua)) = cached {
-                return Ok(http_source(url, &track.id, ua));
+                return Ok(http_source(url, &key, ua));
             }
             // A URL handed over by another device is fresh enough to start at once.
             if let Some(url) = track.stream_url.as_deref().filter(|u| u.starts_with("https://")) {
-                return Ok(http_source(url.to_string(), &track.id, None));
+                return Ok(http_source(url.to_string(), &key, None));
             }
-            if self.audio.cache().is_complete(&track.id) {
+            if self.audio.cache().is_complete(&key) {
                 // Fully cached: the URL is never used.
-                return Ok(Source::http("https://offline.invalid/", &track.id));
+                return Ok(Source::http("https://offline.invalid/", &key));
             }
         }
         let yt_track: lfly_yt::Track =
@@ -650,7 +664,7 @@ impl LocalPlayer {
             track.id.clone(),
             Resolved { url: stream.url.clone(), user_agent: stream.user_agent.clone(), until },
         );
-        Ok(http_source(stream.url, &track.id, stream.user_agent))
+        Ok(http_source(stream.url, &key, stream.user_agent))
     }
 
     /// Gets the next song ready, for a gapless switch.
@@ -991,6 +1005,19 @@ async fn heartbeat(player: Weak<LocalPlayer>) {
                 host.broadcast();
             }
         }
+    }
+}
+
+/// The name a song's audio is kept under in the disk cache. A song with a YouTube id is that
+/// recording; one known only by name (a Spotify import) is found by matching, and audio cached
+/// before the matching picked the same recording (a remix for the original) must not play again:
+/// its key carries the matching's version.
+fn cache_key(track: &TrackRef) -> String {
+    let raw = track.id.strip_prefix("yt_").unwrap_or(&track.id);
+    if lfly_yt::parse::is_valid_video_id(raw) {
+        track.id.clone()
+    } else {
+        format!("{}#match3", track.id)
     }
 }
 
