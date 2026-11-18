@@ -12,9 +12,9 @@ use crate::theme::{accent_color, build_scheme, Mode, Rgb, Scheme};
 /// The store key Tauri keeps the look under (theme.svelte.ts SavedLook).
 const KEY: &str = "appearance";
 
-/// The renderer can draw Liquid Glass: wgpu (Linux) and DirectX (Windows) carry the glass pass,
-/// Metal (macOS) not yet, so there the surfaces are solid, as with glass turned off.
-pub const GLASS_RENDERER: bool = !cfg!(target_os = "macos");
+/// The renderer can draw Liquid Glass: wgpu (Linux), DirectX (Windows) and Metal (macOS) all carry
+/// the glass pass. Kept as a switch for a platform without one (surfaces are then solid).
+pub const GLASS_RENDERER: bool = true;
 
 pub struct Look {
     pub mode: Mode,

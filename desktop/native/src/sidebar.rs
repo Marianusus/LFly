@@ -284,6 +284,16 @@ impl Render for Sidebar {
                     .flex()
                     .flex_col()
                     .min_h_0()
+                    // macOS: the traffic lights live here, on a strip that moves the window.
+                    // Full screen hides the lights, and the strip with them.
+                    .when(crate::SYSTEM_WINDOW_BUTTONS && !window.is_fullscreen(), |d| d.child(
+                        div()
+                            .id("sb-lights")
+                            .flex_none()
+                            .h(px(26.))
+                            .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+                            .on_click(|e, window, _| if e.click_count() == 2 { window.zoom_window() }),
+                    ))
                     .child({
                         // The brand: the mark, the word, the toggle (under the mark when folded,
                         // shown on hover).

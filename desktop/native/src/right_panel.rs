@@ -397,7 +397,7 @@ impl Render for RightPanel {
                     .gap(px(6.))
                     .pt(px(10.))
                     .px(px(12.))
-                    .child(
+                    .when(!crate::SYSTEM_WINDOW_BUTTONS, |d| d.child(
                         div()
                             .flex()
                             .gap(px(6.))
@@ -405,7 +405,7 @@ impl Render for RightPanel {
                             .child(crate::window_button("rp-min", "wc-min", false, s.text, s.text2).on_click(|_, w, _| w.minimize_window()))
                             .child(crate::window_button("rp-max", if maximized { "wc-restore" } else { "wc-max" }, false, s.text, s.text2).on_click(|_, w, _| w.zoom_window()))
                             .child(crate::window_button("rp-close-win", "wc-close", true, s.text, s.text2).on_click(|_, w, _| w.remove_window())),
-                    ),
+                    )),
             )
             .child(
                 drag(div())

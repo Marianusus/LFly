@@ -745,16 +745,21 @@ impl SettingsPage {
         let me_auto = cx.entity().downgrade();
         let prefs = Prefs::entity(cx);
         let (p1, p2) = (prefs.clone(), prefs);
-        const KEYS: [(&str, &str); 9] = [
+        const MAC_KEYS: bool = cfg!(target_os = "macos");
+        const KEYS: [(&str, &str); 13] = [
             (t("Spazio#tasto"), t("Riproduci o metti in pausa")),
-            ("Ctrl + →  /  Ctrl + ←", t("Brano successivo / precedente")),
+            (if MAC_KEYS { "⌘ →  /  ⌘ ←" } else { "Ctrl + →  /  Ctrl + ←" }, t("Brano successivo / precedente")),
             (t("Maiusc + →  /  Maiusc + ←"), t("Avanti / indietro di 10 secondi")),
-            ("Ctrl + ↑  /  Ctrl + ↓", t("Alza / abbassa il volume")),
-            ("Ctrl + S", t("Riproduzione casuale")),
-            ("Ctrl + R", t("Ripeti: tutto, un brano, niente")),
-            ("Ctrl + K", t("Cerca")),
-            ("Alt + ←  /  Alt + →", t("Pagina precedente / successiva")),
+            (if MAC_KEYS { "⌘ ↑  /  ⌘ ↓" } else { "Ctrl + ↑  /  Ctrl + ↓" }, t("Alza / abbassa il volume")),
+            (if MAC_KEYS { "⌘ S" } else { "Ctrl + S" }, t("Riproduzione casuale")),
+            (if MAC_KEYS { "⌘ R" } else { "Ctrl + R" }, t("Ripeti: tutto, un brano, niente")),
+            (if MAC_KEYS { "⌘ K" } else { "Ctrl + K" }, t("Cerca")),
+            (if MAC_KEYS { "⌥ ←  /  ⌥ →" } else { "Alt + ←  /  Alt + →" }, t("Pagina precedente / successiva")),
             ("Esc", t("Chiudi il player a schermo intero")),
+            (if MAC_KEYS { "⌘ 1 … ⌘ 4" } else { "Ctrl + 1 … Ctrl + 4" }, t("Home, Cerca, Libreria, Console")),
+            (if MAC_KEYS { "⌃ ⌘ S" } else { "Ctrl + Alt + S" }, t("Comprimi o espandi la barra laterale")),
+            (if MAC_KEYS { "⌃ ⌘ F" } else { "F11" }, t("Schermo intero")),
+            (if MAC_KEYS { "⌘ ,  /  ⌘ Q" } else { "Ctrl + ,  /  Ctrl + Q" }, t("Impostazioni / esci da LFly")),
         ];
         let lang = crate::i18n::lang();
         let options: Vec<(crate::i18n::Lang, &str)> = crate::i18n::Lang::ALL.iter().map(|l| (*l, l.name())).collect();
@@ -766,6 +771,7 @@ impl SettingsPage {
                         .child(seg("lang", &lang, &options, i, |l, cx| {
                             crate::i18n::set_lang(l);
                             crate::i18n::save(l);
+                            crate::app_menu::set_menus(cx);
                             // Every view draws again, cached or not, in the new language.
                             cx.refresh_windows();
                         }))
@@ -1689,14 +1695,35 @@ impl SettingsPage {
                     i,
                 ))
             }
-            None => group(
-                "YouTube Music",
-                Some(tr("Accedi con Google dall'app LFly classica (Impostazioni › Account): questa la ritrova da sola. Senza account, la Home e le playlist sono quelle pubbliche.")),
-                i,
-            ),
+            None => {
+                let available = crate::spotify_account::SpotifyModel::available();
+                let busy = account.read(cx).signing_in;
+                let caption = if busy {
+                    tr("Accedi nella finestra di Google…")
+                } else if available {
+                    tr("La Home e le playlist diventano quelle del tuo account.")
+                } else {
+                    tr("Manca lfly-web accanto all'app: accedi dall'app LFly classica, questa la ritrova da sola.")
+                };
+                let a = account.clone();
+                group(
+                    "YouTube Music",
+                    Some(tr("Senza account, la Home e le playlist sono quelle pubbliche. Si apre la vera pagina di accesso di Google: la password non passa da LFly.")),
+                    i,
+                )
+                .child(list(
+                    vec![row()
+                        .child(label(tr("Accedi a YouTube Music"), Some(caption.to_string()), i))
+                        .child(button("yt-in", tr("Accedi"), true, busy || !available, i).on_click(move |_, _, cx| a.update(cx, |a, cx| a.sign_in(cx))))
+                        .into_any_element()],
+                    i,
+                ))
+            }
         };
+        let spotify = self.spotify_group(i, cx);
         vec![
             yt.into_any_element(),
+            spotify,
             group("Discord", None, i)
                 .child(list(
                     vec![row()
@@ -1711,6 +1738,77 @@ impl SettingsPage {
                 ))
                 .into_any_element(),
         ]
+    }
+
+    /// The phone's Spotify row: connect, import the library, disconnect.
+    fn spotify_group(&mut self, i: &Ink, cx: &mut Context<Self>) -> AnyElement {
+        use crate::spotify_account::{Busy, SpotifyModel};
+        let model = SpotifyModel::entity(cx);
+        let (saved, busy) = {
+            let m = model.read(cx);
+            (m.saved.clone(), m.busy)
+        };
+        let busy_text = match busy {
+            Busy::SigningIn => Some(tr("Accedi nella finestra di Spotify…").to_string()),
+            Busy::Importing(_, 0) => Some(tr("Leggo la tua libreria…").to_string()),
+            Busy::Importing(done, total) => Some(trf("Importo la playlist {0} di {1}…", &[&(done + 1).min(total), &total])),
+            Busy::Idle => None,
+        };
+        let idle = busy == Busy::Idle;
+        let foot = tr("Porta in LFly le tue playlist e i brani che ti piacciono su Spotify. Si apre la pagina di accesso di Spotify; LFly tiene solo la sessione, su questo computer. Ogni brano viene cercato su YouTube Music quando lo ascolti.");
+        let row_el = match saved {
+            Some(s) if !s.expired => {
+                let avatar = s.avatar_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
+                let name = s.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| tr("Account Spotify").to_string());
+                let caption = busy_text.clone().or_else(|| {
+                    s.last_sync_ms.map(|_| trf("Ultima importazione: {0} playlist, {1} brani che ti piacciono", &[&s.last_playlists, &s.last_liked]))
+                });
+                let ask = self.asking("spotify-out");
+                let me = cx.entity().downgrade();
+                let (m1, m2) = (model.clone(), model.clone());
+                row()
+                    .child(
+                        div()
+                            .size(px(48.))
+                            .flex_none()
+                            .rounded_full()
+                            .bg(i.fill)
+                            .children(avatar.map(|a| img(a).size_full().object_fit(ObjectFit::Cover).rounded_full())),
+                    )
+                    .child(label(&name, caption, i))
+                    .child(button("spotify-sync", tr("Importa ora"), true, !idle, i).on_click(move |_, _, cx| m1.update(cx, |m, cx| m.import(cx))))
+                    .child(button("spotify-out", if ask { tr("Sicuro? Scollega") } else { tr("Scollega") }, ask, !idle, i).on_click(move |_, _, cx| {
+                        let m2 = m2.clone();
+                        let _ = me.update(cx, |this, cx| {
+                            if this.asking("spotify-out") {
+                                this.confirm = None;
+                                m2.update(cx, |m, cx| m.disconnect(cx));
+                            } else {
+                                this.confirm = Some(Confirm { what: "spotify-out", at: Instant::now() });
+                            }
+                            cx.notify();
+                        });
+                    }))
+            }
+            saved => {
+                let expired = saved.is_some();
+                let available = SpotifyModel::available();
+                let caption = busy_text.or_else(|| {
+                    Some(if !available {
+                        tr("Manca lfly-web accanto all'app: questa versione non può aprire la pagina di Spotify.").to_string()
+                    } else if expired {
+                        tr("L'accesso è scaduto: collegalo di nuovo.").to_string()
+                    } else {
+                        tr("Playlist e brani che ti piacciono, dal tuo account.").to_string()
+                    })
+                });
+                let m = model.clone();
+                row()
+                    .child(label(tr("Collega Spotify"), caption, i))
+                    .child(button("spotify-in", tr("Collega"), true, !idle || !available, i).on_click(move |_, _, cx| m.update(cx, |m, cx| m.connect(cx))))
+            }
+        };
+        group("Spotify", Some(foot), i).child(list(vec![row_el.into_any_element()], i)).into_any_element()
     }
 
     fn about(&mut self, i: &Ink, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -1762,7 +1860,7 @@ impl SettingsPage {
                 .child(list(
                     vec![
                         row().child(div().flex_1().child(tr("Versione"))).child(div().font_weight(FontWeight::BOLD).child(format!("{} ({})", env!("CARGO_PKG_VERSION"), tr("nativa")))).into_any_element(),
-                        row().child(div().flex_1().child(tr("Sistemi"))).child(div().text_color(i.text2).child(tr("Linux e Windows"))).into_any_element(),
+                        row().child(div().flex_1().child(tr("Sistemi"))).child(div().text_color(i.text2).child(tr("Linux, Windows e macOS"))).into_any_element(),
                         row().child(div().flex_1().child(tr("Licenza"))).child(div().text_color(i.text2).child(tr("GPL-3.0, software libero"))).into_any_element(),
                     ],
                     i,

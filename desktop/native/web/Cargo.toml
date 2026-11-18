@@ -1,0 +1,16 @@
+# A short-lived web helper for the native app, which has no webview of its own: it opens a page
+# only when a sign-in needs one (Spotify), prints what it found on stdout and exits.
+[package]
+name = "lfly-web"
+version = "0.1.2"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[[bin]]
+name = "lfly-web"
+path = "src/main.rs"
+
+[dependencies]
+tao = "0.37.2"
+wry = "0.57.1"
+serde_json = "1"

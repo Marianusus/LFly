@@ -15,6 +15,8 @@ pub struct AccountModel {
     core: Arc<Core>,
     pub info: Option<AccountInfo>,
     pub playlists: Vec<Item>,
+    /// Google's sign-in window (lfly-web) is open.
+    pub signing_in: bool,
 }
 
 struct AccountGlobal(Entity<AccountModel>);
@@ -25,7 +27,7 @@ impl AccountModel {
         let saved = lfly_core::account::load();
         let info = saved.account.and(saved.info);
         let signed_in = info.is_some();
-        let e = cx.new(|_| Self { core, info, playlists: Vec::new() });
+        let e = cx.new(|_| Self { core, info, playlists: Vec::new(), signing_in: false });
         if signed_in {
             e.update(cx, |m, cx| m.load_playlists(cx));
         }
@@ -51,6 +53,60 @@ impl AccountModel {
                 Ok(Err(e)) => log::warn!("YouTube Music playlists: {e}"),
                 Err(e) => log::warn!("YouTube Music playlists: {e}"),
             }
+        })
+        .detach();
+    }
+
+    /// Google's sign-in in the lfly-web helper's window; once YouTube Music accepts the session it
+    /// is saved (the Tauri app reads it too) and used at once.
+    pub fn sign_in(&mut self, cx: &mut Context<Self>) {
+        if self.signing_in {
+            return;
+        }
+        self.signing_in = true;
+        cx.notify();
+        let core = self.core.clone();
+        cx.spawn(async move |this, cx| {
+            let read = cx.background_executor().spawn(async move { lfly_core::account::sign_in_with_helper() }).await;
+            let checked = match read {
+                Ok(Some(account)) => {
+                    let yt = core.clone();
+                    let a = account.clone();
+                    match runtime().spawn(async move { yt.yt.account_info(&a).await }).await {
+                        Ok(Ok(info)) => Ok(Some((account, info))),
+                        Ok(Err(e)) => Err(e.to_string()),
+                        Err(e) => Err(e.to_string()),
+                    }
+                }
+                Ok(None) => Ok(None),
+                Err(e) => Err(e),
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.signing_in = false;
+                match checked {
+                    Ok(Some((account, info))) => {
+                        let saved = lfly_core::account::Saved { account: Some(account.clone()), info: Some(info.clone()) };
+                        if let Err(e) = lfly_core::account::save(&saved) {
+                            log::warn!("account.json: {e}");
+                        }
+                        log::info!("Signed in to YouTube Music as {}", info.name);
+                        let secret = account.connect_secret();
+                        this.core.yt.set_account(Some(account));
+                        this.info = Some(info);
+                        this.load_playlists(cx);
+                        if let Some(c) = crate::connect::ConnectModel::try_entity(cx) {
+                            c.update(cx, |c, cx| c.set_account(secret, cx));
+                        }
+                        crate::toast::Toasts::say(crate::i18n::tr("Accesso a YouTube Music fatto"), cx);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        log::warn!("YouTube Music sign-in: {e}");
+                        crate::toast::Toasts::say(crate::i18n::tr("YouTube Music non accetta l'accesso"), cx);
+                    }
+                }
+                cx.notify();
+            });
         })
         .detach();
     }

@@ -150,6 +150,9 @@ pub struct MetalRenderer {
     path_intermediate_texture: Option<Retained<ProtocolObject<dyn MTLTexture>>>,
     path_intermediate_msaa_texture: Option<Retained<ProtocolObject<dyn MTLTexture>>>,
     path_sample_count: u32,
+    /// LFly patch: the Liquid Glass pass (glass_metal.rs), built on first use.
+    glass: Option<crate::glass_metal::GlassMetal>,
+    glass_failed: bool,
     /// Offscreen render target reused across `render_scene` calls when
     /// rendering headlessly without reading pixels back.
     #[cfg(any(test, feature = "bench-support", feature = "test-support"))]
@@ -438,6 +441,8 @@ impl MetalRenderer {
             path_intermediate_texture: None,
             path_intermediate_msaa_texture: None,
             path_sample_count: PATH_SAMPLE_COUNT,
+            glass: None,
+            glass_failed: false,
             #[cfg(any(test, feature = "bench-support", feature = "test-support"))]
             headless_render_target: None,
         })
@@ -939,15 +944,50 @@ impl MetalRenderer {
                     }
                 }
                 PrimitiveBatch::SubpixelSprites { .. } => unreachable!(),
-                // LFly patch: Liquid Glass has no Metal pass yet. LFly paints solid surfaces
-                // on macOS instead (look.rs GLASS_RENDERER), so a glass batch draws nothing.
-                PrimitiveBatch::Glass(_) => {}
+                // LFly patch: Liquid Glass ends the pass, captures and blurs what is drawn so
+                // far, draws the glass over it (glass_metal.rs) and goes on in a new pass.
+                PrimitiveBatch::Glass(range) => {
+                    if !self.glass_failed && !range.is_empty() {
+                        command_encoder.endEncoding();
+                        self.draw_glass(&scene.glass[range], &command_buffer, texture, viewport_size);
+                        command_encoder = new_command_encoder_for_texture(
+                            &command_buffer,
+                            texture,
+                            viewport_size,
+                            None,
+                        )?;
+                    }
+                }
             }
         }
 
         command_encoder.endEncoding();
 
         Ok(command_buffer)
+    }
+
+    /// LFly patch: see glass_metal.rs. A failure is logged once and glass is skipped after it.
+    fn draw_glass(
+        &mut self,
+        glass: &[gpui::Glass],
+        command_buffer: &ProtocolObject<dyn MTLCommandBuffer>,
+        texture: &ProtocolObject<dyn MTLTexture>,
+        viewport_size: Size<DevicePixels>,
+    ) {
+        if self.glass.is_none() {
+            match crate::glass_metal::GlassMetal::new(&self.device) {
+                Ok(g) => self.glass = Some(g),
+                Err(e) => {
+                    log::error!("Liquid Glass unavailable: {e:#}");
+                    self.glass_failed = true;
+                    return;
+                }
+            }
+        }
+        if let Err(e) = self.glass.as_mut().unwrap().draw(&self.device, command_buffer, texture, viewport_size, glass) {
+            log::error!("Liquid Glass: {e:#}");
+            self.glass_failed = true;
+        }
     }
 
     fn draw_paths_to_intermediate(

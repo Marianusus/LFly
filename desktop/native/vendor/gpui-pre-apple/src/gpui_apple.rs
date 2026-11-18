@@ -8,6 +8,7 @@
 mod dispatcher;
 pub mod display_link;
 pub mod keychain;
+mod glass_metal;
 mod metal_atlas;
 pub mod metal_renderer;
 pub mod process_info;

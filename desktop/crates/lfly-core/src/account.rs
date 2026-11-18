@@ -43,3 +43,34 @@ pub fn forget() {
         let _ = std::fs::remove_file(path);
     }
 }
+
+/// Google's sign-in for YouTube Music in a window of the `lfly-web` helper (for the native app,
+/// which has no webview); blocks until the window closes. The session it read, not yet checked
+/// with YouTube Music nor saved; `Ok(None)` when the window was closed first.
+pub fn sign_in_with_helper() -> Result<Option<lfly_yt::Account>, String> {
+    use lfly_yt::account;
+    let helper = crate::spotify_account::helper().ok_or("lfly-web is missing")?;
+    let out = std::process::Command::new(helper)
+        .arg("ytmusic-login")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+    let cookie = v.get("cookie").and_then(|c| c.as_str()).unwrap_or_default().to_string();
+    if account::sapisid_from(&cookie).is_none() {
+        return Err("no Google session".into());
+    }
+    let p = |k: &str| v.pointer(&format!("/probe/{k}")).and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(str::to_string);
+    let page_id = p("pageId");
+    Ok(Some(lfly_yt::Account {
+        cookie,
+        data_sync_id: page_id.clone().or_else(|| account::normalize_data_sync_id(p("dataSyncId").as_deref())),
+        page_id,
+        auth_user: p("authUser"),
+        visitor_data: p("visitorData"),
+    }))
+}

@@ -18,9 +18,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            bin: desktop/native/target/release/lfly
+            bin: |
+              desktop/native/target/release/lfly
+              desktop/native/target/release/lfly-web
           - os: windows-latest
-            bin: desktop/native/target/release/lfly.exe
+            bin: |
+              desktop/native/target/release/lfly.exe
+              desktop/native/target/release/lfly-web.exe
           - os: macos-latest
             bin: desktop/native/target/release/macos/*.dmg
     runs-on: ${{ matrix.os }}
@@ -32,7 +36,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxkbcommon-x11-dev libwayland-dev libfontconfig-dev \
-            libfreetype-dev libvulkan-dev libx11-xcb-dev libxcb1-dev libzstd-dev
+            libfreetype-dev libvulkan-dev libx11-xcb-dev libxcb1-dev libzstd-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/native
@@ -41,7 +46,9 @@ jobs:
         # macOS: ONNX Runtime's prebuilt library targets macOS 13.4, so the app does too.
         env:
           MACOSX_DEPLOYMENT_TARGET: "13.4"
-        run: cargo build --release --locked
+        run: |
+          cargo build --release --locked
+          cargo build --release --locked -p lfly-web
       - name: LFly.app and the .dmg
         if: runner.os == 'macOS'
         working-directory: desktop/native

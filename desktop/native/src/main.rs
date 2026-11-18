@@ -6,6 +6,7 @@
 
 mod account;
 mod ambient;
+mod app_menu;
 mod art;
 mod audio;
 mod artist;
@@ -49,6 +50,7 @@ mod scene;
 mod search;
 mod settings_page;
 mod sleep;
+mod spotify_account;
 mod spotify_import;
 mod sync;
 mod sidebar;
@@ -194,6 +196,13 @@ impl Lfly {
         let covers = cx.new(|_| Covers::new(core.clone()));
         let look = cx.new(|_| Look::new());
         let nav = cx.new(|_| Nav::new());
+        // macOS: the red light hides the app and the music goes on (the Dock brings it back).
+        if SYSTEM_WINDOW_BUTTONS {
+            window.on_window_should_close(cx, |_, cx| {
+                cx.hide();
+                false
+            });
+        }
         let start = crate::prefs::Prefs::new(cx).read(cx).v.start_page.clone();
         crate::audio::AudioModel::new(core.clone(), cx);
         crate::media::SystemMedia::start(model.clone(), window, cx);
@@ -207,6 +216,7 @@ impl Lfly {
         let look_for_flow = look.clone();
         let ui = cx.new(|_| Ui::new());
         let library = cx.new(LibraryModel::new);
+        crate::spotify_account::SpotifyModel::start(library.clone(), cx);
         // Library sync with the phones and Google Drive (not in test runs: sync.rs).
         crate::sync::SyncModel::start(library.clone(), cx);
         let _ = crate::core::LIBRARY_ANSWER.set(crate::sync::answer);
@@ -258,6 +268,7 @@ impl Lfly {
         let spotify = cx.new(|cx| crate::spotify_import::SpotifyImport::new(core.clone(), look.clone(), library.clone(), nav.clone(), window, cx));
         library_page.update(cx, |l, cx| l.set_spotify(spotify, cx));
         let settings = cx.new(|cx| crate::settings_page::SettingsPage::new(core.clone(), look.clone(), library.clone(), lyrics_data.clone(), model.clone(), covers.clone(), cx));
+        crate::app_menu::install(nav.clone(), model.clone(), ui.clone(), settings.clone(), cx);
         let lyrics_page = cx.new(|cx| LyricsPage::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), lyrics_pg, cx));
         let console = cx.new(|cx| crate::console::Console::new(core.clone(), model.clone(), covers.clone(), library.clone(), lyrics_data.clone(), window, cx));
         let right_panel = cx.new(|cx| RightPanel::new(ui.clone(), model.clone(), covers.clone(), look.clone(), core.clone(), lyrics_side, cx));
@@ -645,6 +656,12 @@ fn round(id: &'static str, name: &'static str, disabled: bool, text: Hsla) -> St
         .child(icon(name, 16., text))
 }
 
+/// macOS draws its own traffic lights (top left, at [`MAC_TRAFFIC_LIGHTS`]): ours stay hidden there.
+pub(crate) const SYSTEM_WINDOW_BUTTONS: bool = cfg!(target_os = "macos");
+/// Where the traffic lights sit: inside the sidebar card's top, above the brand.
+/// Centred on the folded card (76 px from x 12; the lights span about 60 px).
+pub(crate) const MAC_TRAFFIC_LIGHTS: (f32, f32) = (20., 27.);
+
 /// WindowControls.svelte: 28 px discs, text-2 on an 8% wash; close turns red under the pointer.
 pub(crate) fn window_button(id: &'static str, name: &'static str, close: bool, text: Hsla, text2: Hsla) -> Stateful<Div> {
     let group: SharedString = format!("wc-{id}").into();
@@ -741,7 +758,7 @@ impl Lfly {
                                         .rounded_full()
                                         .px(px(9.))
                                         .py(px(5.))
-                                        .child("Ctrl K"),
+                                        .child(if cfg!(target_os = "macos") { "⌘K" } else { "Ctrl K" }),
                                 ),
                         ),
                 )
@@ -759,7 +776,8 @@ impl Lfly {
                         }
                     }),
             )
-            .child(
+            // macOS: Settings live in the app menu (⌘,), not in the toolbar (HIG › Settings).
+            .when(!SYSTEM_WINDOW_BUTTONS, |d| d.child(
                 div()
                     .id("theme")
                     .relative()
@@ -776,9 +794,9 @@ impl Lfly {
                     })
                     .child(glass::glass_layer(look, px(19.), glass::Pointer::default()))
                     .child(div().relative().size_full().flex().items_center().justify_center().child(icon("palette", 17., text))),
-            )
+            ))
             // With the panel open the window controls sit at its top instead.
-            .when(!panel_open, |d| d.child(
+            .when(!panel_open && !SYSTEM_WINDOW_BUTTONS, |d| d.child(
                 div()
                     .flex()
                     .items_center()
@@ -1393,6 +1411,13 @@ fn main() {
             // The title bar is ours (TitleBar draws the buttons); no second one from the system.
             window_decorations: Some(WindowDecorations::Client),
             ..gpui_kit::component::TitleBar::window_options()
+        };
+        let options = WindowOptions {
+            titlebar: options.titlebar.map(|t| TitlebarOptions {
+                traffic_light_position: Some(point(px(MAC_TRAFFIC_LIGHTS.0), px(MAC_TRAFFIC_LIGHTS.1))),
+                ..t
+            }),
+            ..options
         };
         let model = cx.new(|cx| PlayerModel::new(core.clone(), updates, cx));
         crate::dj::DjModel::new(core.clone(), cx);

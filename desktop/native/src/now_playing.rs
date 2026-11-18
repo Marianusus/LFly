@@ -265,6 +265,8 @@ impl Render for NowPlaying {
             .gap(px(16.))
             .pt(px(18.))
             .px(px(24.))
+            // Clear of the traffic lights (three 14 px lights over 52 px, then a gap).
+            .when(crate::SYSTEM_WINDOW_BUTTONS, |d| d.pl(px(crate::MAC_TRAFFIC_LIGHTS.0 + 64.)))
             .child(drag(div().flex_1().flex_basis(relative(0.)).flex().child(close)))
             .child(
                 div()
@@ -302,7 +304,7 @@ impl Render for NowPlaying {
                                     .child(toggle("np-queue", Panel::Queue, "queue", tr("Coda"))),
                             ),
                     )
-                    .child(
+                    .when(!crate::SYSTEM_WINDOW_BUTTONS, |d| d.child(
                         div()
                             .flex()
                             .items_center()
@@ -314,7 +316,7 @@ impl Render for NowPlaying {
                                     .on_click(|_, w, _| w.zoom_window()),
                             )
                             .child(crate::window_button("np-close-win", "wc-close", true, scheme.text, scheme.text2).on_click(|_, w, _| w.remove_window())),
-                    ),
+                    )),
             );
 
         let ambient = self.ambient.clone();
