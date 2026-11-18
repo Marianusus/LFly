@@ -1,0 +1,31 @@
+[package]
+name = "lfly-core"
+description = "LFly for computer without a window: what both the Tauri app and the GPUI app run on."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# The Automix's beat model (ONNX Runtime and 23 MB of weights): only the native app enables it.
+beat-model = ["lfly-beat/onnx"]
+
+[dependencies]
+lfly-connect = { path = "../lfly-connect" }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+dirs = "6"
+rand = "0.8"
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+lfly-audio = { path = "../lfly-audio" }
+lfly-mix = { path = "../lfly-mix" }
+lfly-beat = { path = "../lfly-beat" }
+lfly-yt = { path = "../lfly-yt" }
+tokio.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "json"] }
+sha2 = "0.10"
+base64 = "0.22"
+futures-util.workspace = true
+souvlaki = { version = "0.9", default-features = false, features = ["use_zbus"] }

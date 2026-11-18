@@ -44,6 +44,8 @@ pub(crate) struct State {
     musixmatch_token: Mutex<Option<String>>,
     kugou: tokio::sync::Mutex<Throttle>,
     kugou_mid: Mutex<Option<String>>,
+    /// The listener's sources, their order, the priority and the PaxSenix key.
+    pub(crate) prefs: Mutex<super::order::LyricsPrefs>,
 }
 
 #[derive(Debug, Default)]
@@ -68,7 +70,7 @@ impl Throttle {
 }
 
 /// GET returning the body; `Ok(None)` on 404 (nothing there).
-async fn get(http: &reqwest::Client, url: &str, query: &[(&str, String)], headers: &[(&str, &str)]) -> Result<Option<String>, String> {
+pub(crate) async fn get(http: &reqwest::Client, url: &str, query: &[(&str, String)], headers: &[(&str, &str)]) -> Result<Option<String>, String> {
     let mut req = http.get(url).query(query).timeout(REQUEST_TIMEOUT).header("Accept", "application/json, text/plain, */*");
     for (k, v) in headers {
         req = req.header(*k, *v);
@@ -81,7 +83,7 @@ async fn get(http: &reqwest::Client, url: &str, query: &[(&str, String)], header
     }
 }
 
-async fn get_json(http: &reqwest::Client, url: &str, query: &[(&str, String)], headers: &[(&str, &str)]) -> Result<Option<Value>, String> {
+pub(crate) async fn get_json(http: &reqwest::Client, url: &str, query: &[(&str, String)], headers: &[(&str, &str)]) -> Result<Option<Value>, String> {
     match get(http, url, query, headers).await? {
         Some(body) => serde_json::from_str(&body).map(Some).map_err(|e| format!("bad JSON: {e}")),
         None => Ok(None),

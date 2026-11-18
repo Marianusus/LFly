@@ -1,10 +1,12 @@
 import { mount } from "svelte";
 import "./app.css";
 import { bootLook } from "./lib/theme/boot";
+import { startIdle } from "./lib/idle";
 import App from "./App.svelte";
 
 // The saved look first, so the window opens in its own colors.
 bootLook();
+startIdle();
 
 // If the window fails to start, say so instead of staying blank.
 function showFailure(message: string) {

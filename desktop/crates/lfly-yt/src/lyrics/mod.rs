@@ -1,20 +1,27 @@
-//! Lyrics engine (port of the phone's lyrics engine): every provider is asked
-//! at once with an overall time limit, the answers are ranked on title,
-//! artist and duration, word-level answers are re-timed on a line-synced
-//! guide when they need it, and instrumentals are detected.
+//! Lyrics engine (port of the phone's LyricsRepository): the listener's sources, in the
+//! listener's order, are all asked at once with an overall time limit and their answers read in
+//! that order (order.rs: word by word wins, then lines unless word by word is put first, then the
+//! first found; Genius only when nothing had lines). Each source's own candidates are ranked on
+//! title, artist and duration; a word-level winner is re-timed on a line-synced answer already in
+//! when it needs it; instrumentals are detected.
 //!
-//! Providers: YouTube Music's own lyrics for the video, lrc.red, BiniLyrics,
-//! BetterLyrics (Apple and QQ timings), LyricsPlus, Unison, KuGou (KRC),
-//! LRCLIB and Musixmatch. Each has its own circuit in the health registry.
+//! Sources: lrc.red, BiniLyrics, BetterLyrics (Apple and QQ timings), PaxSenix's Spotify and
+//! Musixmatch (with the listener's key), LyricsPlus, Unison, the video's captions, YouTube Music's
+//! own lyrics, KuGou (KRC), LRCLIB, Musixmatch and Genius. Each has its own circuit in the health
+//! registry.
 
 mod formats;
 mod krc;
+mod more;
+pub mod order;
 mod providers;
 mod rank;
 mod sheet;
 mod youtube;
 
 use crate::health::{now_ms, HealthRegistry};
+pub use order::{LyricsPrefs, SourceInfo, SOURCES};
+use order::{pick, Pick, Slot};
 use crate::model::{LyricLine, Lyrics, SourceKind, Track, WordTiming};
 use crate::YtMusic;
 use regex::Regex;
@@ -27,15 +34,13 @@ pub(crate) use providers::State;
 pub const LRCLIB_URL: &str = "https://lrclib.net";
 /// Health registry url of YouTube Music's lyrics (apart from its streams).
 pub const YOUTUBE_LYRICS_URL: &str = "https://music.youtube.com/lyrics";
+/// Health registry url of the videos' captions.
+pub const YOUTUBE_CAPTIONS_URL: &str = "https://music.youtube.com/transcript";
 
 /// Time limit of one provider.
 const PROVIDER_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time limit of the whole lookup.
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(12);
-/// Once a matching word-level answer is in, how long the others still get.
-const WORDED_GRACE: Duration = Duration::from_millis(1_500);
-/// Once a matching line-synced answer is in, how long the others still get.
-const SYNCED_GRACE: Duration = Duration::from_millis(5_000);
 
 /// What the providers are asked for (title and artist already cleaned).
 #[derive(Debug, Clone)]
@@ -62,47 +67,90 @@ pub(crate) struct Hit {
     pub priority: usize,
 }
 
-/// The providers, in the phone's default priority order.
+/// The providers, in the phone's default priority order (order::SOURCES).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Provider {
     LrcRed,
     Bini,
     BetterLyrics,
     Portato,
+    PaxSpotify,
+    PaxMusixmatch,
     LyricsPlus,
     Unison,
+    Captions,
     YouTube,
     Kugou,
     Lrclib,
     Musixmatch,
+    Genius,
 }
 
-const PROVIDERS: [Provider; 10] = [
+#[cfg(test)]
+const PROVIDERS: [Provider; 14] = [
     Provider::LrcRed,
     Provider::Bini,
     Provider::BetterLyrics,
     Provider::Portato,
+    Provider::PaxSpotify,
+    Provider::PaxMusixmatch,
     Provider::LyricsPlus,
     Provider::Unison,
+    Provider::Captions,
     Provider::YouTube,
     Provider::Kugou,
     Provider::Lrclib,
     Provider::Musixmatch,
+    Provider::Genius,
 ];
 
 impl Provider {
+    /// The provider of a Settings source id (order::SOURCES).
+    fn of(id: &str) -> Option<Provider> {
+        Some(match id {
+            "LRC_RED" => Provider::LrcRed,
+            "BINI_LYRICS" => Provider::Bini,
+            "BETTER_LYRICS" => Provider::BetterLyrics,
+            "BETTER_LYRICS_PORTATO" => Provider::Portato,
+            "PAXSENIX_SPOTIFY" => Provider::PaxSpotify,
+            "PAXSENIX_MUSIXMATCH" => Provider::PaxMusixmatch,
+            "LYRICS_PLUS" => Provider::LyricsPlus,
+            "UNISON" => Provider::Unison,
+            "YOUTUBE_TRANSCRIPT" => Provider::Captions,
+            "YOUTUBE_MUSIC" => Provider::YouTube,
+            "KUGOU" => Provider::Kugou,
+            "LRCLIB" => Provider::Lrclib,
+            "MUSIXMATCH" => Provider::Musixmatch,
+            "GENIUS" => Provider::Genius,
+            _ => return None,
+        })
+    }
+
+    fn needs_key(self) -> bool {
+        matches!(self, Provider::PaxSpotify | Provider::PaxMusixmatch)
+    }
+
+    /// Matched on the playing video itself: its answer is not checked against the query.
+    fn on_the_video(self) -> bool {
+        matches!(self, Provider::YouTube | Provider::Captions)
+    }
+
     fn name(self) -> &'static str {
         match self {
             Provider::LrcRed => "lrc.red",
             Provider::Bini => "BiniLyrics",
             Provider::BetterLyrics => "BetterLyrics",
             Provider::Portato => "BetterLyrics Portato",
+            Provider::PaxSpotify => "PaxSenix: Spotify",
+            Provider::PaxMusixmatch => "PaxSenix: Musixmatch",
             Provider::LyricsPlus => "LyricsPlus",
             Provider::Unison => "Unison",
+            Provider::Captions => "Sottotitoli di YouTube",
             Provider::YouTube => "YouTube Music",
             Provider::Kugou => "KuGou",
             Provider::Lrclib => "LRCLIB",
             Provider::Musixmatch => "Musixmatch",
+            Provider::Genius => "Genius",
         }
     }
 
@@ -113,18 +161,25 @@ impl Provider {
             Provider::Bini => providers::BINI_URL.into(),
             Provider::BetterLyrics => providers::BETTER_URL.into(),
             Provider::Portato => providers::PORTATO_URL.into(),
+            Provider::PaxSpotify | Provider::PaxMusixmatch => more::PAXSENIX_URL.into(),
             Provider::LyricsPlus => return None,
             Provider::Unison => providers::UNISON_URL.into(),
+            Provider::Captions => YOUTUBE_CAPTIONS_URL.into(),
             Provider::YouTube => YOUTUBE_LYRICS_URL.into(),
             Provider::Kugou => providers::KUGOU_URL.into(),
             Provider::Lrclib => yt.lrclib_url().to_string(),
             Provider::Musixmatch => providers::MUSIXMATCH_URL.into(),
+            Provider::Genius => more::GENIUS_URL.into(),
         })
     }
 
-    async fn run(self, yt: &YtMusic, q: &Query) -> Result<Vec<Hit>, String> {
+    async fn run(self, yt: &YtMusic, q: &Query, key: Option<&str>) -> Result<Vec<Hit>, String> {
         let http = yt.http();
         match self {
+            Provider::PaxSpotify => more::paxsenix_spotify(http, q, key).await,
+            Provider::PaxMusixmatch => more::paxsenix_musixmatch(http, q, key).await,
+            Provider::Captions => more::captions(yt, q).await,
+            Provider::Genius => more::genius(http, q).await,
             Provider::LrcRed => providers::lrc_red(http, q).await,
             Provider::Bini => providers::bini(http, q).await,
             Provider::BetterLyrics => providers::better_lyrics(http, q, false).await,
@@ -163,6 +218,9 @@ pub(crate) fn register(health: &HealthRegistry, lrclib_base: &str) {
         ("Unison", providers::UNISON_URL),
         ("KuGou", providers::KUGOU_URL),
         ("Musixmatch", providers::MUSIXMATCH_URL),
+        ("PaxSenix", more::PAXSENIX_URL),
+        ("YouTube captions", YOUTUBE_CAPTIONS_URL),
+        ("Genius", more::GENIUS_URL),
     ] {
         health.register(name, url, SourceKind::Lyrics);
     }
@@ -192,76 +250,128 @@ pub(crate) fn query_for(track: &Track) -> Query {
     }
 }
 
-/// Asks every available provider at once and returns the ranked hits plus
-/// whether the track is an instrumental.
-async fn gather(yt: &YtMusic, q: &Query) -> (Vec<Hit>, bool) {
-    let health = yt.health_registry().clone();
-    let mut set = tokio::task::JoinSet::new();
-    for (priority, provider) in PROVIDERS.into_iter().enumerate() {
-        let url = provider.url(yt);
-        if url.as_deref().is_some_and(|u| !health.is_available(u)) {
-            log::debug!("lyrics: {} skipped, circuit open", provider.name());
-            continue;
-        }
-        let (yt, q, health) = (yt.clone(), q.clone(), health.clone());
-        set.spawn(async move {
-            let start = now_ms();
-            let outcome = tokio::time::timeout(PROVIDER_TIMEOUT, provider.run(&yt, &q)).await.unwrap_or_else(|_| Err("timeout".into()));
-            let elapsed = now_ms().saturating_sub(start);
-            let hits = match outcome {
-                Ok(hits) => {
-                    if let Some(u) = &url {
-                        health.record_success(u, elapsed);
-                    }
-                    hits
-                }
-                Err(e) => {
-                    log::debug!("lyrics: {} failed: {e}", provider.name());
-                    if let Some(u) = &url {
-                        health.record_failure(u, &e);
-                    }
-                    Vec::new()
-                }
-            };
+/// One provider asked, with its time limit and its circuit: its hits (none on failure).
+async fn ask(yt: &YtMusic, provider: Provider, q: &Query, key: Option<&str>) -> Vec<Hit> {
+    let health = yt.health_registry();
+    let url = provider.url(yt);
+    let start = now_ms();
+    let outcome = tokio::time::timeout(PROVIDER_TIMEOUT, provider.run(yt, q, key)).await.unwrap_or_else(|_| Err("timeout".into()));
+    let elapsed = now_ms().saturating_sub(start);
+    match outcome {
+        Ok(hits) => {
+            if let Some(u) = &url {
+                health.record_success(u, elapsed);
+            }
             log::debug!("lyrics: {} answered {} hit(s) in {elapsed} ms", provider.name(), hits.len());
-            hits.into_iter().map(|h| Hit { priority, ..h }).collect::<Vec<_>>()
-        });
-    }
-    let deadline = tokio::time::Instant::now() + TOTAL_TIMEOUT;
-    let mut cutoff = deadline;
-    let mut gathered: Vec<Hit> = Vec::new();
-    while let Ok(Some(done)) = tokio::time::timeout_at(cutoff, set.join_next()).await {
-        let Ok(hits) = done else { continue };
-        let now = tokio::time::Instant::now();
-        if hits.iter().any(|h| h.sheet.worded() && rank::eligible(q, h)) {
-            cutoff = cutoff.min(now + WORDED_GRACE);
-        } else if hits.iter().any(|h| h.sheet.synced() && rank::eligible(q, h)) {
-            cutoff = cutoff.min(now + SYNCED_GRACE);
+            hits
         }
-        gathered.extend(hits);
+        Err(e) => {
+            log::debug!("lyrics: {} failed: {e}", provider.name());
+            if let Some(u) = &url {
+                health.record_failure(u, &e);
+            }
+            Vec::new()
+        }
     }
-    set.abort_all();
-    let instrumental = rank::instrumental(q, &gathered);
-    let mut ranked = rank::rank(q, gathered);
-    rank::reshape(&mut ranked);
-    (ranked, instrumental)
 }
 
-/// The best lyrics for `track` from every provider; `None` when nothing
-/// reliable exists and the track is not known to be instrumental.
+/// A provider's best answer for the query: its own best match (the video's sources answer for
+/// the video, unchecked).
+fn best_of(provider: Provider, q: &Query, hits: Vec<Hit>) -> Option<Hit> {
+    if provider.on_the_video() {
+        hits.into_iter().find(|h| !h.sheet.is_empty())
+    } else {
+        rank::rank(q, hits).into_iter().next()
+    }
+}
+
+/// The listener's sources raced and read in their order (order::pick); the winner, re-timed on
+/// a line-synced answer already in when it needs it, and whether the track is instrumental.
+async fn race(yt: &YtMusic, q: &Query, prefs: &LyricsPrefs) -> (Option<Hit>, bool) {
+    let health = yt.health_registry().clone();
+    let enabled = prefs.enabled();
+    let genius = enabled.iter().any(|s| s.id == order::GENIUS);
+    let racing: Vec<Provider> = enabled.iter().filter(|s| s.id != order::GENIUS).filter_map(|s| Provider::of(s.id)).collect();
+    let key = prefs.key().map(str::to_string);
+    let mut slots = vec![Slot::Pending; racing.len()];
+    let mut found: Vec<Option<Hit>> = vec![None; racing.len()];
+    let mut set = tokio::task::JoinSet::new();
+    for (i, provider) in racing.iter().copied().enumerate() {
+        // A keyed source without the key is not asked at all.
+        if provider.needs_key() && key.is_none() {
+            slots[i] = Slot::Missed;
+            continue;
+        }
+        if provider.url(yt).as_deref().is_some_and(|u| !health.is_available(u)) {
+            log::debug!("lyrics: {} skipped, circuit open", provider.name());
+            slots[i] = Slot::Missed;
+            continue;
+        }
+        let (yt, q, key) = (yt.clone(), q.clone(), key.clone());
+        set.spawn(async move { (i, ask(&yt, provider, &q, key.as_deref()).await) });
+    }
+    let mut all: Vec<Hit> = Vec::new();
+    let deadline = tokio::time::Instant::now() + TOTAL_TIMEOUT;
+    let decision = loop {
+        let p = pick(&slots, prefs.words_first);
+        if p != Pick::Wait {
+            break p;
+        }
+        match tokio::time::timeout_at(deadline, set.join_next()).await {
+            Ok(Some(Ok((i, hits)))) => {
+                all.extend(hits.iter().cloned());
+                let best = best_of(racing[i], q, hits);
+                slots[i] = best.as_ref().map_or(Slot::Missed, |h| Slot::Found { words: h.sheet.worded(), synced: h.sheet.synced() });
+                found[i] = best;
+            }
+            // A task that panicked, or none left, or the time is up: what has not answered missed.
+            Ok(Some(Err(_))) => {}
+            Ok(None) | Err(_) => {
+                for s in slots.iter_mut().filter(|s| **s == Slot::Pending) {
+                    *s = Slot::Missed;
+                }
+            }
+        }
+    };
+    set.abort_all();
+    let instrumental = rank::instrumental(q, &all);
+    let winner = match decision {
+        Pick::Win(i) => found[i].take(),
+        Pick::Done { fallback, synced } => {
+            if genius && !synced && health.is_available(more::GENIUS_URL) {
+                let hits = ask(yt, Provider::Genius, q, None).await;
+                best_of(Provider::Genius, q, hits).or_else(|| fallback.and_then(|i| found[i].take()))
+            } else {
+                fallback.and_then(|i| found[i].take())
+            }
+        }
+        Pick::Wait => None,
+    };
+    // Word timings that need it follow a line-synced answer's lines.
+    let winner = winner.map(|w| {
+        let mut sheets: Vec<Hit> = std::iter::once(w).chain(found.iter().flatten().filter(|h| h.sheet.synced() && !h.sheet.worded()).cloned()).collect();
+        rank::reshape(&mut sheets);
+        sheets.swap_remove(0)
+    });
+    (winner, instrumental)
+}
+
+/// The lyrics for `track` from the listener's sources; `None` when nothing reliable exists and
+/// the track is not known to be instrumental.
 pub(crate) async fn resolve(yt: &YtMusic, track: &Track) -> Option<Lyrics> {
     let q = query_for(track);
     if q.title.trim().is_empty() {
         return None;
     }
-    let (ranked, instrumental) = gather(yt, &q).await;
+    let prefs = yt.lyrics_prefs();
+    let (best, instrumental) = race(yt, &q, &prefs).await;
     log::info!(
         "lyrics for '{}' - '{}': {}",
         q.title,
         q.artist,
-        ranked.iter().map(|h| format!("{} ({})", h.source, if h.sheet.worded() { "words" } else if h.sheet.synced() { "lines" } else { "plain" })).collect::<Vec<_>>().join(", ")
+        best.as_ref().map_or("nothing".to_string(), |h| format!("{} ({})", h.source, if h.sheet.worded() { "words" } else if h.sheet.synced() { "lines" } else { "plain" }))
     );
-    match ranked.into_iter().next() {
+    match best {
         Some(best) => Some(to_model(best, instrumental)),
         None if instrumental => Some(Lyrics { instrumental: true, source: "Instrumental".into(), ..Lyrics::default() }),
         None => None,
@@ -357,11 +467,12 @@ pub fn clean_title(title: &str) -> String {
     t
 }
 
-/// Main artist only, without "- Topic" / "VEVO" noise.
+/// Main artist only, without "- Topic" / "VEVO" noise. "A x B" collaborations split on the
+/// whole word " x " (not inside a name: "Lex Amarni" stays).
 pub fn clean_artist(artist: &str) -> String {
     let a = ARTIST_NOISE_RE.replace_all(artist, "");
     let mut first = a.as_ref();
-    for sep in [",", "&", "feat.", "ft.", "x "] {
+    for sep in [",", "&", "feat.", "ft.", " x ", " X "] {
         if let Some((left, _)) = first.split_once(sep) {
             first = left;
         }
@@ -410,6 +521,9 @@ mod tests {
         assert_eq!(clean_title("One More Time | Official Video"), "One More Time");
         assert_eq!(clean_title("Get Lucky (Radio Edit - feat. Pharrell Williams and Nile Rodgers)"), "Get Lucky (Radio Edit)");
         assert_eq!(clean_artist("Daft Punk - Topic"), "Daft Punk");
+        assert_eq!(clean_artist("Lex Amarni, 2muchmotion"), "Lex Amarni");
+        assert_eq!(clean_artist("Max Pezzali"), "Max Pezzali");
+        assert_eq!(clean_artist("Anuel AA x Karol G"), "Anuel AA");
         assert_eq!(split_artist_title("Daft Punk - Get Lucky", "YouTube"), ("Daft Punk".into(), "Get Lucky".into()));
         assert_eq!(split_artist_title("Daft Punk - Get Lucky", "Daft Punk - Topic"), ("Daft Punk".into(), "Get Lucky".into()));
         assert_eq!(split_artist_title("Bohemian Rhapsody - Live Aid", "Queen"), ("Queen".into(), "Bohemian Rhapsody - Live Aid".into()));
@@ -449,6 +563,30 @@ mod tests {
         assert_eq!(l.synced_lyrics.as_deref(), Some("[00:01.00]I been tryna call"));
     }
 
+    /// One song (LFLY_LYRICS_ID, title, artist, seconds) through every provider: the first worded
+    /// lines' word timings, then what the race picks.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_one_song_words() {
+        let yt = YtMusic::new().unwrap();
+        let track = Track { id: "yt_gnM6jglakus".into(), title: "the kill 2".into(), artist: "Lex Amarni, 2muchmotion".into(), album: Some("the kill 2".into()), duration_ms: 122_000, ..Track::default() };
+        let q = query_for(&track);
+        println!("query: {q:?}");
+        for p in PROVIDERS {
+            let hits = tokio::time::timeout(PROVIDER_TIMEOUT, p.run(&yt, &q, None)).await.unwrap_or_else(|_| Err("timeout".into())).unwrap_or_default();
+            for h in hits.iter().take(2) {
+                let Sheet::Synced(lines) = &h.sheet else { println!("{:<22} plain", p.name()); continue };
+                println!("{:<22} '{}' - '{}' {:?} ms, eligible {}, {} lines, span {:?}", p.name(), h.title, h.artist, h.duration_ms, rank::eligible(&q, h), lines.len(), h.sheet.span_ms());
+                for l in lines.iter().filter(|l| l.worded()).take(2) {
+                    let w = l.words.as_ref().unwrap();
+                    println!("    [{}..{:?}] {:?}", l.start, l.end, w.iter().map(|w| (w.text.as_str(), w.start, w.end)).collect::<Vec<_>>());
+                }
+            }
+        }
+        let best = resolve(&yt, &track).await.unwrap();
+        println!("RACE: {} ; first worded line: {:?}", best.source, best.lines.iter().find(|l| l.word_timings.is_some()).map(|l| (l.time_ms, l.word_timings.clone())));
+    }
+
     /// Every provider alone on a few real songs: what each one answers.
     #[tokio::test]
     #[ignore = "network"]
@@ -463,7 +601,7 @@ mod tests {
             println!("== {} - {}", q.title, q.artist);
             for p in PROVIDERS {
                 let start = now_ms();
-                let r = tokio::time::timeout(PROVIDER_TIMEOUT, p.run(&yt, q)).await.unwrap_or_else(|_| Err("timeout".into()));
+                let r = tokio::time::timeout(PROVIDER_TIMEOUT, p.run(&yt, q, None)).await.unwrap_or_else(|_| Err("timeout".into()));
                 let took = now_ms() - start;
                 match r {
                     Ok(hits) if hits.is_empty() => println!("  {:<22} nothing ({took} ms)", p.name()),

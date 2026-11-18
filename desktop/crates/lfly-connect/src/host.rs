@@ -77,9 +77,14 @@ impl Host {
     ) -> std::io::Result<Self> {
         // A fixed port, so one firewall rule lets phones in (ufw blocks incoming links by default);
         // any free one if another program holds it.
-        let socket = match TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], protocol::DEFAULT_PORT))).await {
-            Ok(s) => s,
-            Err(_) => TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 0))).await?,
+        // LFLY_CONNECT_PORT (tests): that port on loopback only, never the network's.
+        let test_port = std::env::var("LFLY_CONNECT_PORT").ok().and_then(|p| p.parse::<u16>().ok());
+        let socket = match test_port {
+            Some(p) => TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], p))).await?,
+            None => match TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], protocol::DEFAULT_PORT))).await {
+                Ok(s) => s,
+                Err(_) => TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 0))).await?,
+            },
         };
         let port = socket.local_addr()?.port();
         let inner = Arc::new(Inner {

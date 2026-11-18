@@ -29,12 +29,25 @@ pub fn devices() -> Vec<OutputDevice> {
     let host = cpal::default_host();
     let default_id = host.default_output_device().and_then(|d| d.id().ok()).map(|id| id.to_string());
     let Ok(list) = host.output_devices() else { return Vec::new() };
+    let mut seen = std::collections::HashSet::new();
     list.filter_map(|d| {
         let id = d.id().ok()?.to_string();
+        if !listed(&id) {
+            return None;
+        }
         let name = d.description().map(|desc| desc.name().to_string()).unwrap_or_else(|_| id.clone());
-        Some(OutputDevice { is_default: Some(&id) == default_id.as_ref(), id, name })
+        let name = name.trim_end_matches(" *").to_string();
+        // The same card under two ids (sysdefault, hdmi): once.
+        seen.insert(name.clone()).then(|| OutputDevice { is_default: Some(&id) == default_id.as_ref(), id, name })
     })
     .collect()
+}
+
+/// ALSA lists every plugin and every way into each card (front, surround51, hw, plughw...):
+/// only the system's default and one entry per output a person would pick are shown.
+fn listed(id: &str) -> bool {
+    let Some(alsa) = id.strip_prefix("alsa:") else { return true };
+    alsa == "default" || alsa.starts_with("sysdefault:") || alsa.starts_with("hdmi:")
 }
 
 /// State shared between the engine, the player handle and the audio callback.
@@ -304,6 +317,17 @@ fn ramp(from: f32, to: f32, step: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alsa_lists_only_what_a_person_picks() {
+        assert!(listed("alsa:default"));
+        assert!(listed("alsa:sysdefault:CARD=Headset"));
+        assert!(listed("alsa:hdmi:CARD=HDMI,DEV=0"));
+        for id in ["alsa:null", "alsa:speex", "alsa:pulse", "alsa:front:CARD=Headset,DEV=0", "alsa:plughw:CARD=3,DEV=0", "alsa:usbstream:CARD=HDMI"] {
+            assert!(!listed(id), "{id}");
+        }
+        assert!(listed("wasapi:{0.0.0.00000000}.{abc}"));
+    }
 
     #[test]
     fn render_ramps_and_flushes_without_blocking() {

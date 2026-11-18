@@ -15,9 +15,12 @@ ureq = "3"
 serde.workspace = true
 tokio.workspace = true
 log.workspace = true
+lfly-mix = { path = "../lfly-mix" }
 
 [dev-dependencies]
 serde_json.workspace = true
+# The Automix test on click tracks runs the real beat model.
+lfly-beat = { path = "../lfly-beat", features = ["onnx"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 lfly-yt = { path = "../lfly-yt" }
 

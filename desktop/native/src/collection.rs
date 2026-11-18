@@ -1,0 +1,738 @@
+//! A collection page: an album, a YouTube playlist, a library playlist or the liked songs
+//! or the downloads (Tauri: pages/Album.svelte, RemotePlaylist.svelte, LocalPlaylist.svelte,
+//! Liked.svelte, Downloads.svelte with
+//! parts/Hero.svelte and TrackList). The hero scrolls with the rows; the rows are a virtual list.
+
+use std::sync::Arc;
+
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
+use lfly_yt::Track;
+use serde_json::Value;
+
+use crate::art;
+use crate::core::{runtime, Core};
+use crate::covers::Covers;
+use crate::icons::icon;
+use crate::library_model::LibraryModel;
+use crate::look::Look;
+use crate::nav::{Nav, Route};
+use crate::player_model::PlayerModel;
+use crate::track_row::{columns, track_row, RowData};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Source {
+    Album(String),
+    Playlist(String),
+    Local(String),
+    Liked,
+    /// Downloads.svelte: the songs on this computer.
+    Downloads,
+}
+
+#[derive(Default, Clone)]
+struct Header {
+    kind: SharedString,
+    title: SharedString,
+    byline: Option<(SharedString, Option<Route>)>,
+    meta: SharedString,
+    description: Option<SharedString>,
+    cover_url: Option<String>,
+}
+
+pub struct Collection {
+    core: Arc<Core>,
+    covers: Entity<Covers>,
+    look: Entity<Look>,
+    nav: Entity<Nav>,
+    library: Entity<LibraryModel>,
+    model: Entity<PlayerModel>,
+    source: Source,
+    header: Header,
+    tracks: Vec<Track>,
+    error: Option<String>,
+    loading: bool,
+    glow: Option<Arc<Image>>,
+    list: ListState,
+    pub width: f32,
+    /// LocalPlaylist.svelte: the name being edited, and its field's subscription.
+    rename: Option<(Entity<InputState>, Subscription)>,
+    /// The delete button asked once (a second click within four seconds deletes).
+    confirm_delete: Option<std::time::Instant>,
+    /// Your playlist's Mix is on (DJ transitions between its songs).
+    mixed: bool,
+    _subs: Vec<Subscription>,
+}
+
+/// Album.svelte `minutes`: "1 h 12 min" or "42 min".
+fn minutes(tracks: &[Track]) -> String {
+    let total: i64 = tracks.iter().map(|t| t.duration_ms.max(0)).sum::<i64>() / 60_000;
+    if total == 0 {
+        String::new()
+    } else if total >= 60 {
+        format!("{} h {} min", total / 60, total % 60)
+    } else {
+        format!("{total} min")
+    }
+}
+
+fn tracks_of(values: &[Value]) -> Vec<Track> {
+    values.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect()
+}
+
+impl Collection {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        core: Arc<Core>,
+        covers: Entity<Covers>,
+        look: Entity<Look>,
+        nav: Entity<Nav>,
+        library: Entity<LibraryModel>,
+        model: Entity<PlayerModel>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let subs = vec![
+            cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&look, |_, _, cx| cx.notify()),
+            cx.observe(&library, |this, _, cx| {
+                if matches!(this.source, Source::Liked | Source::Local(_)) {
+                    this.load_local(cx);
+                }
+            }),
+            cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
+            cx.observe(&crate::downloads::DownloadsModel::entity(cx), |this, _, cx| {
+                if this.source == Source::Downloads {
+                    this.load_local(cx);
+                } else {
+                    cx.notify();
+                }
+            }),
+        ];
+        Self {
+            core,
+            covers,
+            look,
+            nav,
+            library,
+            model,
+            source: Source::Liked,
+            header: Header::default(),
+            tracks: Vec::new(),
+            error: None,
+            loading: false,
+            glow: None,
+            list: ListState::new(1, ListAlignment::Top, px(600.)),
+            width: 1100.,
+            rename: None,
+            confirm_delete: None,
+            mixed: false,
+            _subs: subs,
+        }
+    }
+
+    /// Shows [source] (loads it when it is not the one already shown).
+    pub fn show(&mut self, source: Source, name: Option<String>, cx: &mut Context<Self>) {
+        if self.source == source && (self.loading || !self.tracks.is_empty() || self.error.is_some()) {
+            return;
+        }
+        self.source = source.clone();
+        self.tracks.clear();
+        self.error = None;
+        self.rename = None;
+        self.confirm_delete = None;
+        self.glow = None;
+        self.header = Header { title: name.unwrap_or_default().into(), ..Default::default() };
+        self.list.reset(1);
+        match source {
+            Source::Liked | Source::Local(_) | Source::Downloads => self.load_local(cx),
+            Source::Album(id) => self.load_album(id, cx),
+            Source::Playlist(id) => self.load_playlist(id, cx),
+        }
+        cx.notify();
+    }
+
+    fn set_tracks(&mut self, tracks: Vec<Track>, cx: &mut Context<Self>) {
+        // LFLY_DOWNLOAD_PAGE=1 (tests, with LFLY_DOWNLOADS_DIR): the page downloads itself (what is
+        // there or on its way already is skipped).
+        if std::env::var_os("LFLY_DOWNLOAD_PAGE").is_some() && std::env::var_os("LFLY_DOWNLOADS_DIR").is_some() && !tracks.is_empty() && self.source != Source::Downloads {
+            let refs: Vec<_> = tracks.iter().filter_map(crate::core::track_ref).collect();
+            crate::downloads::DownloadsModel::entity(cx).update(cx, |m, cx| m.add(refs, cx));
+        }
+        self.tracks = tracks;
+        self.list.reset(1 + self.tracks.len());
+        self.load_glow(cx);
+        cx.notify();
+    }
+
+    fn load_local(&mut self, cx: &mut Context<Self>) {
+        let lib = self.library.read(cx);
+        match &self.source {
+            Source::Liked => {
+                let tracks = tracks_of(&lib.favorites);
+                self.header = Header {
+                    kind: tr("Playlist").into(),
+                    title: tr("Brani che ti piacciono").into(),
+                    meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                    ..Default::default()
+                };
+                self.set_tracks(tracks, cx);
+            }
+            Source::Local(id) => {
+                let id = id.clone();
+                self.mixed = lfly_core::library::dir().is_ok_and(|d| lfly_core::playlist_mix::load(&d).get(&id).is_some_and(|m| m.enabled));
+                let found = lib.raw_playlist(&id);
+                match found {
+                    Some(p) => {
+                        // Opened before the library was read (a page restored at start): found now.
+                        self.error = None;
+                        let tracks = tracks_of(p.get("tracks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]));
+                        let str_of = |k: &str| p.get(k).and_then(Value::as_str).map(str::to_string);
+                        self.header = Header {
+                            kind: tr("Playlist").into(),
+                            title: str_of("name").unwrap_or_default().into(),
+                            meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                            byline: Some((tr("La tua playlist").into(), None)),
+                            description: str_of("description").filter(|d| !d.trim().is_empty()).map(Into::into),
+                            cover_url: str_of("coverUrl").or_else(|| tracks.first().and_then(|t| t.cover_url.clone())),
+                            ..Default::default()
+                        };
+                        self.set_tracks(tracks, cx);
+                    }
+                    None => self.error = Some(tr("Questa playlist non c'è più.").into()),
+                }
+            }
+            Source::Downloads => {
+                let dl = crate::downloads::DownloadsModel::entity(cx);
+                let list = dl.read(cx).list.clone();
+                let tracks: Vec<Track> = list.tracks.iter().filter_map(crate::core::track_of).collect();
+                let b = list.bytes as f64;
+                let size = if b > 1e9 { format!("{} GB", crate::i18n::decimal(b / 1e9, 1)) } else { format!("{} MB", (b / 1e6).round()) };
+                self.header = Header {
+                    kind: tr("Sul computer").into(),
+                    title: tr("Scaricati").into(),
+                    byline: Some((tr("Disponibili anche offline").into(), None)),
+                    meta: [crate::ui::brani(tracks.len() as u64), minutes(&tracks), size].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ").into(),
+                    ..Default::default()
+                };
+                self.set_tracks(tracks, cx);
+            }
+            _ => {}
+        }
+    }
+
+    fn load_album(&mut self, id: String, cx: &mut Context<Self>) {
+        self.loading = true;
+        let core = self.core.clone();
+        cx.spawn(async move |this, cx| {
+            let r = runtime().spawn(async move { lfly_core::pages::album(&core.yt, id).await }).await.map_err(|e| e.to_string()).and_then(|r| r);
+            let _ = this.update(cx, |this, cx| {
+                this.loading = false;
+                match r {
+                    Ok(p) => {
+                        let meta = [p.year.clone().unwrap_or_default(), crate::ui::brani(p.tracks.len() as u64), minutes(&p.tracks)]
+                            .into_iter()
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>()
+                            .join(" · ");
+                        let route = p.artist_id.clone().map(|id| Route::Artist { id, name: p.artist.clone() });
+                        this.header = Header {
+                            kind: tr("Album").into(),
+                            title: p.title.into(),
+                            byline: Some((p.artist.into(), route)),
+                            meta: meta.into(),
+                            description: None,
+                            cover_url: p.cover_url,
+                        };
+                        this.set_tracks(p.tracks, cx);
+                    }
+                    Err(e) => this.error = Some(e),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn load_playlist(&mut self, id: String, cx: &mut Context<Self>) {
+        self.loading = true;
+        let core = self.core.clone();
+        cx.spawn(async move |this, cx| {
+            let r = runtime().spawn(async move { lfly_core::pages::playlist(&core.yt, id).await }).await.map_err(|e| e.to_string()).and_then(|r| r);
+            let _ = this.update(cx, |this, cx| {
+                this.loading = false;
+                match r {
+                    Ok(p) => {
+                        let meta = [crate::ui::brani(p.tracks.len() as u64), minutes(&p.tracks)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+                        this.header = Header {
+                            kind: tr("Playlist").into(),
+                            title: p.title.into(),
+                            byline: p.author.map(|a| (a.into(), None)),
+                            meta: meta.into(),
+                            description: p.description.filter(|d| !d.trim().is_empty()).map(Into::into),
+                            cover_url: p.cover_url,
+                        };
+                        this.set_tracks(p.tracks, cx);
+                    }
+                    Err(e) => this.error = Some(e),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn load_glow(&mut self, cx: &mut Context<Self>) {
+        let Some(url) = self.header.cover_url.clone() else { return };
+        let core = self.core.clone();
+        cx.spawn(async move |this, cx| {
+            let Some(bytes) = core.fetch(url).await else { return };
+            let g = cx.background_executor().spawn(async move { art::glow(&bytes) }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.glow = g;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn hero(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let s = self.look.read(cx).scheme.clone();
+        let h = self.header.clone();
+        let cover = h.cover_url.as_ref().and_then(|u| self.covers.update(cx, |c, cx| c.get(u, cx)));
+        let art = (self.width * 0.22).clamp(180., 260.);
+        let title_size = (self.width * 0.044).clamp(30., 56.);
+        let gap = (self.width * 0.03).clamp(20., 40.);
+        let accent = s.accent.hsla(1.);
+        let playable = !self.tracks.is_empty();
+        let core = self.core.clone();
+        let tracks = self.tracks.clone();
+        let tracks2 = self.tracks.clone();
+        let core2 = self.core.clone();
+        let nav = self.nav.clone();
+        let liked_art = matches!(self.source, Source::Liked);
+        let dl_art = self.source == Source::Downloads;
+        let actions = self.actions(&s, cx);
+        div()
+            .relative()
+            .pt(px(62. + 28.))
+            .px(px(24.))
+            .pb(px(28.))
+            .flex()
+            .items_end()
+            .gap(px(gap))
+            // The cover's own colours glow behind it and fade into the page.
+            .children(self.glow.clone().map(|g| div().absolute().top_0().left_0().right_0().bottom(px(-40.)).child(img(g).size_full().object_fit(ObjectFit::Fill))))
+            .child(
+                div()
+                    .relative()
+                    .size(px(art))
+                    .flex_none()
+                    .rounded(px(12.))
+                    .overflow_hidden()
+                    .shadow(vec![BoxShadow { color: black().opacity(0.45), offset: point(px(0.), px(18.)), blur_radius: px(48.), spread_radius: px(0.), inset: false }])
+                    .when(liked_art, |d| {
+                        d.bg(linear_gradient(140., linear_color_stop(crate::theme::mix(s.accent, crate::theme::Rgb::hex(0xffffff), 0.2).hsla(1.), 0.), linear_color_stop(crate::theme::mix(s.accent, crate::theme::Rgb::hex(0x3a0ca3), 0.45).hsla(1.), 1.)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon("heart-fill", art * 0.33, white()))
+                    })
+                    // Artwork.svelte tone "blue" with the download glyph.
+                    .when(dl_art, |d| {
+                        d.bg(linear_gradient(140., linear_color_stop(rgb(0x3d8bfd), 0.), linear_color_stop(rgb(0x1d2f8f), 1.)))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon("download", art * 0.33, white()))
+                    })
+                    .when(!liked_art && !dl_art, |d| d.bg(s.text.opacity(0.08)))
+                    .children(cover.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(12.))))),
+            )
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .pb(px(4.))
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap(px(6.))
+                    .child(div().text_size(px(11.)).font_weight(FontWeight::BOLD).text_color(s.text2).child(h.kind.to_uppercase()))
+                    .child(div().text_size(px(title_size)).line_height(relative(1.04)).font_weight(FontWeight::EXTRA_BOLD).text_color(s.text).line_clamp(2).text_ellipsis().child(h.title.clone()))
+                    .children(h.byline.clone().map(|(name, route)| {
+                        div()
+                            .id("byline")
+                            .text_size(px(19.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(accent)
+                            .when_some(route, |d, r| d.cursor_pointer().on_click(move |_, _, cx| nav.update(cx, |n, cx| n.go(r.clone(), cx))))
+                            .child(name)
+                    }))
+                    .when(!h.meta.is_empty(), |d| d.child(div().text_size(px(13.)).text_color(s.text2).child(h.meta.clone())))
+                    .children(h.description.clone().map(|t| div().max_w(px(680.)).text_size(px(13.)).line_height(relative(1.5)).text_color(s.text2).line_clamp(2).text_ellipsis().child(t)))
+                    .child(
+                        // Wraps on a narrow page (the right panel open) instead of running out of it.
+                        div()
+                            .mt(px(14.))
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(
+                                div()
+                                    .id("hero-play")
+                                    .h(px(40.))
+                                    .min_w(px(124.))
+                                    .px(px(22.))
+                                    .rounded_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap(px(8.))
+                                    .bg(accent).active(|d| d.opacity(0.85))
+                                    .text_color(s.on_accent.hsla(1.))
+                                    .text_size(px(14.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .when(!playable, |d| d.opacity(0.45))
+                                    .when(playable, |d| d.cursor_pointer().on_click(move |_, _, _| core.play(&tracks, 0)))
+                                    .child(icon("play", 16., s.on_accent.hsla(1.)))
+                                    .child(tr("Riproduci")),
+                            )
+                            .child(
+                                div()
+                                    .id("hero-shuffle")
+                                    .h(px(40.))
+                                    .min_w(px(124.))
+                                    .px(px(22.))
+                                    .rounded_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap(px(8.))
+                                    .bg(s.glass_tint)
+                                    .border_1()
+                                    .border_color(s.glass_border)
+                                    .text_color(s.text)
+                                    .text_size(px(14.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .when(!playable, |d| d.opacity(0.45))
+                                    .when(playable, |d| {
+                                        d.cursor_pointer().hover(|d| d.bg(s.text.opacity(0.12))).active(|d| d.bg(s.text.opacity(0.22))).on_click(move |_, _, _| {
+                                            // collection.ts `shuffle`: play from a random song with shuffle on.
+                                            let start = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos()) as usize) % tracks2.len().max(1);
+                                            core2.command(lfly_connect::protocol::CMD_SHUFFLE, 1);
+                                            core2.play(&tracks2, start);
+                                        })
+                                    })
+                                    .child(icon("shuffle", 16., s.text))
+                                    .child(tr("Casuale")),
+                            )
+                            .child(actions),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Hero.svelte `actions`: rename and delete your playlists, save an album or a YouTube
+    /// playlist into the library.
+    fn actions(&mut self, s: &crate::theme::Scheme, cx: &mut Context<Self>) -> Div {
+        let me = cx.entity().downgrade();
+        let hero_icon = |id: &'static str, name: &'static str| {
+            div()
+                .id(id)
+                .group(id)
+                .size(px(40.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .hover(|d| d.bg(s.glass_tint)).active(|d| d.bg(s.text.opacity(0.12)))
+                .child(icon(name, if name == "plus" { 20. } else { 18. }, s.text2).group_hover(id, |d| d.text_color(s.text)))
+        };
+        let mut row = div().ml(px(4.)).flex().flex_wrap().items_center().gap(px(6.));
+        // DownloadButton.svelte, on every page but the downloads themselves.
+        if self.source != Source::Downloads {
+            let refs: Vec<_> = self.tracks.iter().filter_map(crate::core::track_ref).collect();
+            row = row.child(crate::downloads::download_button("hero-dl", refs, s, cx));
+        }
+        match self.source.clone() {
+            Source::Local(id) => {
+                row = row.child(self.mix_button(&id, s, cx));
+                if let Some((input, _)) = &self.rename {
+                    row = row.child(
+                        div()
+                            .h(px(36.))
+                            .min_w(px(220.))
+                            .px(px(14.))
+                            .flex()
+                            .items_center()
+                            .rounded_full()
+                            .bg(s.glass_tint)
+                            .border_1()
+                            .border_color(s.accent.hsla(1.))
+                            .text_size(px(14.))
+                            .child(Input::new(input).appearance(false)),
+                    );
+                } else {
+                    let me = me.clone();
+                    row = row.child(hero_icon("rename", "edit").on_click(move |_, window, cx| {
+                        let _ = me.update(cx, |this, cx| this.start_rename(window, cx));
+                    }));
+                }
+                let asking = self.confirm_delete.is_some_and(|t| t.elapsed().as_secs() < 4);
+                let (library, nav) = (self.library.clone(), self.nav.clone());
+                let me = me.clone();
+                row = row.child(if asking {
+                    div()
+                        .id("delete")
+                        .h(px(36.))
+                        .px(px(14.))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .rounded_full()
+                        .bg(rgb(0xe5484d))
+                        .text_color(white())
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| {
+                            let id = id.clone();
+                            library.update(cx, |l, cx| l.delete_playlist(id, cx));
+                            nav.update(cx, |n, cx| n.go(Route::Library, cx));
+                        })
+                        .child(icon("trash", 15., white()))
+                        .child(tr("Elimina? Non si può annullare"))
+                } else {
+                    hero_icon("delete", "trash").on_click(move |_, _, cx| {
+                        let _ = me.update(cx, |this, cx| {
+                            this.confirm_delete = Some(std::time::Instant::now());
+                            cx.notify();
+                        });
+                    })
+                });
+            }
+            Source::Album(_) | Source::Playlist(_) if !self.tracks.is_empty() => {
+                let album = matches!(self.source, Source::Album(_));
+                let (title, cover) = (self.header.title.to_string(), self.header.cover_url.clone());
+                let tracks: Vec<Value> = self.tracks.iter().filter_map(|t| serde_json::to_value(t).ok()).collect();
+                let library = self.library.clone();
+                row = row.child(hero_icon("save", "plus").on_click(move |_, _, cx| {
+                    let (title, tracks, cover) = (title.clone(), tracks.clone(), if album { cover.clone() } else { None });
+                    library.update(cx, |l, cx| {
+                        l.create_playlist_with_cover(
+                            title,
+                            tracks,
+                            cover,
+                            move |_, name, cx| crate::toast::Toasts::say(if album { trf("“{0}” salvato nella libreria", &[&name]) } else { trf("“{0}” salvata nella libreria", &[&name]) }, cx),
+                            cx,
+                        )
+                    });
+                }));
+            }
+            _ => {}
+        }
+        row
+    }
+
+    /// The phone's PlaylistMixButton: "Mixa" turns DJ transitions on between the playlist's songs
+    /// (two at least), "Mixata" turns them off again. The player reads the file on its next tick.
+    fn mix_button(&self, id: &str, s: &crate::theme::Scheme, cx: &mut Context<Self>) -> impl IntoElement {
+        let on = self.mixed;
+        let can = on || self.tracks.len() >= 2;
+        let accent = s.accent.hsla(1.);
+        let fg = if on { accent } else { s.text };
+        let (id, me) = (id.to_string(), cx.entity().downgrade());
+        div()
+            .id("hero-mix")
+            .h(px(36.))
+            .px(px(14.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded_full()
+            .border_1()
+            .when(on, |d| d.bg(accent.opacity(0.16)).border_color(accent.opacity(0.6)))
+            .when(!on, |d| d.bg(s.glass_tint).border_color(s.glass_border))
+            .text_color(fg)
+            .text_size(px(13.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .when(!can, |d| d.opacity(0.45))
+            .when(can, |d| {
+                d.cursor_pointer().hover(|d| d.bg(s.text.opacity(0.12))).active(|d| d.opacity(0.8)).on_click(move |_, _, cx| {
+                    let (id, want) = (id.clone(), !on);
+                    match lfly_core::library::dir().and_then(|d| lfly_core::playlist_mix::set_enabled(&d, &id, want)) {
+                        Ok(()) => {
+                            let _ = me.update(cx, |this, cx| {
+                                this.mixed = want;
+                                cx.notify();
+                            });
+                            crate::toast::Toasts::say(if want { tr("Playlist mixata: transizioni da DJ tra i brani") } else { tr("Mix tolto") }.to_string(), cx);
+                        }
+                        Err(e) => crate::toast::Toasts::say(trf("Impossibile salvare il mix: {0}", &[&e]), cx),
+                    }
+                })
+            })
+            .child(icon("sparkles", 15., fg))
+            .child(if on { tr("Mixata") } else { tr("Mixa") })
+            // A short fade-in of the new state when it flips.
+            .with_animation(("hero-mix-flip", on as u64), Animation::new(std::time::Duration::from_millis(220)).with_easing(ease_out_quint()), move |d, t| {
+                d.opacity(if can { 0.55 + 0.45 * t } else { 0.45 })
+            })
+    }
+
+    fn start_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.header.title.to_string();
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(name));
+        crate::ui::register_field(&input.read(cx).focus_handle(cx), cx);
+        let sub = cx.subscribe_in(&input, window, |this, state, ev: &InputEvent, _w, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                let name = state.read(cx).value().to_string();
+                this.rename = None;
+                if let (Source::Local(id), false) = (this.source.clone(), name.trim().is_empty()) {
+                    this.header.title = name.trim().to_string().into();
+                    this.library.update(cx, |l, cx| l.rename_playlist(id, name, cx));
+                }
+                cx.notify();
+            }
+        });
+        input.update(cx, |i, cx| i.focus(window, cx));
+        self.rename = Some((input, sub));
+        cx.notify();
+    }
+}
+
+impl Render for Collection {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::track_row::eq_begin();
+        let me = cx.entity().downgrade();
+        list(self.list.clone(), move |ix, _window, cx| {
+            me.update(cx, |this, cx| {
+                let s = this.look.read(cx).scheme.clone();
+                if ix == 0 {
+                    let hero = this.hero(cx);
+                    let mut d = div().child(hero);
+                    // `.p-empty`: a card with what is missing and the way on.
+                    let empty = |title: &'static str, text: Option<&'static str>, label: &'static str, ic: &'static str, route: Route, nav: Entity<Nav>| {
+                        div()
+                            .mx(px(24.))
+                            .my(px(8.))
+                            .py(px(36.))
+                            .px(px(24.))
+                            .rounded(px(18.))
+                            .bg(s.surface.hsla(0.55))
+                            .border_1()
+                            .border_color(crate::track_row::separator(&s))
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(8.))
+                            .text_color(s.text2)
+                            .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(s.text).child(title))
+                            .children(text)
+                            .child(
+                                div()
+                                    .id("empty-go")
+                                    .mt(px(6.))
+                                    .h(px(34.))
+                                    .px(px(16.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .rounded_full()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(s.text)
+                                    .bg(s.glass_tint)
+                                    .border_1()
+                                    .border_color(s.glass_border)
+                                    .cursor_pointer()
+                                    .on_click(move |_, _, cx| nav.update(cx, |n, cx| n.go(route.clone(), cx)))
+                                    .child(icon(ic, 15., s.text))
+                                    .child(label),
+                            )
+                    };
+                    let local = matches!(this.source, Source::Local(_));
+                    if let (Some(_), true) = (&this.error, local) {
+                        d = d.child(empty(tr("Questa playlist non c'è più"), None, tr("Vai alla libreria"), "library", Route::Library, this.nav.clone()));
+                    } else if let Some(e) = &this.error {
+                        d = d.child(div().px(px(24.)).py(px(8.)).text_color(s.text2).child(e.clone()));
+                    } else if !this.loading && this.tracks.is_empty() && local {
+                        d = d.child(empty(tr("Playlist vuota"), Some(tr("Aggiungi brani dal menu ⋯ di qualsiasi canzone.")), tr("Cerca qualcosa da aggiungere"), "search", Route::Search, this.nav.clone()));
+                    } else if !this.loading && this.tracks.is_empty() && this.source == Source::Liked {
+                        d = d.child(empty(tr("Ancora nessun brano"), Some(tr("I brani a cui metti il cuore compaiono qui.")), tr("Cerca qualcosa da ascoltare"), "search", Route::Search, this.nav.clone()));
+                    } else if !this.loading && this.tracks.is_empty() && this.source == Source::Downloads {
+                        d = d.child(empty(
+                            tr("Nessun brano scaricato"),
+                            Some(tr("Scarica album, playlist o singoli brani (tasto destro › Scarica) per ascoltarli anche senza connessione.")),
+                            tr("Vai alla libreria"),
+                            "library",
+                            Route::Library,
+                            this.nav.clone(),
+                        ));
+                    } else if this.loading {
+                        d = d.child(crate::skeleton::rows(8, &s, cx));
+                    } else {
+                        d = d.child(columns(!matches!(this.source, Source::Album(_)), &s));
+                    }
+                    return d.into_any_element();
+                }
+                let i = ix - 1;
+                let Some(t) = this.tracks.get(i).cloned() else { return div().into_any_element() };
+                let current = this.model.read(cx).current().map(|c| c.id.clone());
+                let sounding = this.model.read(cx).playing();
+                let liked = this.library.read(cx).is_favorite(&t.id);
+                let cover = t.cover_url.as_ref().and_then(|u| this.covers.update(cx, |c, cx| c.get(u, cx)));
+                let show_album = !matches!(this.source, Source::Album(_));
+                let core = this.core.clone();
+                let tracks = this.tracks.clone();
+                let row = RowData {
+                    number: i + 1,
+                    title: t.title.clone().into(),
+                    artist: t.artist.clone().into(),
+                    album: t.album.clone().map(Into::into),
+                    duration_ms: t.duration_ms,
+                    cover,
+                    playing: current.as_deref() == Some(t.id.as_str()),
+                    live: current.as_deref() == Some(t.id.as_str()) && sounding,
+                    liked,
+                    downloaded: crate::downloads::DownloadsModel::entity(cx).read(cx).has(&t.id),
+                    is_video: t.is_video,
+                    // A local playlist's songs can leave it from the menu.
+                    menu: crate::core::track_ref(&t).map(|r| {
+                        let remove: Option<crate::menu::Remove> = match &this.source {
+                            Source::Local(id) => {
+                                let (library, id, track_id) = (this.library.clone(), id.clone(), t.id.clone());
+                                Some(std::rc::Rc::new(move |cx: &mut App| {
+                                    let (id, track_id) = (id.clone(), track_id.clone());
+                                    library.update(cx, |l, cx| l.remove_from_playlist(id, i, track_id, cx));
+                                }))
+                            }
+                            _ => None,
+                        };
+                        (r, remove)
+                    }),
+                    like: crate::core::track_ref(&t).map(|r| crate::menu::like_action(this.library.clone(), this.core.clone(), r)),
+                };
+                let last = i + 1 == this.tracks.len();
+                let facts = this.header.meta.clone();
+                div()
+                    .relative()
+                    // `.p-footer`: the facts again under the last song.
+                    .when(last, |d| d.pb(px(104. + 32.)))
+                    .when(last && matches!(this.source, Source::Liked | Source::Local(_) | Source::Downloads), move |d| {
+                        d.child(div().absolute().bottom(px(104.)).left(px(24.)).text_size(px(12.)).text_color(s.text3).child(facts))
+                    })
+                    .child(track_row(("track", i), row, show_album, &s, move |_, _, _| core.play(&tracks, i)))
+                    .into_any_element()
+            })
+            .unwrap_or_else(|_| div().into_any_element())
+        })
+        .size_full()
+    }
+}

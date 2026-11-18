@@ -1,0 +1,484 @@
+//! The right panel (Tauri: components/RightPanel.svelte): a glass column with the window controls,
+//! the Coda / Testo / Dispositivi switch on a sliding pill, and under it the queue, the playing
+//! song's lyrics or the devices. (LFly Connect is not ported yet: the devices list says so.)
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
+
+use crate::i18n::{tr, trf};
+use lfly_connect::protocol;
+
+use crate::core::Core;
+use crate::covers::Covers;
+use crate::glass;
+use crate::icons::icon;
+use crate::look::Look;
+use crate::lyrics::Lyrics;
+use crate::motion::CubicBezier;
+use crate::player_bar::clock;
+use crate::player_model::PlayerModel;
+use crate::theme::{color_mix, Scheme};
+use crate::ui::{SidePanel, Ui};
+
+/// The pill's slide (SelectionPill.svelte springs it; this eases past the mark and back).
+const SLIDE: CubicBezier = CubicBezier::new(0.34, 1.3, 0.64, 1.);
+
+pub struct RightPanel {
+    ui: Entity<Ui>,
+    model: Entity<PlayerModel>,
+    covers: Entity<Covers>,
+    look: Entity<Look>,
+    core: Arc<Core>,
+    lyrics: Entity<Lyrics>,
+    /// The pill: from which tab, since when.
+    pill_from: f32,
+    pill_to: f32,
+    pill_at: Instant,
+    /// Floating over the page (a window 900 px wide or less): nearly opaque.
+    pub floating: bool,
+    _subs: Vec<Subscription>,
+}
+
+fn index(p: Option<SidePanel>) -> f32 {
+    match p {
+        Some(SidePanel::Queue) | None => 0.,
+        Some(SidePanel::Lyrics) => 1.,
+        Some(SidePanel::Devices) => 2.,
+    }
+}
+
+impl RightPanel {
+    pub fn new(
+        ui: Entity<Ui>,
+        model: Entity<PlayerModel>,
+        covers: Entity<Covers>,
+        look: Entity<Look>,
+        core: Arc<Core>,
+        lyrics: Entity<Lyrics>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let subs = vec![
+            cx.observe(&ui, |this, ui, cx| {
+                let to = index(ui.read(cx).panel);
+                if to != this.pill_to {
+                    this.pill_from = this.pill_value();
+                    this.pill_to = to;
+                    this.pill_at = Instant::now();
+                }
+                cx.notify();
+            }),
+            cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
+            cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&crate::connect::ConnectModel::entity(cx), |_, _, cx| cx.notify()),
+            cx.observe(&look, |_, _, cx| cx.notify()),
+        ];
+        let at = index(ui.read(cx).panel);
+        Self { ui, model, covers, look, core, lyrics, pill_from: at, pill_to: at, pill_at: Instant::now(), floating: false, _subs: subs }
+    }
+
+    fn pill_progress(&self) -> f32 {
+        (self.pill_at.elapsed().as_secs_f32() / 0.46).min(1.)
+    }
+
+    fn pill_value(&self) -> f32 {
+        self.pill_from + (self.pill_to - self.pill_from) * SLIDE.at(self.pill_progress() as f64) as f32
+    }
+}
+
+/// `h3`: 600 11px, uppercase, text-3.
+fn heading(text: String, s: &Scheme) -> Div {
+    div().mt(px(18.)).mx(px(10.)).mb(px(10.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(s.text3).child(text)
+}
+
+/// The phone's GraphicEq: three accent bars (still here).
+fn eq(s: &Scheme) -> Div {
+    let a = s.accent.hsla(1.);
+    div().h(px(14.)).mr(px(4.)).flex_none().flex().items_end().gap(px(2.)).children([0.55f32, 1., 0.7].map(|h| div().w(px(3.)).h(px(14. * h)).rounded(px(2.)).bg(a)))
+}
+
+/// `.now` and `.here.active`: the accent at 14% over the glass tint, a 30% accent ring.
+fn lit_card(s: &Scheme, radius: f32) -> Div {
+    let a = s.accent.hsla(1.);
+    div()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .p(px(10.))
+        .rounded(px(radius))
+        .bg(color_mix(a, 0.14, s.glass_tint))
+        .border_1()
+        .border_color(a.opacity(0.3))
+}
+
+impl RightPanel {
+    fn queue(&mut self, s: &Scheme, cx: &mut Context<Self>) -> Div {
+        let m = self.model.read(cx);
+        let playing = m.playing();
+        let (queue, index) = m.state.as_ref().map_or((Vec::new(), -1), |st| (st.queue.clone(), st.index));
+        let current = usize::try_from(index).ok().and_then(|i| queue.get(i)).cloned();
+        let covers = self.covers.clone();
+        let mut cover = |url: &Option<String>| url.as_ref().and_then(|u| covers.update(cx, |c, cx| c.get(u, cx)));
+        let Some(now) = current else {
+            return div().flex().flex_col().items_center().gap(px(10.)).py(px(48.)).px(px(20.)).text_color(s.text2).child(
+                div().size(px(56.)).rounded_full().flex().items_center().justify_center().bg(s.glass_tint).border_1().border_color(s.glass_border).child(icon("queue", 26., s.text2)),
+            ).child(div().text_center().line_height(px(20.)).child(tr("La coda è vuota. Fai partire un brano o una playlist.")));
+        };
+        let art = |image: Option<Arc<Image>>, size: f32, radius: f32| {
+            div().size(px(size)).flex_none().rounded(px(radius)).bg(s.text.opacity(0.08)).children(image.map(|i| crate::covers::fade(i.id(), img(i).size_full().object_fit(ObjectFit::Cover).rounded(px(radius)))))
+        };
+        let text_col = |title: String, artist: String, bold: bool| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .child(div().text_size(px(14.)).when(bold, |d| d.font_weight(FontWeight::SEMIBOLD)).text_color(s.text).truncate().child(title))
+                .child(div().text_size(px(12.)).text_color(s.text2).truncate().child(artist))
+        };
+        let upcoming: Vec<(usize, protocol::TrackRef)> = queue.iter().enumerate().filter(|(i, _)| *i as i32 > index).map(|(i, t)| (i, t.clone())).collect();
+        let mut out = div()
+            .flex()
+            .flex_col()
+            .child(heading(tr("In riproduzione").to_uppercase(), s))
+            .child(lit_card(s, 20.).child(art(cover(&now.cover_url), 56., 12.)).child(text_col(now.title.clone(), now.artist.clone(), true)).when(playing, |d| d.child(eq(s))))
+            .child(heading(if upcoming.is_empty() { tr("Prossimi brani").to_uppercase() } else { format!("{}  {}", tr("Prossimi brani").to_uppercase(), upcoming.len()) }, s));
+        if upcoming.is_empty() {
+            return out.child(div().mx(px(10.)).my(px(8.)).text_color(s.text2).child(tr("Niente in coda dopo questo brano.")));
+        }
+        for (i, t) in upcoming {
+            let group: SharedString = format!("rq-{i}").into();
+            let (m1, m2, core) = (self.model.clone(), self.model.clone(), self.core.clone());
+            let (menu_t, menu_core) = (t.clone(), self.core.clone());
+            out = out.child(
+                div()
+                    .id(("rq", i))
+                    .on_mouse_down(MouseButton::Right, move |e, _, cx| {
+                        let core = menu_core.clone();
+                        let remove: crate::menu::Remove = std::rc::Rc::new(move |_| core.remove_from_queue(i));
+                        crate::menu::Menu::open_track(e.position, menu_t.clone(), Some(remove), cx);
+                    })
+                    .group(group.clone())
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(8.))
+                    .py(px(6.))
+                    .rounded(px(16.))
+                    .hover(|d| d.bg(s.text.opacity(0.07))).active(|d| d.bg(s.text.opacity(0.13)))
+                    // A double click plays it, as in Tauri; a click on the cover too.
+                    .on_click(move |e, _, cx| {
+                        if e.click_count() == 2 {
+                            m1.read(cx).command(protocol::CMD_SKIP_TO, i as i64);
+                        }
+                    })
+                    .child(
+                        div()
+                            .id(("rq-cover", i))
+                            .relative()
+                            .flex_none()
+                            .cursor_pointer()
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                m2.read(cx).command(protocol::CMD_SKIP_TO, i as i64);
+                            })
+                            .child(art(cover(&t.cover_url), 42., 10.))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .inset_0()
+                                    .rounded(px(10.))
+                                    .bg(black().opacity(0.45))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .invisible()
+                                    .group_hover(group.clone(), |d| d.visible())
+                                    .child(icon("play", 15., white())),
+                            ),
+                    )
+                    .child(text_col(t.title.clone(), t.artist.clone(), false))
+                    .child(div().flex_none().text_size(px(12.)).font_features(crate::ui::tnum()).text_color(s.text3).child(if t.duration_ms > 0 { clock(t.duration_ms as u64) } else { SharedString::default() }))
+                    .child(
+                        div()
+                            .id(("rq-rm", i))
+                            .size(px(24.))
+                            .flex_none()
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .invisible()
+                            .group_hover(group, |d| d.visible())
+                            .hover(|d| d.bg(s.text.opacity(0.12))).active(|d| d.bg(s.text.opacity(0.22)))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                core.remove_from_queue(i);
+                            })
+                            .child(icon("close", 12., s.text2)),
+                    ),
+            );
+        }
+        out
+    }
+
+    /// RightPanel.svelte's devices: this computer, then the others LFly Connect found.
+    fn devices(&self, s: &Scheme, cx: &mut Context<Self>) -> Div {
+        let playing = self.model.read(cx).playing();
+        let a = s.accent.hsla(1.);
+        let connect = crate::connect::ConnectModel::entity(cx);
+        let (following, connecting, devices, controllers, online) = {
+            let c = connect.read(cx);
+            (c.following.clone(), c.connecting.clone(), c.devices.clone(), c.controllers, c.online)
+        };
+        let here_sub = if following.is_some() {
+            tr("La musica suona altrove").to_string()
+        } else if controllers > 0 {
+            if controllers == 1 { tr("In ascolto qui · 1 dispositivo ti controlla").to_string() } else { trf("In ascolto qui · {0} dispositivi ti controllano", &[&controllers]) }
+        } else {
+            tr("In ascolto qui").to_string()
+        };
+        let text_col = |name: String, sub: String| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(s.text).truncate().child(name))
+                .child(div().text_size(px(12.)).text_color(s.text2).truncate().child(sub))
+        };
+        let d_icon = |name: &'static str, on: bool| {
+            div()
+                .size(px(40.))
+                .flex_none()
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(if on { a } else { s.text.opacity(0.09) })
+                .child(icon(name, 20., if on { s.on_accent.hsla(1.) } else { s.text }))
+        };
+        let here_on = following.is_none();
+        let here = if here_on {
+            lit_card(s, 18.)
+        } else {
+            div().flex().items_center().gap(px(12.)).p(px(10.)).rounded(px(18.)).bg(s.glass_tint).border_1().border_color(s.glass_border)
+        };
+        let c1 = connect.clone();
+        let mut col = div().flex().flex_col().child(
+            here.mt(px(6.))
+                .child(d_icon("desktop", here_on))
+                .child(text_col(tr("Questo computer").into(), here_sub))
+                .when(following.is_some(), |d| {
+                    d.child(
+                        div()
+                            .id("play-here")
+                            .flex_none()
+                            .h(px(30.))
+                            .px(px(12.))
+                            .flex()
+                            .items_center()
+                            .rounded_full()
+                            .bg(a)
+                            .text_color(s.on_accent.hsla(1.))
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .cursor_pointer()
+                            .on_click(move |_, _, cx| c1.update(cx, |c, cx| c.play_here(cx)))
+                            .child(tr("Ascolta qui")),
+                    )
+                })
+                .when(here_on && playing, |d| d.child(eq(s))),
+        );
+        if let Some(f) = &following {
+            let c2 = connect.clone();
+            col = col.child(
+                div()
+                    .id("link-out")
+                    .mt(px(8.))
+                    .mx(px(10.))
+                    .text_size(px(12.))
+                    .text_color(s.text2)
+                    .underline()
+                    .cursor_pointer()
+                    .hover(|d| d.text_color(s.text))
+                    .on_click(move |_, _, cx| c2.update(cx, |c, cx| c.disconnect(cx)))
+                    .child(trf("Smetti di controllare {0}", &[&f.name])),
+            );
+        }
+        col = col.child(heading(tr("Altri dispositivi").to_uppercase(), s));
+        if devices.is_empty() {
+            let hint = if online { tr("Cerco LFly nella rete…") } else { tr("LFly Connect è spento in questa prova.") };
+            col = col
+                .child(div().mx(px(10.)).my(px(8.)).flex().items_center().gap(px(10.)).text_color(s.text2).child(div().size(px(8.)).flex_none().rounded_full().bg(a)).child(div().flex_1().min_w_0().line_height(px(19.)).child(hint)))
+                .child(div().mx(px(10.)).text_size(px(12.)).line_height(px(17.4)).text_color(s.text3).child(tr("Apri LFly su un telefono o un computer collegato allo stesso Wi-Fi.")));
+        } else {
+            for (k, d) in devices.into_iter().enumerate() {
+                let on = following.as_ref().is_some_and(|f| f.id == d.id);
+                let busy = connecting.as_deref() == Some(d.id.as_str());
+                let sub = format!("{}{}", tr(crate::connect::kind_label(&d.kind)), if d.same_account { format!(" · {}", tr("il tuo account")) } else { String::new() });
+                let c3 = connect.clone();
+                let dev = d.clone();
+                col = col.child(
+                    div()
+                        .id(("device", k))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .p(px(10.))
+                        .rounded(px(18.))
+                        .cursor_pointer()
+                        .hover(|d| d.bg(s.text.opacity(0.07))).active(|d| d.bg(s.text.opacity(0.13)))
+                        .on_click(move |_, _, cx| c3.update(cx, |c, cx| if on { c.disconnect(cx) } else { c.follow(dev.clone(), cx) }))
+                        .child(d_icon(crate::connect::kind_icon(&d.kind), on))
+                        .child(text_col(d.name.clone(), sub))
+                        .when(busy, |r| r.child(div().text_size(px(12.)).text_color(s.text2).child(tr("Collego…"))))
+                        .when(on && !busy, |r| r.child(icon("check", 14., a))),
+                );
+            }
+        }
+        col
+    }
+}
+
+impl Render for RightPanel {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (s, mut look) = {
+            let l = self.look.read(cx);
+            (l.scheme.clone(), l.glass())
+        };
+        if self.floating {
+            // Floating over the page, it must read on its own: nearly opaque glass.
+            look.tint = s.surface.hsla(0.9);
+        }
+        let panel = self.ui.read(cx).panel;
+        if self.pill_progress() < 1. && crate::presented(window) {
+            window.request_animation_frame();
+        }
+        let pill_at = self.pill_value();
+
+        let ui = self.ui.clone();
+        let tab = |id: &'static str, label: &'static str, p: SidePanel| {
+            let on = panel == Some(p);
+            let ui = ui.clone();
+            div()
+                .id(id)
+                .flex_1()
+                .min_w_0()
+                .h(px(30.))
+                .px(px(4.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .text_size(px(12.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(if on { s.text } else { s.text2 })
+                .hover(|d| d.text_color(s.text))
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, _, cx| ui.update(cx, |u, cx| u.set_panel(Some(p), cx)))
+                .child(div().truncate().child(label))
+        };
+        let ui2 = self.ui.clone();
+        let maximized = window.is_maximized();
+        let drag = |d: Div| d.on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move());
+        let top = div()
+            .flex_none()
+            .child(
+                drag(div())
+                    .flex()
+                    .justify_end()
+                    .gap(px(6.))
+                    .pt(px(10.))
+                    .px(px(12.))
+                    .when(!crate::SYSTEM_WINDOW_BUTTONS, |d| d.child(
+                        div()
+                            .flex()
+                            .gap(px(6.))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(crate::window_button("rp-min", "wc-min", false, s.text, s.text2).on_click(|_, w, _| w.minimize_window()))
+                            .child(crate::window_button("rp-max", if maximized { "wc-restore" } else { "wc-max" }, false, s.text, s.text2).on_click(|_, w, _| w.zoom_window()))
+                            .child(crate::window_button("rp-close-win", "wc-close", true, s.text, s.text2).on_click(|_, w, _| w.remove_window())),
+                    )),
+            )
+            .child(
+                drag(div())
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .pt(px(12.))
+                    .px(px(12.))
+                    .pb(px(8.))
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .p(px(3.))
+                            .rounded_full()
+                            .bg(s.text.opacity(0.07))
+                            // The neutral pill under the chosen tab.
+                            .child(
+                                div().absolute().top(px(3.)).bottom(px(3.)).left(px(3.)).right(px(3.)).child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .bottom_0()
+                                        .left(relative(pill_at / 3.))
+                                        .w(relative(1. / 3.))
+                                        .rounded_full()
+                                        .bg(s.text.opacity(0.16))
+                                        .shadow(vec![
+                                            BoxShadow { color: s.text.opacity(0.18), offset: point(px(0.), px(1.)), blur_radius: px(0.), spread_radius: px(0.), inset: true },
+                                            BoxShadow { color: black().opacity(0.18), offset: point(px(0.), px(1.)), blur_radius: px(4.), spread_radius: px(0.), inset: false },
+                                        ]),
+                                ),
+                            )
+                            .child(
+                                div()
+                                    .relative()
+                                    .flex()
+                                    .child(tab("rp-queue", tr("Coda"), SidePanel::Queue))
+                                    .child(tab("rp-lyrics", tr("Testo"), SidePanel::Lyrics))
+                                    .child(tab("rp-devices", tr("Dispositivi"), SidePanel::Devices)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("rp-close")
+                            .size(px(32.))
+                            .flex_none()
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(s.text.opacity(0.07))
+                            .hover(|d| d.bg(s.text.opacity(0.14))).active(|d| d.bg(s.text.opacity(0.25)))
+                            .cursor_pointer()
+                            .group("rp-close")
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(move |_, _, cx| ui2.update(cx, |u, cx| u.set_panel(None, cx)))
+                            .child(icon("close", 15., s.text2).group_hover("rp-close", |d| d.text_color(s.text))),
+                    ),
+            );
+
+        let body: AnyElement = match panel {
+            Some(SidePanel::Lyrics) => div().flex_1().min_h_0().child(self.lyrics.clone()).into_any_element(),
+            Some(SidePanel::Devices) => div().id("rp-body").flex_1().min_h_0().overflow_y_scroll().px(px(8.)).pb(px(16.)).child(self.devices(&s, cx)).into_any_element(),
+            _ => div().id("rp-body").flex_1().min_h_0().overflow_y_scroll().px(px(8.)).pb(px(16.)).child(self.queue(&s, cx)).into_any_element(),
+        };
+
+        div()
+            .relative()
+            .size_full()
+            .rounded(px(28.))
+            .text_color(s.text)
+            .child(glass::glass_layer(look, px(28.), glass::Pointer::default()))
+            .child(div().absolute().inset_0().rounded(px(28.)).overflow_hidden().flex().flex_col().child(top).child(body))
+    }
+}

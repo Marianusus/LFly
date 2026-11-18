@@ -17,9 +17,12 @@
 //! # Ok(()) }
 //! ```
 
+pub mod automix;
 pub mod cache;
 pub mod decode;
+pub mod decks;
 mod engine;
+pub mod stretch;
 pub mod eq;
 pub mod http;
 pub mod output;
@@ -33,6 +36,7 @@ use std::thread::JoinHandle;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+pub use automix::MixPlan;
 pub use cache::DiskCache;
 pub use eq::EqCurve;
 pub use output::{devices, OutputDevice};
@@ -107,6 +111,8 @@ pub struct Player {
     sh: Arc<Shared>,
     cache: Arc<DiskCache>,
     threads: Mutex<Vec<JoinHandle<()>>>,
+    /// The playback speed (f64 bits).
+    speed: std::sync::atomic::AtomicU64,
 }
 
 impl Player {
@@ -118,7 +124,7 @@ impl Player {
         let sh = Arc::new(Shared::new(events));
         let (tx, rx) = mpsc::channel();
         let threads = engine::spawn(sh.clone(), cache.clone(), tx.clone(), rx).map_err(|e| format!("engine: {e}"))?;
-        Ok(Player { tx, sh, cache, threads: Mutex::new(threads) })
+        Ok(Player { tx, sh, cache, threads: Mutex::new(threads), speed: std::sync::atomic::AtomicU64::new(1f64.to_bits()) })
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<PlayerEvent> {
@@ -195,9 +201,43 @@ impl Player {
         self.send(Cmd::Preload(None));
     }
 
+    /// Plans the coming change as an Automix (None: none): the next song is opened at the plan's
+    /// entry, and the mix starts on the exit's very sample, unless the songs changed or the exit
+    /// has passed by then (a plain crossfade, or the gapless switch, instead).
+    pub fn set_automix(&self, plan: Option<MixPlan>) {
+        self.send(Cmd::Automix(plan.map(Box::new)));
+    }
+
+    /// How fast the song heard runs now: the playback speed, times an Automix's tempo while its
+    /// incoming song is matched to the one before and eases back.
+    pub fn effective_speed(&self) -> f64 {
+        let consumed = self.sh.out.consumed.load(Ordering::Acquire);
+        let tl = self.sh.timeline();
+        let mut speed = tl.segments.front().map_or(1., |s| s.speed);
+        for s in tl.segments.iter().skip(1) {
+            if consumed >= s.start_frame {
+                speed = s.speed;
+            }
+        }
+        speed
+    }
+
     /// Fades each song into the next over `ms` (0 to 12 000; 0 keeps the gapless switch).
     pub fn set_crossfade(&self, ms: u64) {
         self.send(Cmd::Crossfade(ms));
+    }
+
+    /// Playback speed, the pitch kept (0.25..4; 1 as recorded). Heard at once.
+    pub fn set_speed(&self, speed: f32) {
+        let s = (speed as f64).clamp(0.25, 4.);
+        self.speed.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
+        // It re-seeks: a network read in the way gives up, as for a seek.
+        self.interrupt();
+        self.send(Cmd::Speed(s));
+    }
+
+    pub fn speed(&self) -> f32 {
+        f64::from_bits(self.speed.load(std::sync::atomic::Ordering::Relaxed)) as f32
     }
 
     pub fn set_equalizer(&self, curve: EqCurve) {
