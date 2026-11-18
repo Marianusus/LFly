@@ -11,6 +11,26 @@ use lfly_yt::{AudioPreference, MediaItem, Track, YtMusic};
 
 uniffi::setup_scaffolding!();
 
+mod connect;
+pub use connect::*;
+
+// lfly-core's library, its three-way merge and its sync over LFly Connect, compiled here from the
+// desktop's own files (lfly-core itself brings the desktop's audio engine, ONNX and MPRIS, which
+// have no place on a phone). One source: a fix there is a fix here. They name each other as
+// `crate::library` and so on, hence at the root.
+#[path = "../../../desktop/crates/lfly-core/src/lang.rs"]
+#[allow(dead_code)]
+mod lang;
+#[path = "../../../desktop/crates/lfly-core/src/library.rs"]
+#[allow(dead_code)]
+mod library;
+#[path = "../../../desktop/crates/lfly-core/src/library_merge.rs"]
+#[allow(dead_code)]
+mod library_merge;
+#[path = "../../../desktop/crates/lfly-core/src/libsync.rs"]
+#[allow(dead_code)]
+mod libsync;
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {
     #[error("{message}")]
@@ -197,6 +217,8 @@ fn item(m: &MediaItem) -> Option<Item> {
 #[derive(uniffi::Object)]
 pub struct Core {
     yt: YtMusic,
+    /// The account's LFly Connect secret, while signed in.
+    secret: std::sync::Mutex<Option<String>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -206,7 +228,7 @@ impl Core {
         let yt = YtMusic::new()?;
         // AVPlayer plays AAC (and Monochrome's AAC/FLAC), not Opus in WebM.
         yt.set_preference(AudioPreference::AacFirst);
-        Ok(Arc::new(Self { yt }))
+        Ok(Arc::new(Self { yt, secret: Default::default() }))
     }
 
     pub async fn artist(&self, browse_id: String) -> Result<Artist> {
@@ -229,6 +251,7 @@ impl Core {
     pub async fn set_session(&self, session: Option<Session>) -> Result<Option<Profile>> {
         let Some(s) = session else {
             self.yt.set_account(None);
+            *self.secret.lock().unwrap() = None;
             return Ok(None);
         };
         let account = lfly_yt::Account {
@@ -242,6 +265,7 @@ impl Core {
             return Err(CoreError::Failed { message: "no Google session".into() });
         }
         let info = self.yt.account_info(&account).await?;
+        *self.secret.lock().unwrap() = account.connect_secret();
         self.yt.set_account(Some(account));
         Ok(Some(Profile { name: info.name, email: info.email, avatar_url: info.avatar_url }))
     }
@@ -254,6 +278,11 @@ impl Core {
     /// The signed-in account's playlists on YouTube Music.
     pub async fn account_playlists(&self) -> Result<Vec<Item>> {
         Ok(self.yt.library_playlists().await?.into_iter().filter_map(|p| item(&MediaItem::Playlist(p))).collect())
+    }
+
+    /// The signed-in account's LFly Connect secret (devices of the same account trust each other).
+    pub fn connect_secret(&self) -> Option<String> {
+        self.secret.lock().unwrap().clone()
     }
 
     pub async fn home(&self) -> Result<Vec<Shelf>> {

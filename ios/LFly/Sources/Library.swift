@@ -28,13 +28,24 @@ final class Library {
 
     private let dir: URL
 
+    /// Called after every edit here (LFly Connect offers the library to the account's devices).
+    var onEdit: (() -> Void)?
+
     init() {
         dir = URL.documentsDirectory.appending(path: "library", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        reload()
+        downloads = Self.songs(read("downloads.json")).filter { FileManager.default.fileExists(atPath: file(for: $0).path) }
+    }
+
+    /// The folder LFly Connect syncs.
+    var folder: URL { dir }
+
+    /// Reads the files again (a sync rewrote them).
+    func reload() {
         favorites = Self.songs(read("favorites.json"))
         history = Self.songs(read("history.json"))
-        downloads = Self.songs(read("downloads.json")).filter { FileManager.default.fileExists(atPath: file(for: $0).path) }
         playlists = (read("playlists.json") ?? []).compactMap { p in
             guard let id = p["id"] as? String else { return nil }
             return LocalPlaylist(id: id, name: p["name"] as? String ?? "", songs: Self.songs(p["tracks"] as? [[String: Any]]))
@@ -210,6 +221,7 @@ final class Library {
     private func write(_ name: String, _ list: [[String: Any]]) {
         guard let data = try? JSONSerialization.data(withJSONObject: list) else { return }
         try? data.write(to: dir.appending(path: name), options: .atomic)
+        if name != "downloads.json" { onEdit?() }
     }
 
     /// The track's own JSON (as lfly-yt and the phone write it).

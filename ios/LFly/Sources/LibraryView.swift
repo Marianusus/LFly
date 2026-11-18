@@ -6,6 +6,7 @@ struct LibraryView: View {
     @Environment(Library.self) private var library
     @Environment(Account.self) private var account
     @State private var showAccount = false
+    @State private var showDevices = false
     @State private var newName = ""
     @State private var naming = false
 
@@ -54,6 +55,10 @@ struct LibraryView: View {
         .navigationDestination(for: Item.self) { ItemDestination(item: $0) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showDevices = true } label: { Image(systemName: "hifispeaker.2") }
+                    .accessibilityLabel("Dispositivi")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showAccount = true } label: {
                     if let url = account.profile?.avatarUrl {
                         Artwork(url: url, radius: 14).frame(width: 28, height: 28)
@@ -65,6 +70,7 @@ struct LibraryView: View {
             }
         }
         .sheet(isPresented: $showAccount) { AccountView() }
+        .sheet(isPresented: $showDevices) { DevicesView() }
         .alert("Nuova playlist", isPresented: $naming) {
             TextField("Nome", text: $newName)
             Button("Crea") { library.createPlaylist(newName); newName = "" }

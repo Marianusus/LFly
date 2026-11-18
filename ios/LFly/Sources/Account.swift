@@ -15,11 +15,14 @@ final class Account {
 
     private let core: Core
     private let library: Library
+    /// Told after every sign-in or sign-out (LFly Connect takes the account's secret).
+    private let onChange: (Profile?) -> Void
     private static let keychainKey = "org.sonora.lfly.ytmusic-session"
 
-    init(core: Core, library: Library) {
+    init(core: Core, library: Library, onChange: @escaping (Profile?) -> Void) {
         self.core = core
         self.library = library
+        self.onChange = onChange
         if let saved = Self.load() {
             busy = true
             Task {
@@ -27,6 +30,7 @@ final class Account {
                 // A session YouTube Music no longer takes is forgotten.
                 if let p = try? await core.setSession(session: saved) {
                     profile = p
+                    onChange(p)
                     await refresh()
                 } else {
                     Self.store(nil)
@@ -41,6 +45,7 @@ final class Account {
         defer { busy = false }
         guard let p = try? await core.setSession(session: session) else { return false }
         profile = p
+        onChange(p)
         Self.store(session)
         await refresh()
         if let liked = try? await core.likedSongs() { library.addFavorites(liked) }
@@ -48,7 +53,10 @@ final class Account {
     }
 
     func signOut() {
-        Task { _ = try? await core.setSession(session: nil) }
+        Task {
+            _ = try? await core.setSession(session: nil)
+            onChange(nil)
+        }
         Self.store(nil)
         profile = nil
         playlists = []

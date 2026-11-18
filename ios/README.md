@@ -37,6 +37,14 @@ With a free Apple ID the app stays installed for 7 days, then Xcode installs it 
 
 The simulator takes no taps from a script, so launch arguments drive it:
 `xcrun simctl launch <device> org.sonora.lfly -autoplay "query" -showPlayer YES -showLyrics YES
--like YES -download YES -tab library|search -artist "query"`.
+-like YES -download YES -tab library|search -artist "query" -devices YES -follow "name"`.
+`cargo run --example connect_smoke` lists the LFly devices on the network.
 
-Next: LFly Connect with the phone and the computer (library sync), Automix, the DJ.
+- LFly Connect (core: lfly-connect plus lfly-core's library, library_merge and libsync compiled
+  from the desktop's own files): the phones and computers in sight, following one as a remote
+  (with the code to accept the first time), the library kept the same with the devices of the
+  same YouTube Music account. The iPhone only opens links; it does not host.
+  On a real iPhone, mdns-sd's multicast needs Apple's multicast entitlement: discovery there
+  should move to NWBrowser (the simulator uses the Mac's network and works as is).
+
+Next: Automix, the DJ.

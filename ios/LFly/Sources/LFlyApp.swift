@@ -11,6 +11,7 @@ struct LFlyApp: App {
                 .environment(model.player)
                 .environment(model.library)
                 .environment(model.account)
+                .environment(model.connect)
         }
     }
 }
@@ -23,6 +24,7 @@ final class AppModel {
     let library: Library
     let player: Player
     let account: Account
+    let connect: ConnectModel
 
     init() {
         // The core only fails without a network stack at all; there is nothing to show without it.
@@ -31,6 +33,10 @@ final class AppModel {
         self.core = core
         self.library = library
         self.player = Player(core: core, library: library)
-        self.account = Account(core: core, library: library)
+        let connect = ConnectModel(library: library)
+        self.connect = connect
+        self.account = Account(core: core, library: library) { [weak connect] _ in
+            connect?.setAccount(core.connectSecret())
+        }
     }
 }

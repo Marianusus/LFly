@@ -5,9 +5,11 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(Player.self) private var player
+    @Environment(ConnectModel.self) private var connect
     @State private var showPlayer = false
     @State private var tab = UserDefaults.standard.string(forKey: "tab") ?? "home"
     @State private var testArtist: Item?
+    @State private var showDevices = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -31,6 +33,7 @@ struct RootView: View {
             NowPlayingView()
         }
         .task { await testHooks() }
+        .sheet(isPresented: $showDevices) { DevicesView() }
         .sheet(item: $testArtist) { a in NavigationStack { ArtistView(item: a).navigationDestination(for: Item.self) { ItemDestination(item: $0) } } }
     }
 }
@@ -38,7 +41,7 @@ struct RootView: View {
 extension RootView {
     /// Test runs (the simulator takes no taps from a script): launch with `-autoplay "query"` to
     /// play the first song found, `-showPlayer YES` to open the full player, `-showLyrics YES`,
-    /// `-like YES` to like it, `-download YES` to download it, `-tab library|search`, `-artist "query"` to open an artist.
+    /// `-devices YES` to open LFly Connect, `-follow \"name\"` to follow a device, `-like YES` to like it, `-download YES` to download it, `-tab library|search`, `-artist "query"` to open an artist.
     private func testHooks() async {
         let d = UserDefaults.standard
         if let q = d.string(forKey: "autoplay"), let r = try? await model.core.search(query: q), !r.songs.isEmpty {
@@ -48,6 +51,16 @@ extension RootView {
         }
         if let q = d.string(forKey: "artist"), let r = try? await model.core.search(query: q), let a = r.artists.first {
             testArtist = a
+        }
+        if d.bool(forKey: "devices") { showDevices = true }
+        if let name = d.string(forKey: "follow") {
+            for _ in 0..<20 where connect.following == nil {
+                if let p = connect.peers.first(where: { $0.name.localizedCaseInsensitiveContains(name) }) {
+                    connect.follow(p)
+                    break
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
         }
         if d.bool(forKey: "showPlayer") {
             try? await Task.sleep(for: .seconds(1))

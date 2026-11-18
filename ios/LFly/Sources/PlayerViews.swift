@@ -38,6 +38,7 @@ struct NowPlayingView: View {
     @Environment(Library.self) private var library
     @State private var scrubbing: Double?
     @State private var showLyrics = UserDefaults.standard.bool(forKey: "showLyrics")
+    @State private var showDevices = false
 
     var body: some View {
         VStack(spacing: 22) {
@@ -102,6 +103,9 @@ struct NowPlayingView: View {
             .font(.title)
             .buttonStyle(.plain)
             HStack {
+                Button { showDevices = true } label: { Image(systemName: "hifispeaker.2") }
+                    .buttonStyle(.glass)
+                    .accessibilityLabel("Dispositivi")
                 Spacer()
                 Button { withAnimation(.smooth) { showLyrics.toggle() } } label: {
                     Image(systemName: "quote.bubble")
@@ -122,6 +126,7 @@ struct NowPlayingView: View {
                 .ignoresSafeArea()
         }
         .presentationDragIndicator(.hidden)
+        .sheet(isPresented: $showDevices) { DevicesView() }
     }
 }
 

@@ -18,6 +18,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>LFly Connect trova il telefono e il computer con LFly sulla stessa Wi-Fi, per comandarli e tenere uguale la libreria.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_lfly-connect._tcp</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
