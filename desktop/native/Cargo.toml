@@ -2,7 +2,7 @@
 # Tauri app's CI never builds GPUI; it shares the crates under ../crates.
 [package]
 name = "lfly-native"
-version = "0.2.0"
+version = "0.1.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
@@ -37,6 +37,8 @@ midir = "0.11.1"
 serde = { version = "1", features = ["derive"] }
 
 [workspace]
+# The web helper (web/) builds on request: `cargo build -p lfly-web`.
+members = ["web"]
 
 [patch.crates-io]
 opus-decoder = { path = "../crates/lfly-audio/vendor/opus-decoder" }

@@ -433,3 +433,23 @@ Notes on these checks:
     blinking), bigger CUE/PLAY/SYNC, KEY column (Camelot) and analysed BPM in the browser. The user
     asked to "copy VirtualDJ's interface": its skin/art is not copied (EULA, their artwork); the
     layout conventions are generic DJ software and were kept, drawn with our pieces.
+19. **macOS and accounts (2026-11-18, released as desktop-v0.1.2).** Built and tested on the
+    user's MacBook Air M1 over SSH (see the memory notes: build in `~/lfly-src`, sign with the local
+    "LFly Local Signing" certificate from `tools/macos-signing-setup.sh`, screenshots with
+    `screencapture`; no keystrokes).
+    - Window: on macOS the system traffic lights sit in the sidebar card (`MAC_TRAFFIC_LIGHTS`),
+      our −□× are hidden (`SYSTEM_WINDOW_BUTTONS`), the full player clears them, the palette button
+      is gone from the toolbar (Settings is ⌘,), the light strip goes in full screen.
+    - `src/app_menu.rs`: the Mac menu bar in Apple's order (LFly, Archivio, Modifica, Vista,
+      Riproduzione, Vai, Finestra), Dock menu with the song and controls (rebuilt only on change),
+      red light/⌘W hide the app. Linux/Windows get the same actions as Ctrl keys (Ctrl+Q, Ctrl+,,
+      Ctrl+1…4, Ctrl+Alt+S, F11), listed in Settings.
+    - Liquid Glass on Metal: `vendor/gpui-pre-apple/src/glass.metal` + `glass_metal.rs`, a port of
+      glass.hlsl; `look::GLASS_RENDERER` is now true everywhere.
+    - `web/` (`lfly-web`, tao + wry, built with `-p lfly-web`, shipped next to the app): one page,
+      one JSON line on stdout. Modes: `ytmusic-login` (Google sign-in → account.json, Settings ›
+      Account › Accedi), `spotify-login` and `spotify-token` (the phone's Spotify account import:
+      sp_dc cookie + the web player's own token + its private API; the user chose this over the
+      official OAuth API). `lfly-core spotify_account.rs` imports playlists as `spl_<id>` and Liked
+      Songs into favourites. `LFLY_WEB_DEBUG=1` prints what the token page answered.
+    - Not yet tried with real accounts: the Google and Spotify sign-ins.
