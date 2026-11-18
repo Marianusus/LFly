@@ -1,0 +1,33 @@
+# XcodeGen spec for LFly on iPhone: `xcodegen` here writes LFly.xcodeproj (not committed).
+# Before that, ./build-core.sh builds the Rust core (LFlyCore.xcframework + Generated/).
+name: LFly
+options:
+  bundleIdPrefix: org.sonora
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  LFly:
+    type: application
+    platform: iOS
+    sources:
+      - LFly/Sources
+      - LFly/Generated
+    dependencies:
+      - framework: LFlyCore.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sonora.lfly
+        INFOPLIST_FILE: LFly/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+        OTHER_LDFLAGS: ["-lc++"]
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_STRICT_CONCURRENCY: minimal
+        # The core is built for Apple Silicon only (aarch64-apple-ios-sim).
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64

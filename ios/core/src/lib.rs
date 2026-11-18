@@ -1,0 +1,247 @@
+//! LFly's core for iPhone, called from Swift through UniFFI: YouTube Music (home, search, albums,
+//! playlists), full-length streams in a format AVPlayer plays (AAC first, never Opus/WebM) and
+//! synced lyrics. It wraps the desktop's lfly-yt, so both apps resolve songs the same way.
+//!
+//! A track crosses the bridge as [Song] with its original JSON kept in `raw`, so nothing lfly-yt
+//! knows about it is lost on the way back (stream, lyrics).
+
+use std::sync::Arc;
+
+use lfly_yt::{AudioPreference, MediaItem, Track, YtMusic};
+
+uniffi::setup_scaffolding!();
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum CoreError {
+    #[error("{message}")]
+    Failed { message: String },
+}
+
+impl From<lfly_yt::Error> for CoreError {
+    fn from(e: lfly_yt::Error) -> Self {
+        CoreError::Failed { message: e.to_string() }
+    }
+}
+
+type Result<T> = std::result::Result<T, CoreError>;
+
+/// A song or video.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Song {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub duration_ms: i64,
+    pub cover_url: Option<String>,
+    pub is_video: bool,
+    /// lfly-yt's own JSON of the track, handed back for streams and lyrics.
+    pub raw: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ItemKind {
+    Song,
+    Album,
+    Playlist,
+    Artist,
+}
+
+/// A card on a shelf or in search results.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Item {
+    pub kind: ItemKind,
+    /// What opens it: browse id (album, artist) or playlist id; the song's id for songs.
+    pub id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub cover_url: Option<String>,
+    pub song: Option<Song>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Shelf {
+    pub title: String,
+    pub items: Vec<Item>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SearchResult {
+    pub top: Option<Item>,
+    pub songs: Vec<Song>,
+    pub albums: Vec<Item>,
+    pub artists: Vec<Item>,
+    pub playlists: Vec<Item>,
+}
+
+/// An album or playlist page.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SongList {
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub cover_url: Option<String>,
+    pub songs: Vec<Song>,
+}
+
+/// A stream to hand to AVPlayer.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AudioStream {
+    pub url: String,
+    pub mime: String,
+    /// Send as the User-Agent header when the source asks for it.
+    pub user_agent: Option<String>,
+    pub provider: String,
+    pub bitrate: u32,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LyricLine {
+    pub time_ms: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SongLyrics {
+    /// Timed lines; empty when only plain text exists.
+    pub lines: Vec<LyricLine>,
+    pub plain: Option<String>,
+    pub source: String,
+}
+
+fn song(t: &Track) -> Song {
+    Song {
+        id: t.id.clone(),
+        title: t.title.clone(),
+        artist: t.artist.clone(),
+        album: t.album.clone(),
+        duration_ms: t.duration_ms,
+        cover_url: t.cover_url.clone(),
+        is_video: t.is_video,
+        raw: serde_json::to_string(t).unwrap_or_default(),
+    }
+}
+
+fn track(s: &Song) -> Result<Track> {
+    serde_json::from_str(&s.raw).map_err(|e| CoreError::Failed { message: e.to_string() })
+}
+
+fn item(m: &MediaItem) -> Option<Item> {
+    Some(match m {
+        MediaItem::Song(t) => Item {
+            kind: ItemKind::Song,
+            id: t.id.clone(),
+            title: t.title.clone(),
+            subtitle: Some(t.artist.clone()),
+            cover_url: t.cover_url.clone(),
+            song: Some(song(t)),
+        },
+        MediaItem::Album(a) => Item {
+            kind: ItemKind::Album,
+            id: a.browse_id.clone()?,
+            title: a.title.clone(),
+            subtitle: a.artist.clone(),
+            cover_url: a.thumbnail_url.clone(),
+            song: None,
+        },
+        MediaItem::Playlist(p) => Item {
+            kind: ItemKind::Playlist,
+            id: p.detail_id()?.to_string(),
+            title: p.title.clone(),
+            subtitle: p.author.clone(),
+            cover_url: p.thumbnail_url.clone(),
+            song: None,
+        },
+        MediaItem::Artist(a) => Item {
+            kind: ItemKind::Artist,
+            id: a.browse_id.clone().or_else(|| a.channel_id.clone())?,
+            title: a.name.clone(),
+            subtitle: a.subtitle.clone(),
+            cover_url: a.thumbnail_url.clone(),
+            song: None,
+        },
+    })
+}
+
+/// The one object Swift holds: the YouTube Music client and its runtime.
+#[derive(uniffi::Object)]
+pub struct Core {
+    yt: YtMusic,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl Core {
+    #[uniffi::constructor]
+    pub fn new() -> Result<Arc<Self>> {
+        let yt = YtMusic::new()?;
+        // AVPlayer plays AAC (and Monochrome's AAC/FLAC), not Opus in WebM.
+        yt.set_preference(AudioPreference::AacFirst);
+        Ok(Arc::new(Self { yt }))
+    }
+
+    pub async fn home(&self) -> Result<Vec<Shelf>> {
+        let shelves = self.yt.home().await?;
+        Ok(shelves
+            .iter()
+            .map(|s| Shelf { title: s.title.clone(), items: s.items.iter().filter_map(item).collect() })
+            .filter(|s| !s.items.is_empty())
+            .collect())
+    }
+
+    pub async fn search(&self, query: String) -> Result<SearchResult> {
+        let r = self.yt.search(&query).await?;
+        let wrap = |m: MediaItem| item(&m);
+        Ok(SearchResult {
+            top: r.top.as_ref().and_then(item),
+            songs: r.songs.iter().map(song).collect(),
+            albums: r.albums.into_iter().filter_map(|a| wrap(MediaItem::Album(a))).collect(),
+            artists: r.artists.into_iter().filter_map(|a| wrap(MediaItem::Artist(a))).collect(),
+            playlists: r.playlists.into_iter().filter_map(|p| wrap(MediaItem::Playlist(p))).collect(),
+        })
+    }
+
+    pub async fn album(&self, browse_id: String) -> Result<SongList> {
+        let p = self.yt.album(&browse_id).await?;
+        Ok(SongList {
+            title: p.album.title.clone(),
+            subtitle: p.album.artist.clone(),
+            cover_url: p.album.thumbnail_url.clone(),
+            // Album tracks often carry no cover of their own: the album's.
+            songs: p
+                .tracks
+                .iter()
+                .map(|t| {
+                    let mut s = song(t);
+                    if s.cover_url.is_none() {
+                        s.cover_url = p.album.thumbnail_url.clone();
+                    }
+                    s
+                })
+                .collect(),
+        })
+    }
+
+    pub async fn playlist(&self, id: String) -> Result<SongList> {
+        let p = self.yt.playlist(&id).await?;
+        Ok(SongList {
+            title: p.playlist.title.clone(),
+            subtitle: p.playlist.author.clone(),
+            cover_url: p.playlist.thumbnail_url.clone(),
+            songs: p.tracks.iter().map(song).collect(),
+        })
+    }
+
+    /// The full-length stream (YouTube Music or Monochrome, as the desktop picks them).
+    pub async fn stream(&self, song: Song) -> Result<AudioStream> {
+        let s = self.yt.resolve_stream(&track(&song)?).await?;
+        Ok(AudioStream { url: s.url, mime: s.mime, user_agent: s.user_agent, provider: s.provider, bitrate: s.bitrate })
+    }
+
+    pub async fn lyrics(&self, song: Song) -> Result<Option<SongLyrics>> {
+        let Some(l) = self.yt.lyrics(&track(&song)?).await? else { return Ok(None) };
+        Ok(Some(SongLyrics {
+            lines: l.lines.iter().map(|x| LyricLine { time_ms: x.time_ms, text: x.text.clone() }).collect(),
+            plain: l.plain_lyrics.clone(),
+            source: l.source.clone(),
+        }))
+    }
+}
