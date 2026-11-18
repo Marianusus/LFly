@@ -915,10 +915,12 @@ dependencies = [
 name = "lfly-ios"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "dirs",
  "lfly-connect",
  "lfly-yt",
  "log",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",

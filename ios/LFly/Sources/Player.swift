@@ -16,6 +16,15 @@ final class Player {
     private(set) var duration: Double = 0
     private(set) var lyrics: SongLyrics?
     private(set) var error: String?
+    private(set) var shuffle = false
+    private(set) var repeatMode: RepeatMode = .off
+    /// Playback speed (pitch kept).
+    private(set) var rate: Float = 1
+    /// When the sleep timer stops the music; `endOfSong` stops after this one.
+    private(set) var sleepAt: Date?
+    private(set) var sleepAtEndOfSong = false
+
+    enum RepeatMode { case off, all, one }
 
     var current: Song? { queue.indices.contains(index) ? queue[index] : nil }
 
@@ -28,6 +37,9 @@ final class Player {
     /// Streams resolved ahead, by song id.
     private var ready: [String: AudioStream] = [:]
     private var artwork: (id: String, image: MPMediaItemArtwork)?
+    /// The queue in its own order, to go back to when shuffle goes off.
+    private var unshuffled: [Song]?
+    private var sleepTask: Task<Void, Never>?
 
     init(core: Core, library: Library) {
         self.core = core
@@ -38,7 +50,7 @@ final class Player {
             MainActor.assumeIsolated { self?.tick(time) }
         }
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.next() }
+            MainActor.assumeIsolated { self?.ended() }
         }
         setupRemoteCommands()
     }
@@ -64,11 +76,101 @@ final class Player {
         queue.append(song)
     }
 
+    /// Shuffle keeps the song playing and mixes the rest; off puts the list back in order.
+    func toggleShuffle() {
+        guard let cur = current else { return }
+        if shuffle, let original = unshuffled {
+            queue = original
+            index = original.firstIndex { $0.id == cur.id } ?? 0
+            unshuffled = nil
+        } else {
+            unshuffled = queue
+            var rest = queue
+            rest.remove(at: index)
+            queue = [cur] + rest.shuffled()
+            index = 0
+        }
+        shuffle.toggle()
+        ready.removeAll()
+        prepareNext()
+    }
+
+    /// Off → all → one → off, as on the phone.
+    func cycleRepeat() {
+        repeatMode = switch repeatMode { case .off: .all; case .all: .one; case .one: .off }
+    }
+
+    /// Plays the queue's song at [i].
+    func jump(to i: Int) {
+        guard queue.indices.contains(i) else { return }
+        index = i
+        load()
+    }
+
+    func removeFromQueue(at offsets: IndexSet) {
+        let playing = current?.id
+        for i in offsets.sorted(by: >) where i != index {
+            queue.remove(at: i)
+            if i < index { index -= 1 }
+        }
+        if let id = playing, let i = queue.firstIndex(where: { $0.id == id }) { index = i }
+        prepareNext()
+    }
+
+    func moveInQueue(from: IndexSet, to: Int) {
+        let playing = current?.id
+        queue.move(fromOffsets: from, toOffset: to)
+        if let id = playing, let i = queue.firstIndex(where: { $0.id == id }) { index = i }
+        prepareNext()
+    }
+
+    func setRate(_ r: Float) {
+        rate = r
+        avPlayer.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        if isPlaying { avPlayer.rate = r }
+        updateNowPlaying()
+    }
+
+    /// Stops the music after [minutes], or at the end of this song (nil); 0 turns it off.
+    func sleep(minutes: Int?) {
+        sleepTask?.cancel()
+        sleepAt = nil
+        sleepAtEndOfSong = false
+        guard let m = minutes else {
+            sleepAtEndOfSong = true
+            return
+        }
+        guard m > 0 else { return }
+        let at = Date.now.addingTimeInterval(TimeInterval(m * 60))
+        sleepAt = at
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Double(m * 60)))
+            guard !Task.isCancelled, let self else { return }
+            if self.isPlaying { self.toggle() }
+            self.sleepAt = nil
+        }
+    }
+
     func toggle() {
         guard current != nil else { return }
-        if isPlaying { avPlayer.pause() } else { avPlayer.play() }
+        if isPlaying { avPlayer.pause() } else { avPlayer.play(); if rate != 1 { avPlayer.rate = rate } }
         isPlaying.toggle()
         updateNowPlaying()
+    }
+
+    /// A song played to its end: the sleep timer, repeat one, then the next (or the first again).
+    private func ended() {
+        if sleepAtEndOfSong {
+            sleepAtEndOfSong = false
+            isPlaying = false
+            updateNowPlaying()
+            return
+        }
+        switch repeatMode {
+        case .one: seek(to: 0); avPlayer.play()
+        case .all where index + 1 >= queue.count: jump(to: 0)
+        default: next()
+        }
     }
 
     func next() {
@@ -128,8 +230,10 @@ final class Player {
                 try? AVAudioSession.sharedInstance().setActive(true)
                 let item = AVPlayerItem(asset: asset)
                 self.library.played(song)
+                item.audioTimePitchAlgorithm = .timeDomain
                 self.avPlayer.replaceCurrentItem(with: item)
                 self.avPlayer.play()
+                if self.rate != 1 { self.avPlayer.rate = self.rate }
                 self.isPlaying = true
                 self.isLoading = false
                 self.updateNowPlaying()

@@ -30,6 +30,55 @@ mod library_merge;
 #[path = "../../../desktop/crates/lfly-core/src/libsync.rs"]
 #[allow(dead_code)]
 mod libsync;
+#[path = "../../../desktop/crates/lfly-core/src/spotify_account.rs"]
+#[allow(dead_code)]
+mod spotify_account;
+
+/// The web player's token, as the iPhone's web view read it from open.spotify.com.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SpotifyToken {
+    pub access_token: String,
+    pub expires_at_ms: Option<i64>,
+    pub client_id: Option<String>,
+    pub user_agent: String,
+}
+
+/// What a Spotify import did.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SpotifySummary {
+    pub playlists: u32,
+    pub songs: u32,
+    pub liked: u32,
+    pub new_favorites: u32,
+    /// Spotify's account name, when it said.
+    pub account_name: Option<String>,
+}
+
+/// Brings the Spotify account's playlists (as `spl_<id>`) and Liked Songs (into the favourites)
+/// into the library in [library_dir], as the phone and the computer do (lfly-core's
+/// spotify_account). [config_dir] keeps the session.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn spotify_import(config_dir: String, library_dir: String, sp_dc: String, token: SpotifyToken) -> Result<SpotifySummary> {
+    use spotify_account as sa;
+    sa::set_config_dir(config_dir.into());
+    let mut saved = sa::load().filter(|s| s.sp_dc == sp_dc).unwrap_or_default();
+    saved.sp_dc = sp_dc;
+    saved.expired = false;
+    sa::save(&saved).map_err(|message| CoreError::Failed { message })?;
+    let expires = token.expires_at_ms.unwrap_or_else(|| {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64) + 50 * 60_000
+    });
+    sa::set_token(token.access_token, expires, token.client_id, token.user_agent);
+    let http = reqwest::Client::new();
+    let summary = sa::sync(&http, std::path::Path::new(&library_dir), |_, _| {}).await.map_err(|e| CoreError::Failed { message: e.to_string() })?;
+    Ok(SpotifySummary {
+        playlists: summary.playlists as u32,
+        songs: summary.songs as u32,
+        liked: summary.liked as u32,
+        new_favorites: summary.new_favorites as u32,
+        account_name: sa::load().and_then(|s| s.name),
+    })
+}
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {

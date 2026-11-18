@@ -21,6 +21,8 @@ lfly-connect = { path = "../../desktop/crates/lfly-connect" }
 # For the desktop's library files and their sync, compiled from lfly-core's own sources (src/shared.rs).
 serde = { version = "1", features = ["derive"] }
 dirs = "6"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "json"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 uniffi = { version = "0.29", features = ["tokio", "cli"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }

@@ -161,6 +161,7 @@ struct AccountView: View {
                         Text("Senza account, la Home e le playlist sono quelle pubbliche. Si apre la vera pagina di accesso di Google: la password non passa da LFly.")
                     }
                 }
+                SpotifySection()
             }
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)

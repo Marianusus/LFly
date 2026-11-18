@@ -89,8 +89,22 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
+/// Where the config lives when the platform has no usual one (the iPhone's sandbox).
+static CONFIG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Keeps the account under [dir] instead of the system's config folder.
+pub fn set_config_dir(dir: PathBuf) {
+    let _ = CONFIG_DIR.set(dir);
+}
+
 fn path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("lfly").join("spotify-account.json"))
+    CONFIG_DIR.get().cloned().or_else(dirs::config_dir).map(|d| d.join("lfly").join("spotify-account.json"))
+}
+
+/// A token the web player gave a web view of the app itself (the iPhone has one; the desktop asks
+/// lfly-web): used until it expires.
+pub fn set_token(bearer: String, expires_ms: i64, client_id: Option<String>, user_agent: String) {
+    *TOKENS.lock().unwrap() = Some(Tokens { bearer, expires_ms, client_id, user_agent, client_token: None });
 }
 
 pub fn load() -> Option<Saved> {
