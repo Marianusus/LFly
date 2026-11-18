@@ -35,6 +35,7 @@ struct MiniPlayer: View {
 /// The full player: cover, time, controls, and the synced lyrics under them.
 struct NowPlayingView: View {
     @Environment(Player.self) private var player
+    @Environment(Library.self) private var library
     @State private var scrubbing: Double?
     @State private var showLyrics = UserDefaults.standard.bool(forKey: "showLyrics")
 
@@ -52,11 +53,23 @@ struct NowPlayingView: View {
                     .padding(.horizontal, 8)
                     .frame(maxHeight: .infinity)
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(player.current?.title ?? "").font(.title2.bold()).lineLimit(1)
-                Text(player.current?.artist ?? "").font(.title3).foregroundStyle(.secondary).lineLimit(1)
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(player.current?.title ?? "").font(.title2.bold()).lineLimit(1)
+                    Text(player.current?.artist ?? "").font(.title3).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                if let song = player.current {
+                    let liked = library.isFavorite(song)
+                    Button { library.toggleFavorite(song) } label: {
+                        Image(systemName: liked ? "heart.fill" : "heart").font(.title2)
+                            .foregroundStyle(liked ? Color.pink : .primary)
+                            .symbolEffect(.bounce, value: liked)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(liked ? "Togli da Mi piace" : "Mi piace")
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             VStack(spacing: 4) {
                 Slider(
                     value: Binding(get: { scrubbing ?? player.position }, set: { scrubbing = $0 }),

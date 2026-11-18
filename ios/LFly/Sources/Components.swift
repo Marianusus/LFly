@@ -24,6 +24,7 @@ struct Artwork: View {
 /// A song in a list: cover, title, artist; the playing one is marked.
 struct SongRow: View {
     @Environment(Player.self) private var player
+    @Environment(Library.self) private var library
     let song: Song
 
     var body: some View {
@@ -35,11 +36,17 @@ struct SongRow: View {
                 Text(song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
+            if let p = library.downloading[song.id] {
+                ProgressView(value: p).progressViewStyle(.circular).controlSize(.small)
+            } else if library.isDownloaded(song) {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Scaricato")
+            }
             if song.isVideo {
                 Image(systemName: "play.rectangle").foregroundStyle(.secondary).accessibilityLabel("Video")
             }
         }
         .contentShape(.rect)
+        .songMenu(song)
     }
 }
 
@@ -65,3 +72,5 @@ func timeText(_ seconds: Double) -> String {
     let s = Int(seconds)
     return String(format: "%d:%02d", s / 60, s % 60)
 }
+
+extension Item: Identifiable {}

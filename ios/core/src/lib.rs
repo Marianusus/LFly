@@ -83,6 +83,37 @@ pub struct SongList {
     pub songs: Vec<Song>,
 }
 
+/// An artist's page.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Artist {
+    pub name: String,
+    pub cover_url: Option<String>,
+    pub subtitle: Option<String>,
+    pub description: Option<String>,
+    pub songs: Vec<Song>,
+    pub albums: Vec<Item>,
+    pub singles: Vec<Item>,
+    pub playlists: Vec<Item>,
+}
+
+/// The YouTube Music session the sign-in page left (cookies and the page's ids).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Session {
+    pub cookie: String,
+    pub data_sync_id: Option<String>,
+    pub page_id: Option<String>,
+    pub auth_user: Option<String>,
+    pub visitor_data: Option<String>,
+}
+
+/// Who is signed in.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Profile {
+    pub name: String,
+    pub email: String,
+    pub avatar_url: Option<String>,
+}
+
 /// A stream to hand to AVPlayer.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct AudioStream {
@@ -176,6 +207,53 @@ impl Core {
         // AVPlayer plays AAC (and Monochrome's AAC/FLAC), not Opus in WebM.
         yt.set_preference(AudioPreference::AacFirst);
         Ok(Arc::new(Self { yt }))
+    }
+
+    pub async fn artist(&self, browse_id: String) -> Result<Artist> {
+        let p = self.yt.artist(&browse_id).await?;
+        let albums = |v: &[lfly_yt::AlbumSummary]| v.iter().filter_map(|a| item(&MediaItem::Album(a.clone()))).collect();
+        Ok(Artist {
+            name: p.artist.name.clone(),
+            cover_url: p.banner_url.clone().or_else(|| p.artist.thumbnail_url.clone()),
+            subtitle: p.monthly_audience.clone().or_else(|| p.subscribers.clone()),
+            description: p.description.clone(),
+            songs: p.top_songs.iter().map(song).collect(),
+            albums: albums(&p.albums),
+            singles: albums(&p.singles),
+            playlists: p.playlists.iter().filter_map(|x| item(&MediaItem::Playlist(x.clone()))).collect(),
+        })
+    }
+
+    /// Uses a YouTube Music session (from the sign-in page) for every request, after checking
+    /// it with YouTube Music; `None` signs out.
+    pub async fn set_session(&self, session: Option<Session>) -> Result<Option<Profile>> {
+        let Some(s) = session else {
+            self.yt.set_account(None);
+            return Ok(None);
+        };
+        let account = lfly_yt::Account {
+            cookie: s.cookie,
+            data_sync_id: s.page_id.clone().or_else(|| lfly_yt::account::normalize_data_sync_id(s.data_sync_id.as_deref())),
+            page_id: s.page_id,
+            auth_user: s.auth_user,
+            visitor_data: s.visitor_data,
+        };
+        if lfly_yt::account::sapisid_from(&account.cookie).is_none() {
+            return Err(CoreError::Failed { message: "no Google session".into() });
+        }
+        let info = self.yt.account_info(&account).await?;
+        self.yt.set_account(Some(account));
+        Ok(Some(Profile { name: info.name, email: info.email, avatar_url: info.avatar_url }))
+    }
+
+    /// The signed-in account's liked songs on YouTube Music ("LM").
+    pub async fn liked_songs(&self) -> Result<Vec<Song>> {
+        Ok(self.yt.playlist("LM").await?.tracks.iter().map(song).collect())
+    }
+
+    /// The signed-in account's playlists on YouTube Music.
+    pub async fn account_playlists(&self) -> Result<Vec<Item>> {
+        Ok(self.yt.library_playlists().await?.into_iter().filter_map(|p| item(&MediaItem::Playlist(p))).collect())
     }
 
     pub async fn home(&self) -> Result<Vec<Shelf>> {

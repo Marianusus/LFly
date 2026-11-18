@@ -20,6 +20,7 @@ final class Player {
     var current: Song? { queue.indices.contains(index) ? queue[index] : nil }
 
     private let core: Core
+    private let library: Library
     private let avPlayer = AVPlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
@@ -28,8 +29,9 @@ final class Player {
     private var ready: [String: AudioStream] = [:]
     private var artwork: (id: String, image: MPMediaItemArtwork)?
 
-    init(core: Core) {
+    init(core: Core, library: Library) {
         self.core = core
+        self.library = library
         avPlayer.automaticallyWaitsToMinimizeStalling = true
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
         timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] time in
@@ -47,6 +49,19 @@ final class Player {
         queue = songs
         index = start
         load()
+    }
+
+    /// Puts [song] right after the one playing.
+    func playNext(_ song: Song) {
+        guard current != nil else { return play([song]) }
+        queue.removeAll { $0.id == song.id && $0.id != current?.id }
+        queue.insert(song, at: min(index + 1, queue.count))
+    }
+
+    /// Puts [song] at the end of the queue.
+    func addToQueue(_ song: Song) {
+        guard current != nil else { return play([song]) }
+        queue.append(song)
     }
 
     func toggle() {
@@ -96,15 +111,23 @@ final class Player {
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let stream = try await self.stream(for: song)
+                let asset: AVURLAsset
+                // A downloaded song plays from its file, without a network.
+                if let local = self.library.localFile(for: song) {
+                    asset = AVURLAsset(url: local)
+                } else {
+                    let stream = try await self.stream(for: song)
+                    var options: [String: Any] = [:]
+                    if let ua = stream.userAgent {
+                        options["AVURLAssetHTTPHeaderFieldsKey"] = ["User-Agent": ua]
+                    }
+                    guard let url = URL(string: stream.url) else { throw URLError(.badURL) }
+                    asset = AVURLAsset(url: url, options: options)
+                }
                 guard !Task.isCancelled, self.current?.id == song.id else { return }
                 try? AVAudioSession.sharedInstance().setActive(true)
-                var options: [String: Any] = [:]
-                if let ua = stream.userAgent {
-                    options["AVURLAssetHTTPHeaderFieldsKey"] = ["User-Agent": ua]
-                }
-                guard let url = URL(string: stream.url) else { throw URLError(.badURL) }
-                let item = AVPlayerItem(asset: AVURLAsset(url: url, options: options))
+                let item = AVPlayerItem(asset: asset)
+                self.library.played(song)
                 self.avPlayer.replaceCurrentItem(with: item)
                 self.avPlayer.play()
                 self.isPlaying = true
@@ -131,7 +154,7 @@ final class Player {
     private func prepareNext() {
         guard queue.indices.contains(index + 1) else { return }
         let next = queue[index + 1]
-        guard ready[next.id] == nil else { return }
+        guard ready[next.id] == nil, library.localFile(for: next) == nil else { return }
         Task { [weak self] in
             guard let self, let s = try? await self.core.stream(song: next) else { return }
             self.ready[next.id] = s

@@ -19,6 +19,18 @@ struct SearchView: View {
                         }
                     }
                 }
+                if !r.artists.isEmpty {
+                    Section("Artisti") {
+                        ForEach(Array(r.artists.prefix(4).enumerated()), id: \.offset) { _, item in
+                            NavigationLink(value: item) {
+                                HStack(spacing: 12) {
+                                    Artwork(url: item.coverUrl, radius: 24).frame(width: 48, height: 48)
+                                    Text(item.title).lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                }
                 let lists = r.albums + r.playlists
                 if !lists.isEmpty {
                     Section("Album e playlist") {
@@ -46,7 +58,7 @@ struct SearchView: View {
             }
         }
         .navigationTitle("Cerca")
-        .navigationDestination(for: Item.self) { SongListView(item: $0) }
+        .navigationDestination(for: Item.self) { ItemDestination(item: $0) }
         .searchable(text: $query, prompt: "Brani, artisti, album")
         .onSubmit(of: .search) { Task { await search() } }
     }

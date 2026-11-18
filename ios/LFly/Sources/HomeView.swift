@@ -37,7 +37,7 @@ struct HomeView: View {
             }
         }
         .navigationTitle("Home")
-        .navigationDestination(for: Item.self) { SongListView(item: $0) }
+        .navigationDestination(for: Item.self) { ItemDestination(item: $0) }
         .task { await load() }
         .refreshable { await load() }
     }
@@ -67,11 +67,8 @@ struct ItemLink: View {
                 player.play(songs.isEmpty ? [item.song].compactMap { $0 } : songs, from: start)
             } label: { ItemCard(item: item) }
             .buttonStyle(.plain)
-        case .album, .playlist:
+        case .album, .playlist, .artist:
             NavigationLink(value: item) { ItemCard(item: item) }.buttonStyle(.plain)
-        case .artist:
-            // Artist pages come next; for now the card only shows.
-            ItemCard(item: item)
         }
     }
 }
