@@ -88,6 +88,11 @@ final class ArtworkCache {
         return g
     }
 
+    func clear() {
+        gradients.removeAll()
+        images.removeAll()
+    }
+
     func image(_ url: String, _ u: URL) async -> UIImage? {
         if let i = images[url] { return i }
         guard let (data, _) = try? await URLSession.shared.data(from: u), let i = UIImage(data: data) else { return nil }

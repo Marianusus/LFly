@@ -305,6 +305,27 @@ pub struct Core {
     yt: YtMusic,
     /// The account's LFly Connect secret, while signed in.
     secret: std::sync::Mutex<Option<String>>,
+    /// Streams already resolved, by song id, with the time (unix s) they stop being good.
+    streams: std::sync::Mutex<std::collections::HashMap<String, (AudioStream, u64)>>,
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Until when a stream URL can be reused: googlevideo says it (`expire=`, kept a 10 min
+/// margin), other hosts are trusted for 10 minutes.
+fn stream_good_until(url: &str) -> u64 {
+    let now = unix_now();
+    let expire = url
+        .split(['?', '&'])
+        .find_map(|kv| kv.strip_prefix("expire="))
+        .and_then(|v| v.parse::<u64>().ok());
+    match expire {
+        Some(e) if e > now + 600 => (e - 600).min(now + 4 * 3600),
+        Some(_) => now,
+        None => now + 600,
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -314,7 +335,7 @@ impl Core {
         let yt = YtMusic::new()?;
         // AVPlayer plays AAC (and Monochrome's AAC/FLAC), not Opus in WebM.
         yt.set_preference(AudioPreference::AacFirst);
-        Ok(Arc::new(Self { yt, secret: Default::default() }))
+        Ok(Arc::new(Self { yt, secret: Default::default(), streams: Default::default() }))
     }
 
     pub async fn artist(&self, browse_id: String) -> Result<Artist> {
@@ -430,10 +451,40 @@ impl Core {
         })
     }
 
-    /// The full-length stream (YouTube Music or Monochrome, as the desktop picks them).
+    /// The full-length stream from the chosen source (see [set_playback_source]); one resolved
+    /// before (a replay, a prefetch) is reused while its URL is good.
     pub async fn stream(&self, song: Song) -> Result<AudioStream> {
+        if let Some(s) = self.cached_stream(&song.id) {
+            return Ok(s);
+        }
         let s = self.yt.resolve_stream(&track(&song)?).await?;
-        Ok(AudioStream { url: s.url, mime: s.mime, user_agent: s.user_agent, provider: s.provider, bitrate: s.bitrate })
+        let s = AudioStream { url: s.url, mime: s.mime, user_agent: s.user_agent, provider: s.provider, bitrate: s.bitrate };
+        let until = stream_good_until(&s.url);
+        let mut cache = self.streams.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() > 200 {
+            let now = unix_now();
+            cache.retain(|_, (_, t)| *t > now);
+        }
+        cache.insert(song.id.clone(), (s.clone(), until));
+        Ok(s)
+    }
+
+    /// Forgets a song's stream (its URL was refused).
+    pub fn forget_stream(&self, song_id: String) {
+        self.streams.lock().unwrap_or_else(|e| e.into_inner()).remove(&song_id);
+    }
+
+    /// Where songs play from first, by the phone's names: "AUTO" (YouTube Music and Monochrome
+    /// together, Monochrome preferred if it answers soon after), "YOUTUBE_MUSIC", "MONOCHROME".
+    /// Changing it drops the streams resolved so far.
+    pub fn set_playback_source(&self, name: String) {
+        self.yt.set_playback_source(lfly_yt::PlaybackSource::from_name(&name));
+        self.streams.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    fn cached_stream(&self, id: &str) -> Option<AudioStream> {
+        let cache = self.streams.lock().unwrap_or_else(|e| e.into_inner());
+        cache.get(id).filter(|(_, until)| *until > unix_now()).map(|(s, _)| s.clone())
     }
 
     /// The song's lyrics; [source] (an id of [lyrics_sources]) asks that source only, none the

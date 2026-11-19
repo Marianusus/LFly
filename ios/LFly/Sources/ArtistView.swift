@@ -5,10 +5,13 @@ struct ItemDestination: View {
     let item: Item
 
     var body: some View {
-        switch item.kind {
-        case .artist: ArtistView(item: item)
-        default: SongListView(item: item)
+        Group {
+            switch item.kind {
+            case .artist: ArtistView(item: item)
+            default: SongListView(item: item)
+            }
         }
+        .containerBackground(.clear, for: .navigation)
     }
 }
 
@@ -35,15 +38,10 @@ struct ArtistView: View {
                         .padding()
                     }
                     if !a.songs.isEmpty {
-                        HStack(spacing: 12) {
-                            Button { player.play(a.songs) } label: { Label("Riproduci", systemImage: "play.fill").frame(maxWidth: .infinity) }
-                            Button { player.play(a.songs.shuffled()) } label: { Label("Casuale", systemImage: "shuffle").frame(maxWidth: .infinity) }
-                        }
-                        .buttonStyle(.glass)
-                        .controlSize(.large)
-                        .padding(.horizontal)
+                        PlayShuffleButtons { player.play(a.songs) } shuffle: { player.play(a.songs.shuffled()) }
+                            .padding(.horizontal, Phone.gutter)
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Brani popolari").font(.title2.bold())
+                            Text("Brani popolari").font(.system(size: 22, weight: .bold))
                             ForEach(Array(a.songs.prefix(10).enumerated()), id: \.offset) { i, song in
                                 Button { player.play(a.songs, from: i) } label: { SongRow(song: song) }.buttonStyle(.plain)
                             }
@@ -84,14 +82,14 @@ struct ArtistView: View {
     private func shelf(_ title: String, _ items: [Item]) -> some View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text(title).font(.title2.bold()).padding(.horizontal)
+                PhoneSectionHeader(title: title)
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, it in
-                            NavigationLink(value: it) { ItemCard(item: it) }.buttonStyle(.plain)
+                            NavigationLink(value: it) { ItemCard(item: it) }.buttonStyle(PressScale(scale: 0.96))
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, Phone.gutter)
                 }
                 .scrollIndicators(.hidden)
             }

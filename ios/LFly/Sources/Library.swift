@@ -225,17 +225,17 @@ final class Library {
     }
 
     /// The track's own JSON (as lfly-yt and the phone write it).
-    static func json(_ song: Song) -> [String: Any] {
+    nonisolated static func json(_ song: Song) -> [String: Any] {
         (try? JSONSerialization.jsonObject(with: Data(song.raw.utf8))) as? [String: Any] ?? [
             "id": song.id, "title": song.title, "artist": song.artist, "durationMs": song.durationMs,
         ]
     }
 
-    static func songs(_ list: [[String: Any]]?) -> [Song] {
+    nonisolated static func songs(_ list: [[String: Any]]?) -> [Song] {
         (list ?? []).compactMap(song)
     }
 
-    static func song(_ o: [String: Any]) -> Song? {
+    nonisolated static func song(_ o: [String: Any]) -> Song? {
         guard let id = o["id"] as? String, let title = o["title"] as? String else { return nil }
         let raw = (try? JSONSerialization.data(withJSONObject: o)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return Song(

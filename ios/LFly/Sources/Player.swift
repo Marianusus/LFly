@@ -35,16 +35,40 @@ final class Player {
 
     enum RepeatMode { case off, all, one }
 
+    /// In a Party as a guest: the controls go to the host instead (true = handled).
+    enum PartyAction { case toggle, next, previous, seek }
+    var partyTransport: ((PartyAction, Int64) -> Bool)?
+    private var partyDrift: SyncEngine.DriftAction = .none
+
     var current: Song? { queue.indices.contains(index) ? queue[index] : nil }
 
     private let core: Core
     private let library: Library
-    private let avPlayer = AVPlayer()
+    /// A queue player: the song after this one waits in its queue, buffering.
+    private let avPlayer = AVQueuePlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
     /// Streams resolved ahead, by song id.
     private var ready: [String: AudioStream] = [:]
+    /// The next song already queued in the player behind this one, where AVQueuePlayer buffers it
+    /// ahead (the phone's N+1 pre-cache: up to two minutes, some 2 MB at 130 kbit/s).
+    private var warm: (id: String, item: AVPlayerItem)?
+    private var controlObs: NSKeyValueObservation?
+    private var itemObs: NSKeyValueObservation?
+    /// The song whose refused URL was already resolved again once.
+    private var retried: String?
+    /// Where songs play from first ("YOUTUBE_MUSIC", "AUTO", "MONOCHROME"). On iPhone YouTube
+    /// Music by default: Auto waits 1.5 s more for Monochrome on every song.
+    var playbackSource: String = UserDefaults.standard.string(forKey: "playbackSource") ?? "YOUTUBE_MUSIC" {
+        didSet {
+            UserDefaults.standard.set(playbackSource, forKey: "playbackSource")
+            core.setPlaybackSource(name: playbackSource)
+            ready.removeAll()
+            dropWarm()
+            prepareNext()
+        }
+    }
     private var artwork: (id: String, image: MPMediaItemArtwork)?
     /// The queue in its own order, to go back to when shuffle goes off.
     private var unshuffled: [Song]?
@@ -54,13 +78,25 @@ final class Player {
     init(core: Core, library: Library) {
         self.core = core
         self.library = library
-        avPlayer.automaticallyWaitsToMinimizeStalling = true
+        // Start as soon as there is audio to play: waiting to "keep up" cost some 6 s per song,
+        // as googlevideo sends the first bytes slowly.
+        avPlayer.automaticallyWaitsToMinimizeStalling = false
+        // At a song's end the queue waits for ended(): repeat, sleep timer and autoplay decide.
+        avPlayer.actionAtItemEnd = .pause
+        core.setPlaybackSource(name: playbackSource)
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
         timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time) }
         }
-        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.ended() }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, (note.object as? AVPlayerItem) === self.avPlayer.currentItem else { return }
+                self.ended()
+            }
+        }
+        // The spinner shows while AVPlayer waits for data, not just while the URL is found.
+        controlObs = avPlayer.observe(\.timeControlStatus) { [weak self] _, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.controlChanged() } }
         }
         setupRemoteCommands()
     }
@@ -78,12 +114,14 @@ final class Player {
         guard current != nil else { return play([song]) }
         queue.removeAll { $0.id == song.id && $0.id != current?.id }
         queue.insert(song, at: min(index + 1, queue.count))
+        prepareNext()
     }
 
     /// Puts [song] at the end of the queue.
     func addToQueue(_ song: Song) {
         guard current != nil else { return play([song]) }
         queue.append(song)
+        prepareNext()
     }
 
     /// Shuffle keeps the song playing and mixes the rest; off puts the list back in order.
@@ -102,6 +140,7 @@ final class Player {
         }
         shuffle.toggle()
         ready.removeAll()
+        dropWarm()
         prepareNext()
     }
 
@@ -156,6 +195,52 @@ final class Player {
         prepareNext()
     }
 
+    // MARK: Party (guest side, as the phone's applyRemoteState)
+
+    /// The host plays [song] at [targetMs]: change song if needed, else follow its position.
+    func applyRemoteState(_ song: Song, targetMs: Int64, playing: Bool) {
+        if current?.id != song.id {
+            avPlayer.rate = playing ? 1 : 0
+            partyDrift = .none
+            if let i = queue.firstIndex(where: { $0.id == song.id }) { index = i } else { queue = [song]; index = 0 }
+            load()
+            return
+        }
+        applyRemotePosition(targetMs: targetMs, playing: playing)
+    }
+
+    /// Small drift is closed by playing 2% faster or slower (pitch kept), a big one by a seek.
+    func applyRemotePosition(targetMs: Int64, playing: Bool) {
+        guard current != nil, !isLoading else { return }
+        if !playing {
+            partyDrift = .none
+            if isPlaying { avPlayer.pause(); isPlaying = false; updateNowPlaying() }
+            return
+        }
+        if !isPlaying { avPlayer.play(); isPlaying = true }
+        let now = Int64(livePosition() * 1000)
+        let action = SyncEngine.driftAction(targetMs - now, playing: true, previous: partyDrift)
+        switch action {
+        case .seek: partyDrift = .none; avPlayer.rate = 1; localSeek(Double(targetMs) / 1000)
+        case .speedUp: partyDrift = .speedUp; avPlayer.rate = SyncEngine.speedUp
+        case .slowDown: partyDrift = .slowDown; avPlayer.rate = SyncEngine.slowDown
+        case .none: partyDrift = .none; if avPlayer.rate != rate { avPlayer.rate = rate }
+        }
+        updateNowPlaying()
+    }
+
+    /// The host's queue, shown here without touching what plays.
+    func mirrorRemoteQueue(_ songs: [Song], index i: Int) {
+        let playing = current?.id
+        queue = songs
+        index = playing.flatMap { id in songs.firstIndex { $0.id == id } } ?? i
+    }
+
+    func resetPartyAdjustments() {
+        partyDrift = .none
+        if isPlaying { avPlayer.rate = rate }
+    }
+
     func setRate(_ r: Float) {
         rate = r
         avPlayer.currentItem?.audioTimePitchAlgorithm = .timeDomain
@@ -184,6 +269,7 @@ final class Player {
     }
 
     func toggle() {
+        if let route = partyTransport, route(.toggle, 0) { return }
         guard current != nil else { return }
         if isPlaying { avPlayer.pause() } else { avPlayer.play(); if rate != 1 { avPlayer.rate = rate } }
         isPlaying.toggle()
@@ -206,6 +292,7 @@ final class Player {
     }
 
     func next() {
+        if let route = partyTransport, route(.next, 0) { return }
         if index + 1 >= queue.count, autoplay, let cur = current {
             Task { [weak self] in
                 guard let self else { return }
@@ -237,6 +324,7 @@ final class Player {
     }
 
     func previous() {
+        if let route = partyTransport, route(.previous, 0) { return }
         // As Music: back to the start first, then the song before.
         if position > 3 || index == 0 {
             seek(to: 0)
@@ -247,6 +335,11 @@ final class Player {
     }
 
     func seek(to seconds: Double) {
+        if let route = partyTransport, route(.seek, Int64(seconds * 1000)) { return }
+        localSeek(seconds)
+    }
+
+    private func localSeek(_ seconds: Double) {
         avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         position = seconds
         positionAt = .now
@@ -256,7 +349,30 @@ final class Player {
     private func load() {
         guard let song = current else { return }
         loadTask?.cancel()
-        avPlayer.pause()
+        itemObs = nil
+        // The next song, already queued and buffering: it takes over at once.
+        if let w = warm, w.id == song.id, w.item.status != .failed, avPlayer.items().contains(where: { $0 === w.item }) {
+            warm = nil
+            loadTask = nil
+            if avPlayer.currentItem !== w.item { avPlayer.advanceToNextItem() }
+            provider = ready.removeValue(forKey: song.id)?.provider ?? provider
+            library.played(song)
+            w.item.audioTimePitchAlgorithm = .timeDomain
+            watch(w.item, song: song)
+            avPlayer.play()
+            if rate != 1 { avPlayer.rate = rate }
+            isPlaying = true
+            isLoading = false
+            controlChanged()
+            updateNowPlaying()
+            prepareNext()
+            extendIfNeeded()
+            Task { await fetchLyrics(song) }
+            return
+        }
+        // The old song goes now: while the new URL is found nothing plays and the spinner shows.
+        avPlayer.removeAllItems()
+        warm = nil
         isLoading = true
         error = nil
         lyrics = nil
@@ -267,31 +383,26 @@ final class Player {
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let asset: AVURLAsset
+                let item: AVPlayerItem
                 // A downloaded song plays from its file, without a network.
                 if let local = self.library.localFile(for: song) {
-                    asset = AVURLAsset(url: local)
+                    item = AVPlayerItem(asset: AVURLAsset(url: local))
                     self.provider = "Scaricato"
                 } else {
                     let stream = try await self.stream(for: song)
                     self.provider = stream.provider
-                    var options: [String: Any] = [:]
-                    if let ua = stream.userAgent {
-                        options["AVURLAssetHTTPHeaderFieldsKey"] = ["User-Agent": ua]
-                    }
-                    guard let url = URL(string: stream.url) else { throw URLError(.badURL) }
-                    asset = AVURLAsset(url: url, options: options)
+                    item = try Self.item(stream)
                 }
                 guard !Task.isCancelled, self.current?.id == song.id else { return }
                 try? AVAudioSession.sharedInstance().setActive(true)
-                let item = AVPlayerItem(asset: asset)
                 self.library.played(song)
                 item.audioTimePitchAlgorithm = .timeDomain
+                self.watch(item, song: song)
                 self.avPlayer.replaceCurrentItem(with: item)
                 self.avPlayer.play()
                 if self.rate != 1 { self.avPlayer.rate = self.rate }
                 self.isPlaying = true
-                self.isLoading = false
+                self.controlChanged()
                 self.updateNowPlaying()
                 self.prepareNext()
                 self.extendIfNeeded()
@@ -334,14 +445,72 @@ final class Player {
         return try await core.stream(song: song)
     }
 
-    /// The next song's stream, resolved while this one plays.
+    /// A player item for a stream, sending the user agent its source asks for.
+    private static func item(_ stream: AudioStream) throws -> AVPlayerItem {
+        var options: [String: Any] = [:]
+        if let ua = stream.userAgent {
+            options["AVURLAssetHTTPHeaderFieldsKey"] = ["User-Agent": ua]
+        }
+        guard let url = URL(string: stream.url) else { throw URLError(.badURL) }
+        return AVPlayerItem(asset: AVURLAsset(url: url, options: options))
+    }
+
+    /// The next song: its stream resolved and its first two minutes buffered while this one plays.
     private func prepareNext() {
-        guard queue.indices.contains(index + 1) else { return }
+        guard queue.indices.contains(index + 1) else { return dropWarm() }
         let next = queue[index + 1]
-        guard ready[next.id] == nil, library.localFile(for: next) == nil else { return }
+        guard warm?.id != next.id, library.localFile(for: next) == nil else { return }
+        dropWarm()
         Task { [weak self] in
             guard let self, let s = try? await self.core.stream(song: next) else { return }
+            guard self.queue.indices.contains(self.index + 1), self.queue[self.index + 1].id == next.id,
+                  self.warm?.id != next.id, let item = try? Self.item(s) else { return }
+            guard let cur = self.avPlayer.currentItem, self.avPlayer.canInsert(item, after: cur) else { return }
             self.ready[next.id] = s
+            item.preferredForwardBufferDuration = 120
+            self.warm = (next.id, item)
+            self.avPlayer.insert(item, after: cur)
+        }
+    }
+
+    private func dropWarm() {
+        guard let w = warm else { return }
+        warm = nil
+        avPlayer.remove(w.item)
+    }
+
+    /// Loading follows AVPlayer: spinning while it waits for data, not once it plays or pauses.
+    private func controlChanged() {
+        guard avPlayer.currentItem != nil else { return }
+        let waiting = avPlayer.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        if isLoading != waiting {
+            isLoading = waiting
+            updateNowPlaying()
+        }
+    }
+
+    /// A URL refused once AVPlayer opens it (expired, or the host said no): resolved again once,
+    /// then the song is skipped as on the phone.
+    private func watch(_ item: AVPlayerItem, song: Song) {
+        itemObs = item.observe(\.status) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            let reason = item.error?.localizedDescription
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.avPlayer.currentItem === item, self.current?.id == song.id else { return }
+                    self.core.forgetStream(songId: song.id)
+                    self.ready.removeValue(forKey: song.id)
+                    if self.retried != song.id, self.library.localFile(for: song) == nil {
+                        self.retried = song.id
+                        self.load()
+                        return
+                    }
+                    self.isLoading = false
+                    self.isPlaying = false
+                    self.error = reason ?? "Il brano non si riproduce"
+                    if self.index + 1 < self.queue.count { self.next() }
+                }
+            }
         }
     }
 

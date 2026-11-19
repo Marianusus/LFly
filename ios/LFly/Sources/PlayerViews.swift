@@ -219,9 +219,11 @@ struct NowPlayingView: View {
 
 /// Buttons that shrink a little under the finger (the phone's pressScale).
 struct PressScale: ButtonStyle {
+    var scale: CGFloat = 0.88
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .scaleEffect(configuration.isPressed ? scale : 1)
             .animation(.spring(duration: 0.25, bounce: 0.4), value: configuration.isPressed)
     }
 }

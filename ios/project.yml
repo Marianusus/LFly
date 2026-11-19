@@ -5,6 +5,11 @@ options:
   bundleIdPrefix: org.sonora
   deploymentTarget:
     iOS: "26.0"
+packages:
+  # Google's Nearby Connections, the phone's LFly Party transport (no release tag past 0.0.1).
+  NearbyConnections:
+    url: https://github.com/google/nearby
+    revision: d531eb2624973cc712b9510dba4ab2f408616787
 settings:
   base:
     # Swift 5 mode: Apple's Translation API is not yet annotated for Swift 6's data-race checks.
@@ -21,6 +26,7 @@ targets:
     dependencies:
       - framework: LFlyCore.xcframework
         embed: false
+      - package: NearbyConnections
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.sonora.lfly

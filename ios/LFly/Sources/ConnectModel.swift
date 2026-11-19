@@ -111,6 +111,11 @@ struct DevicesView: View {
                     Section("Controlli") { RemoteView(peer: f) }
                 }
                 Section {
+                    NavigationLink { PartyView() } label: {
+                        Label("LFly Party", systemImage: "party.popper.fill")
+                    }
+                }
+                Section {
                     if connect.peers.isEmpty {
                         Label("Cerco telefoni e computer con LFly sulla stessa Wi-Fi…", systemImage: "wifi")
                             .foregroundStyle(.secondary)

@@ -19,10 +19,14 @@
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>LFly Connect trova il telefono e il computer con LFly sulla stessa Wi-Fi, per comandarli e tenere uguale la libreria.</string>
+	<string>LFly Connect trova il telefono e il computer con LFly sulla stessa Wi-Fi, per comandarli e tenere uguale la libreria, e i telefoni vicini per LFly Party.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>LFly Party usa il Bluetooth per trovare i telefoni vicini e ascoltare la stessa musica insieme.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_lfly-connect._tcp</string>
+		<!-- LFly Party: Nearby's type, the first 6 bytes of SHA-256("org.sonora.android.PARTY") -->
+		<string>_60B86A9AB002._tcp</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

@@ -15,29 +15,24 @@ struct SongListView: View {
                     Artwork(url: list.coverUrl ?? item.coverUrl, radius: 12)
                         .frame(width: 240, height: 240)
                         .shadow(radius: 12, y: 6)
-                    Text(list.title).font(.title2.bold()).multilineTextAlignment(.center)
-                    if let sub = list.subtitle { Text(sub).foregroundStyle(.secondary) }
-                    HStack(spacing: 12) {
-                        Button { player.play(list.songs) } label: {
-                            Label("Riproduci", systemImage: "play.fill").frame(maxWidth: .infinity)
-                        }
-                        Button { player.play(list.songs.shuffled()) } label: {
-                            Label("Casuale", systemImage: "shuffle").frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.large)
-                    .disabled(list.songs.isEmpty)
+                    Text(list.title).font(.system(size: 24, weight: .bold)).foregroundStyle(.white).multilineTextAlignment(.center)
+                    if let sub = list.subtitle { Text(sub).foregroundStyle(PhoneTheme.textSecondary) }
+                    PlayShuffleButtons { player.play(list.songs) } shuffle: { player.play(list.songs.shuffled()) }
+                        .disabled(list.songs.isEmpty)
                 }
                 .frame(maxWidth: .infinity)
                 .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
                 ForEach(Array(list.songs.enumerated()), id: \.offset) { i, song in
                     Button { player.play(list.songs, from: i) } label: { SongRow(song: song) }
                         .buttonStyle(.plain)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
             }
         }
         .listStyle(.plain)
+        .phonePage()
         .overlay {
             if list == nil {
                 if let failed {

@@ -8,7 +8,7 @@ struct Artwork: View {
 
     var body: some View {
         Rectangle()
-            .fill(.quaternary)
+            .fill(PhoneTheme.glassTint)
             .overlay {
                 AsyncImage(url: url.flatMap(URL.init(string:))) { image in
                     image.resizable().scaledToFill()
@@ -31,9 +31,9 @@ struct SongRow: View {
         HStack(spacing: 12) {
             Artwork(url: song.coverUrl, radius: 6).frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title).font(.body).lineLimit(1)
-                    .foregroundStyle(player.current?.id == song.id ? Color.accentColor : .primary)
-                Text(song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(song.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                    .foregroundStyle(player.current?.id == song.id ? AnyShapeStyle(.tint) : AnyShapeStyle(.white))
+                Text(song.artist).font(.system(size: 13)).foregroundStyle(PhoneTheme.textSecondary).lineLimit(1)
             }
             Spacer(minLength: 0)
             if let p = library.downloading[song.id] {
@@ -50,20 +50,21 @@ struct SongRow: View {
     }
 }
 
-/// A card on a horizontal shelf.
+/// A card on a rail (the phone's 160 pt rail card): cover, title, subtitle.
 struct ItemCard: View {
     let item: Item
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Artwork(url: item.coverUrl, radius: item.kind == .artist ? 70 : 10)
-                .frame(width: 140, height: 140)
-            Text(item.title).font(.subheadline.weight(.medium)).lineLimit(1)
+            Artwork(url: item.coverUrl, radius: item.kind == .artist ? 80 : Phone.cardRadius)
+                .frame(width: 160, height: 160)
+            Text(item.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
             if let sub = item.subtitle {
-                Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(sub).font(.system(size: 12)).foregroundStyle(PhoneTheme.textSecondary).lineLimit(1)
             }
         }
-        .frame(width: 140, alignment: .leading)
+        .frame(width: 160, alignment: .leading)
+        .multilineTextAlignment(.leading)
     }
 }
 
@@ -74,3 +75,27 @@ func timeText(_ seconds: Double) -> String {
 }
 
 extension Item: Identifiable {}
+
+/// The phone's Play (accent, filled) and Shuffle (glass) pair.
+struct PlayShuffleButtons: View {
+    @Environment(PhoneTheme.self) private var theme
+    let play: () -> Void
+    let shuffle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: play) {
+                Label("Riproduci", systemImage: "play.fill").font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.black).frame(maxWidth: .infinity).frame(height: 50)
+                    .background(theme.accent, in: .capsule)
+            }
+            Button(action: shuffle) {
+                Label("Casuale", systemImage: "shuffle").font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 50)
+                    .background(PhoneTheme.glassTint, in: .capsule)
+                    .overlay(Capsule().strokeBorder(PhoneTheme.glassBorder, lineWidth: 1))
+            }
+        }
+        .buttonStyle(PressScale(scale: 0.96))
+    }
+}
