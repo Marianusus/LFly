@@ -183,6 +183,18 @@ pub struct Profile {
     pub avatar_url: Option<String>,
 }
 
+/// A source's health, for the API status in Settings → Avanzate (the phone's ApiHealthSection).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ApiHealth {
+    pub name: String,
+    /// "ONLINE", "DEGRADED" or "OFFLINE".
+    pub status: String,
+    pub latency_ms: Option<u64>,
+    /// Whether it has been asked at all this session.
+    pub used: bool,
+    pub last_error: Option<String>,
+}
+
 /// A stream to hand to AVPlayer.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct AudioStream {
@@ -467,6 +479,26 @@ impl Core {
         }
         cache.insert(song.id.clone(), (s.clone(), until));
         Ok(s)
+    }
+
+    /// Every stream and lyrics source with its status and last latency.
+    pub fn api_health(&self) -> Vec<ApiHealth> {
+        self.yt
+            .health()
+            .into_iter()
+            .map(|h| ApiHealth {
+                name: h.name,
+                status: match h.status {
+                    lfly_yt::HealthStatus::Online => "ONLINE",
+                    lfly_yt::HealthStatus::Degraded => "DEGRADED",
+                    lfly_yt::HealthStatus::Offline => "OFFLINE",
+                }
+                .into(),
+                latency_ms: h.latency_ms,
+                used: h.last_checked_ms.is_some(),
+                last_error: h.last_error,
+            })
+            .collect()
     }
 
     /// Forgets a song's stream (its URL was refused).

@@ -1,36 +1,75 @@
 import AVKit
 import SwiftUI
 
-/// The tab bar's accessory: what plays, play/pause and next.
+/// The glass bar's accessory, as the phone's GlassNowPlaying: a progress hairline, cover, title
+/// and artist, heart, play/pause and next; when the bar shrinks on scroll (inline), the phone's
+/// GlassInlineNowPlaying: small cover, title, play/pause.
 struct MiniPlayer: View {
     @Environment(Player.self) private var player
+    @Environment(Library.self) private var library
+    @Environment(PhoneTheme.self) private var theme
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     var body: some View {
-        HStack(spacing: 12) {
-            Artwork(url: player.current?.coverUrl, radius: 6).frame(width: 36, height: 36)
+        let inline = placement == .inline
+        HStack(spacing: inline ? 8 : 10) {
+            Artwork(url: player.current?.coverUrl, radius: inline ? 6 : 8)
+                .frame(width: inline ? 28 : 40, height: inline ? 28 : 40)
             VStack(alignment: .leading, spacing: 0) {
-                Text(player.current?.title ?? "Niente in riproduzione").font(.subheadline.weight(.semibold)).lineLimit(1)
-                if let artist = player.current?.artist {
-                    Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(player.current?.title ?? "Niente in riproduzione").font(.system(size: inline ? 13 : 14, weight: .semibold)).lineLimit(1)
+                if !inline, let artist = player.current?.artist {
+                    Text(artist).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
+            if !inline, let song = player.current {
+                let fav = library.isFavorite(song)
+                Button { library.toggleFavorite(song) } label: {
+                    Image(systemName: fav ? "heart.fill" : "heart").font(.system(size: 17))
+                        .foregroundStyle(fav ? AnyShapeStyle(theme.accent) : AnyShapeStyle(.secondary))
+                        .scaleEffect(fav ? 1.2 : 1)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.5), value: fav)
+                        .frame(width: 32, height: 32)
+                }
+                .accessibilityLabel(fav ? "Togli dai preferiti" : "Aggiungi ai preferiti")
+            }
             if player.isLoading {
-                ProgressView()
+                ProgressView().frame(width: 32)
             } else {
                 Button { player.toggle() } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3)
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: inline ? 17 : 22))
                         .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 32, height: 32)
                 }
                 .accessibilityLabel(player.isPlaying ? "Pausa" : "Riproduci")
                 .disabled(player.current == nil)
             }
-            Button { player.next() } label: { Image(systemName: "forward.fill").font(.title3) }
-                .accessibilityLabel("Brano successivo")
-                .disabled(player.current == nil)
+            if !inline {
+                Button { player.next() } label: { Image(systemName: "forward.end.fill").font(.system(size: 18)).frame(width: 32, height: 32) }
+                    .accessibilityLabel("Brano successivo")
+                    .disabled(player.current == nil)
+            }
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, inline ? 10 : 14)
+        .overlay(alignment: .top) {
+            if !inline {
+                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    GeometryReader { g in
+                        Capsule().fill(theme.accent)
+                            .frame(width: g.size.width * (player.duration > 0 ? min(max(player.position / player.duration, 0), 1) : 0), height: 2)
+                    }
+                    .frame(height: 2)
+                    .padding(.horizontal, 18)
+                }
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 20).onEnded { v in
+                guard abs(v.translation.width) > 72, abs(v.translation.width) > abs(v.translation.height) else { return }
+                if v.translation.width < 0 { player.next() } else { player.previous() }
+            }
+        )
     }
 }
 

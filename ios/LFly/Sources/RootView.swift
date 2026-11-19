@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// The phone's shell: its dynamic canvas behind four tabs (Home, Cerca, Libreria, Impostazioni)
-/// and, floating at the bottom, the mini player pill over the glass tab bar.
+/// The phone's shell over its dynamic canvas. With Liquid Glass (the default, as the phone's
+/// LiquidGlassChrome): iOS's own glass tab bar with Home, Libreria and Impostazioni, Search as its
+/// own circle, the song playing as the bar's accessory, all shrinking inline on scroll. Without
+/// it, the phone's flat chrome: the mini player pill over a four-tab bar.
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(Player.self) private var player
@@ -15,24 +17,9 @@ struct RootView: View {
     @State private var showParty = false
 
     var body: some View {
-        let inset = Phone.bottomInset(miniPlayer: player.current != nil)
-        ZStack(alignment: .bottom) {
+        ZStack {
             PhoneBackground()
-            ZStack {
-                page(.home) { HomeView() }
-                page(.search) { SearchView() }
-                page(.library) { LibraryView() }
-                page(.settings) { SettingsView() }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: inset) }
-            VStack(spacing: Phone.stackGap) {
-                PhoneMiniPlayer { showPlayer = true }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                PhoneTabBar(tab: $tab)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, Phone.edge)
-            .animation(.spring(duration: 0.35), value: player.current == nil)
+            if theme.liquidGlass { glassShell } else { flatShell }
         }
         .preferredColorScheme(.dark)
         .tint(theme.accent)
@@ -46,9 +33,48 @@ struct RootView: View {
         .sheet(item: $testArtist) { a in NavigationStack { ArtistView(item: a).navigationDestination(for: Item.self) { ItemDestination(item: $0) } } }
     }
 
+    private var glassShell: some View {
+        TabView(selection: $tab) {
+            Tab("Home", systemImage: PhoneTab.home.icon, value: PhoneTab.home) { stack { HomeView() } }
+            Tab("Libreria", systemImage: PhoneTab.library.icon, value: PhoneTab.library) { stack { LibraryView() } }
+            Tab("Impostazioni", systemImage: PhoneTab.settings.icon, value: PhoneTab.settings) { stack { SettingsView() } }
+            Tab(value: PhoneTab.search, role: .search) { stack { SearchView() } }
+        }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory {
+            MiniPlayer()
+                .contentShape(.rect)
+                .onTapGesture { if player.current != nil { showPlayer = true } }
+        }
+    }
+
+    private var flatShell: some View {
+        ZStack(alignment: .bottom) {
+            ZStack {
+                page(.home) { HomeView() }
+                page(.search) { SearchView() }
+                page(.library) { LibraryView() }
+                page(.settings) { SettingsView() }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: Phone.bottomInset(miniPlayer: player.current != nil)) }
+            VStack(spacing: Phone.stackGap) {
+                PhoneMiniPlayer { showPlayer = true }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                PhoneTabBar(tab: $tab)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, Phone.edge)
+            .animation(theme.reduceMotion ? nil : .spring(duration: 0.35), value: player.current == nil)
+        }
+    }
+
+    private func stack(@ViewBuilder _ content: () -> some View) -> some View {
+        NavigationStack { content().phoneCanvas() }
+    }
+
     /// Every tab keeps its own navigation while hidden, as the phone keeps each tab's back stack.
     private func page(_ t: PhoneTab, @ViewBuilder _ content: () -> some View) -> some View {
-        NavigationStack { content().containerBackground(.clear, for: .navigation) }
+        stack(content)
             .opacity(tab == t ? 1 : 0)
             .allowsHitTesting(tab == t)
             .accessibilityHidden(tab != t)

@@ -11,7 +11,7 @@ struct ItemDestination: View {
             default: SongListView(item: item)
             }
         }
-        .containerBackground(.clear, for: .navigation)
+        .phoneCanvas()
     }
 }
 

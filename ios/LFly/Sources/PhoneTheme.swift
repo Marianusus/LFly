@@ -50,7 +50,14 @@ struct RGB: Equatable {
 
     static let black = RGB(r: 0, g: 0, b: 0), white = RGB(r: 1, g: 1, b: 1)
 
-    var luma: Double { min(max(0.299 * r + 0.587 * g + 0.114 * b, 0), 1) }
+    init?(hex: String) {
+        guard hex.count == 6, let v = Int(hex, radix: 16) else { return nil }
+        self.init(v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF)
+    }
+
+    var hex: String { String(format: "%02X%02X%02X", Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded())) }
+
+        var luma: Double { min(max(0.299 * r + 0.587 * g + 0.114 * b, 0), 1) }
     var color: Color { Color(red: r, green: g, blue: b) }
 
     func mix(_ o: RGB, _ t: Double) -> RGB {
@@ -70,26 +77,53 @@ struct RGB: Equatable {
 final class PhoneTheme {
     /// The phone's dark "Aspetto" modes.
     enum Mode: String, CaseIterable {
-        case dynamicDark, dynamicCover, amoled
+        case amoled, dynamicDark, dynamicCover
 
         var title: String {
             switch self {
             case .dynamicDark: "Dinamico scuro"
-            case .dynamicCover: "Copertina"
-            case .amoled: "AMOLED nero"
+            case .dynamicCover: "Copertina dinamica"
+            case .amoled: "Nero AMOLED"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .dynamicDark: "Sfondo scuro derivato dalla copertina in riproduzione"
+            case .dynamicCover: "La copertina in riproduzione, sfocata, come sfondo dell'app"
+            case .amoled: "Nero assoluto con vetro satinato e accento LFly"
             }
         }
     }
 
     private(set) var accentPair = CoverAccent.fallback
+
+    init() {
+        accentPair = CoverAccent(primary: userAccent, secondary: userAccent)
+    }
     /// The playing song's cover, for the cover mode.
     private(set) var cover: String?
     private var cache: [String: CoverAccent] = [:]
     var mode: Mode = Mode(rawValue: UserDefaults.standard.string(forKey: "appearance") ?? "") ?? .dynamicDark {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: "appearance") }
     }
+    /// iOS's own Liquid Glass chrome (the phone's Liquid Glass switch); off, the flat bars.
+    var liquidGlass: Bool = UserDefaults.standard.object(forKey: "liquidGlass") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(liquidGlass, forKey: "liquidGlass") }
+    }
+    /// The phone's "Riduci animazioni": no springs, crossfades or moving cover.
+    var reduceMotion: Bool = UserDefaults.standard.bool(forKey: "reduceMotion") {
+        didSet { UserDefaults.standard.set(reduceMotion, forKey: "reduceMotion") }
+    }
+    /// The listener's accent (the phone's AccentPalette), used by AMOLED and while no cover is known.
+    var userAccent: RGB = RGB(hex: UserDefaults.standard.string(forKey: "accent") ?? "") ?? RGB(0x1D, 0xB9, 0x54) {
+        didSet {
+            UserDefaults.standard.set(userAccent.hex, forKey: "accent")
+            if cover == nil || mode == .amoled { set(CoverAccent(primary: userAccent, secondary: userAccent)) }
+        }
+    }
 
-    var accent: Color { accentPair.primary.lightened(to: 0.55).color }
+    var accent: Color { (mode == .amoled ? userAccent : accentPair.primary).lightened(to: 0.55).color }
     var gradient: [Color] {
         if mode == .amoled { return [.black, .black, .black] }
         return [RGB.black.mix(accentPair.primary, 0.55).darkened(to: 0.29).color,
@@ -110,7 +144,7 @@ final class PhoneTheme {
     /// Follows the playing cover (the phone's dynamic theme).
     func follow(cover url: String?) async {
         cover = url
-        guard let url, let u = URL(string: url) else { return }
+        guard let url, let u = URL(string: url) else { return set(CoverAccent(primary: userAccent, secondary: userAccent)) }
         if let a = cache[url] { set(a); return }
         guard let image = await ArtworkCache.shared.image(url, u) else { return }
         let a = CoverAccent.from(image)
@@ -119,7 +153,7 @@ final class PhoneTheme {
     }
 
     private func set(_ a: CoverAccent) {
-        withAnimation(.easeInOut(duration: 0.38)) { accentPair = a }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.38)) { accentPair = a }
     }
 }
 
@@ -174,11 +208,17 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(PhoneTheme.glassBorder, lineWidth: 1))
     }
 
+    /// The phone's canvas as this page's navigation background: iOS's tab and navigation
+    /// containers paint an opaque one of their own over anything drawn behind them.
+    func phoneCanvas() -> some View {
+        containerBackground(for: .navigation) { PhoneBackground() }
+    }
+
     /// A tab's root page on the canvas: no system bar background, lists see through.
     func phonePage() -> some View {
         scrollContentBackground(.hidden)
             .toolbarBackground(.hidden, for: .navigationBar)
-            .containerBackground(.clear, for: .navigation)
+            .phoneCanvas()
     }
 }
 

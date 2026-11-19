@@ -152,7 +152,7 @@ final class Library {
                 let stream = try await core.stream(song: song)
                 log.info("download \(song.title, privacy: .public): \(stream.provider, privacy: .public) \(stream.mime, privacy: .public)")
                 guard let url = URL(string: stream.url) else { return }
-                let data = try await Self.fetch(url, userAgent: stream.userAgent) { p in
+                let data = try await Self.fetch(url, userAgent: stream.userAgent, cellular: !UserDefaults.standard.bool(forKey: "downloadWifiOnly")) { p in
                     Task { @MainActor in if self.downloading[song.id] != nil { self.downloading[song.id] = p } }
                 }
                 let dest = file(for: song)
@@ -167,11 +167,13 @@ final class Library {
 
     /// The whole file in 1 MiB `Range` requests, four at a time: googlevideo throttles one long
     /// request to a crawl, not ranged ones (the desktop's http.rs does the same).
-    nonisolated static func fetch(_ url: URL, userAgent: String?, progress: @escaping @Sendable (Double) -> Void) async throws -> Data {
+    nonisolated static func fetch(_ url: URL, userAgent: String?, cellular: Bool = true, progress: @escaping @Sendable (Double) -> Void) async throws -> Data {
         let chunk = 1 << 20
         func get(_ from: Int, _ to: Int) async throws -> (Data, Int?) {
             var r = URLRequest(url: url)
             r.setValue("bytes=\(from)-\(to)", forHTTPHeaderField: "Range")
+            // "Scarica solo in Wi-Fi": no mobile data.
+            r.allowsCellularAccess = cellular
             if let ua = userAgent { r.setValue(ua, forHTTPHeaderField: "User-Agent") }
             let (data, response) = try await URLSession.shared.data(for: r)
             let http = response as? HTTPURLResponse
@@ -203,6 +205,18 @@ final class Library {
         var out = Data(capacity: total)
         for i in 0..<count { out.append(parts[i] ?? Data()) }
         return out
+    }
+
+    /// The bytes the downloaded songs take.
+    var downloadsBytes: Int64 {
+        downloads.compactMap(localFile(for:)).reduce(Int64(0)) { sum, url in
+            sum + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
+
+    /// "Elimina tutti i download".
+    func removeAllDownloads() {
+        downloads.forEach(removeDownload)
     }
 
     func removeDownload(_ song: Song) {
