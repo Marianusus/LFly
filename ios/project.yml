@@ -7,7 +7,8 @@ options:
     iOS: "26.0"
 settings:
   base:
-    SWIFT_VERSION: "6.0"
+    # Swift 5 mode: Apple's Translation API is not yet annotated for Swift 6's data-race checks.
+    SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:

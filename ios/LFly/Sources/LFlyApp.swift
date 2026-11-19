@@ -14,6 +14,7 @@ struct LFlyApp: App {
                 .environment(model.account)
                 .environment(model.connect)
                 .environment(model.spotify)
+                .environment(model.lyricsPrefs)
         }
     }
 }
@@ -28,6 +29,7 @@ final class AppModel {
     let account: Account
     let connect: ConnectModel
     let spotify: SpotifyModel
+    let lyricsPrefs = LyricsPrefs()
 
     init() {
         // The core only fails without a network stack at all; there is nothing to show without it.

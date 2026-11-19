@@ -89,8 +89,24 @@ struct NowPlayingView: View {
                         .padding(.bottom, deckHeight)
                         .transition(.opacity.combined(with: .offset(y: 14)))
                 }
+                // The way back: a chevron at the top left, over the cover.
+                if !queueOpen && !lyricsOpen {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("Chiudi il player")
+                    .padding(.leading, 16)
+                    .padding(.top, top + 6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.opacity)
+                }
                 if lyricsOpen {
-                    LyricsOverlay(gradient: gradient, accent: accent) { lyricsOpen = false }
+                    LyricsScreen(insets: EdgeInsets(top: top, leading: 0, bottom: geo.safeAreaInsets.bottom, trailing: 0)) { lyricsOpen = false }
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                         .zIndex(6)
                 }
@@ -605,87 +621,6 @@ struct QueueList: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .environment(\.editMode, .constant(.inactive))
-    }
-}
-
-/// Lyrics over the whole player (the phone's LyricsView): the song at the top with close, the
-/// lines with the sung one in front and swept by the accent, the controls at the bottom.
-private struct LyricsOverlay: View {
-    @Environment(Player.self) private var player
-    let gradient: ArtworkGradient
-    let accent: Color
-    let onClose: () -> Void
-
-    var body: some View {
-        let lines = player.lyrics?.lines ?? []
-        let now = Int64(player.position * 1000)
-        let active = lines.lastIndex { $0.timeMs <= now } ?? -1
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Artwork(url: player.current?.coverUrl, radius: 6).frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(player.current?.title ?? "").font(.headline).lineLimit(1)
-                    Text(player.current?.artist ?? "").font(.subheadline).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
-                }
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Chiudi il testo")
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if lines.isEmpty {
-                        Text(player.lyrics?.plain ?? "Testo non trovato").font(.system(size: 26, weight: .bold))
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(24)
-                    } else {
-                        VStack(alignment: .leading, spacing: 22) {
-                            ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                                Text(line.text.isEmpty ? "♪" : line.text)
-                                    .font(.system(size: 30, weight: .bold))
-                                    .foregroundStyle(i == active ? .white : .white.opacity(0.35))
-                                    .blur(radius: i == active || abs(i - active) > 4 ? 0 : CGFloat(abs(i - active)) * 0.6)
-                                    .scaleEffect(i == active ? 1.0 : 0.96, anchor: .leading)
-                                    .animation(.spring(duration: 0.4, bounce: 0.2), value: active)
-                                    .id(i)
-                                    .onTapGesture { player.seek(to: Double(line.timeMs) / 1000) }
-                            }
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 200)
-                    }
-                }
-                .scrollIndicators(.hidden)
-                .onChange(of: active, initial: true) { _, i in
-                    withAnimation(.spring(duration: 0.6, bounce: 0.1)) { proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: 0.35)) }
-                }
-            }
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08), .init(color: .black, location: 0.85), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
-            HStack(spacing: 40) {
-                Button { player.previous() } label: { Image(systemName: "backward.fill") }.accessibilityLabel("Brano precedente")
-                Button { player.toggle() } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 38)).contentTransition(.symbolEffect(.replace))
-                }
-                .accessibilityLabel(player.isPlaying ? "Pausa" : "Riproduci")
-                Button { player.next() } label: { Image(systemName: "forward.fill") }.accessibilityLabel("Brano successivo")
-            }
-            .font(.title)
-            .buttonStyle(PressScale())
-            .padding(.vertical, 12)
-            .padding(.bottom, 30)
-        }
-        .foregroundStyle(.white)
-        .padding(.top, 50)
-        .background {
-            ZStack {
-                LinearGradient(colors: [gradient.top, gradient.bottom], startPoint: .top, endPoint: .bottom)
-                Artwork(url: player.current?.coverUrl, radius: 0).blur(radius: 80).opacity(0.5)
-                Color.black.opacity(0.35)
-            }
-            .ignoresSafeArea()
-        }
     }
 }
 

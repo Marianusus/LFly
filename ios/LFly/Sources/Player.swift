@@ -15,6 +15,11 @@ final class Player {
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
     private(set) var lyrics: SongLyrics?
+    private(set) var lyricsLoading = false
+    /// The lyrics source the listener picked (an id of `lyricsSources()`), or nil for the usual race.
+    private(set) var lyricsSource: String? = UserDefaults.standard.string(forKey: "lyricsSource")
+    /// When `position` was last read from the player, to run it on between reads.
+    private(set) var positionAt = Date.now
     private(set) var error: String?
     private(set) var shuffle = false
     /// When the queue runs out, YouTube Music's next songs follow (the phone's ∞).
@@ -244,6 +249,7 @@ final class Player {
     func seek(to seconds: Double) {
         avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         position = seconds
+        positionAt = .now
         updateNowPlaying()
     }
 
@@ -254,6 +260,7 @@ final class Player {
         isLoading = true
         error = nil
         lyrics = nil
+        lyricsLoading = true
         position = 0
         duration = Double(song.durationMs) / 1000
         updateNowPlaying()
@@ -288,7 +295,7 @@ final class Player {
                 self.updateNowPlaying()
                 self.prepareNext()
                 self.extendIfNeeded()
-                self.lyrics = try? await self.core.lyrics(song: song)
+                await self.fetchLyrics(song)
             } catch {
                 guard !Task.isCancelled else { return }
                 self.isLoading = false
@@ -297,6 +304,29 @@ final class Player {
                 if self.index + 1 < self.queue.count { self.next() }
             }
         }
+    }
+
+    private func fetchLyrics(_ song: Song) async {
+        lyricsLoading = true
+        let l = try? await core.lyrics(song: song, source: lyricsSource)
+        guard current?.id == song.id else { return }
+        lyrics = l
+        lyricsLoading = false
+    }
+
+    /// Lyrics from that source only (nil: all of them, the best wins), now and for the next songs.
+    func setLyricsSource(_ id: String?) {
+        lyricsSource = id
+        UserDefaults.standard.set(id, forKey: "lyricsSource")
+        guard let song = current else { return }
+        lyrics = nil
+        Task { await fetchLyrics(song) }
+    }
+
+    /// The position now, run on from the last read at the playing speed (frame-accurate karaoke).
+    func livePosition(at date: Date = .now) -> Double {
+        guard isPlaying, !isLoading else { return position }
+        return min(position + date.timeIntervalSince(positionAt) * Double(rate), max(duration, position))
     }
 
     private func stream(for song: Song) async throws -> AudioStream {
@@ -318,6 +348,7 @@ final class Player {
     private func tick(_ time: CMTime) {
         guard !isLoading else { return }
         position = time.seconds.isFinite ? time.seconds : 0
+        positionAt = .now
         if let d = avPlayer.currentItem?.duration.seconds, d.isFinite, d > 0 { duration = d }
     }
 

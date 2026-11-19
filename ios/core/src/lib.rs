@@ -194,10 +194,43 @@ pub struct AudioStream {
     pub bitrate: u32,
 }
 
+/// One timed word of a line.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LyricWord {
+    pub text: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct LyricLine {
     pub time_ms: i64,
+    pub end_ms: Option<i64>,
     pub text: String,
+    /// Real word timings, when the source has them (karaoke without guessing).
+    pub words: Vec<LyricWord>,
+    /// Background vocals sung over the line.
+    pub background: Option<String>,
+}
+
+/// A place lyrics come from (lfly-yt's SOURCES), for the source picker.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LyricsSource {
+    pub id: String,
+    pub label: String,
+    pub detail: String,
+    /// It times each word.
+    pub words: bool,
+}
+
+/// The lyrics sources a listener can pick (those that need a key are left out).
+#[uniffi::export]
+pub fn lyrics_sources() -> Vec<LyricsSource> {
+    lfly_yt::lyrics::SOURCES
+        .iter()
+        .filter(|s| !s.needs_key)
+        .map(|s| LyricsSource { id: s.id.into(), label: s.label.into(), detail: s.detail.into(), words: s.words })
+        .collect()
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -403,10 +436,37 @@ impl Core {
         Ok(AudioStream { url: s.url, mime: s.mime, user_agent: s.user_agent, provider: s.provider, bitrate: s.bitrate })
     }
 
-    pub async fn lyrics(&self, song: Song) -> Result<Option<SongLyrics>> {
-        let Some(l) = self.yt.lyrics(&track(&song)?).await? else { return Ok(None) };
+    /// The song's lyrics; [source] (an id of [lyrics_sources]) asks that source only, none the
+    /// usual race between them all.
+    pub async fn lyrics(&self, song: Song, source: Option<String>) -> Result<Option<SongLyrics>> {
+        let usual = self.yt.lyrics_prefs();
+        if let Some(only) = &source {
+            let mut p = usual.clone();
+            p.off = lfly_yt::lyrics::SOURCES.iter().map(|s| s.id.to_string()).filter(|id| id != only).collect();
+            p.order = vec![only.clone()];
+            self.yt.set_lyrics_prefs(p);
+        }
+        let found = self.yt.lyrics(&track(&song)?).await;
+        if source.is_some() {
+            self.yt.set_lyrics_prefs(usual);
+        }
+        let Some(l) = found? else { return Ok(None) };
         Ok(Some(SongLyrics {
-            lines: l.lines.iter().map(|x| LyricLine { time_ms: x.time_ms, text: x.text.clone() }).collect(),
+            lines: l
+                .lines
+                .iter()
+                .map(|x| LyricLine {
+                    time_ms: x.time_ms,
+                    end_ms: x.end_ms,
+                    text: x.text.clone(),
+                    words: x
+                        .word_timings
+                        .as_ref()
+                        .map(|ws| ws.iter().map(|w| LyricWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect())
+                        .unwrap_or_default(),
+                    background: x.background.clone(),
+                })
+                .collect(),
             plain: l.plain_lyrics.clone(),
             source: l.source.clone(),
         }))
