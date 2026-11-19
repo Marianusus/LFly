@@ -29,7 +29,7 @@ struct RootView: View {
                 .contentShape(.rect)
                 .onTapGesture { if player.current != nil { showPlayer = true } }
         }
-        .sheet(isPresented: $showPlayer) {
+        .fullScreenCover(isPresented: $showPlayer) {
             NowPlayingView()
         }
         .task { await testHooks() }

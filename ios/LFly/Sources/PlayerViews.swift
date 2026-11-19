@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 /// The tab bar's accessory: what plays, play/pause and next.
@@ -19,6 +20,7 @@ struct MiniPlayer: View {
             } else {
                 Button { player.toggle() } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .accessibilityLabel(player.isPlaying ? "Pausa" : "Riproduci")
                 .disabled(player.current == nil)
@@ -32,377 +34,743 @@ struct MiniPlayer: View {
     }
 }
 
-/// The full player, as the phone's PlayerScreenV2: a drifting glow from the cover, the cover
-/// (swipe it to change song; it fades into the next), the lyric being sung under it, the heart,
-/// the seek bar, shuffle/previous/play/next/repeat, and a glass pill for Lyrics, Queue and
-/// Devices. With a panel open the cover moves up into a small header.
+/// The phone's PlayerScreenV2, rebuilt for iPhone. The cover fills the width and the top 56% of
+/// the screen and fades at its bottom into the same cover blurred over a gradient of its own
+/// colours. Under it: title, artists, heart, more; at the bottom the line being sung, a thin
+/// seek bar, previous/play/next, and a row with Lyrics, a pill (where it plays, Devices) and
+/// Queue. Opening the queue shrinks the cover into a 48 pt thumbnail at the top, the title rides
+/// up beside it, and the pill slides left with shuffle, repeat and autoplay. Lyrics cover all.
 struct NowPlayingView: View {
-    @Environment(AppModel.self) private var model
+    @Environment(Player.self) private var player
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var gradient = ArtworkGradient.fallback
+    @State private var queueOpen = UserDefaults.standard.bool(forKey: "showQueue")
+    @State private var lyricsOpen = UserDefaults.standard.bool(forKey: "showLyrics")
+    @State private var menuOpen = false
+    @State private var devicesOpen = false
+    @State private var dismissDrag: CGFloat = 0
+    /// The bottom deck's height: the queue ends above it.
+    @State private var deckHeight: CGFloat = 260
+
+    /// How long the cover, backdrop and title take to dissolve into the next song (TRACK_CHANGE_MS).
+    static let trackChange = 0.9
+
+    private let ink = Color.white
+    private var inkSecondary: Color { Color(uiColor: UIColor(Color.white).mixed(with: UIColor(gradient.top), 0.32)).opacity(0.8) }
+    private var accent: Color { .lfly }
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
+            let top = geo.safeAreaInsets.top
+            let coverH = min(max(h * 0.56, 240), h - 360)
+            let p: CGFloat = queueOpen ? 1 : 0
+            ZStack(alignment: .top) {
+                backdrop(coverFraction: coverH / h)
+                HeroCover(width: w, height: coverH, gradient: gradient) {
+                    dismiss()
+                }
+                // Into a 48 pt thumbnail at (56, status bar + 8) while the queue is open.
+                .scaleEffect(1 + (48 / w - 1) * p, anchor: .topLeading)
+                .offset(x: 56 * p, y: (top + 8) * p)
+                scrims(coverFraction: coverH / h)
+                    .allowsHitTesting(false)
+                chrome(width: w, coverH: coverH, top: top, p: p, bottomInset: geo.safeAreaInsets.bottom)
+                    .opacity(lyricsOpen ? 0 : 1)
+                    .animation(.easeInOut(duration: reduceMotion ? 0 : 0.22), value: lyricsOpen)
+                queueHeader(top: top)
+                    .opacity(max(0, (p - 0.48) / 0.52))
+                    .allowsHitTesting(queueOpen)
+                if queueOpen {
+                    QueueList(ink: ink, inkSecondary: inkSecondary, accent: accent)
+                        .padding(.top, top + 64)
+                        .padding(.bottom, deckHeight)
+                        .transition(.opacity.combined(with: .offset(y: 14)))
+                }
+                if lyricsOpen {
+                    LyricsOverlay(gradient: gradient, accent: accent) { lyricsOpen = false }
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .zIndex(6)
+                }
+            }
+            .frame(width: w, height: h)
+            .ignoresSafeArea()
+        }
+        .offset(y: dismissDrag)
+        .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: 0.42), value: queueOpen)
+        .animation(reduceMotion ? nil : .spring(duration: 0.32), value: lyricsOpen)
+        .preferredColorScheme(.dark)
+        .task(id: player.current?.coverUrl) {
+            let g = await ArtworkCache.shared.gradient(player.current?.coverUrl)
+            withAnimation(.easeInOut(duration: reduceMotion ? 0 : Self.trackChange)) { gradient = g }
+        }
+        .sheet(isPresented: $menuOpen) {
+            if let song = player.current { TrackActionsSheet(song: song) }
+        }
+        .sheet(isPresented: $devicesOpen) { DevicesView() }
+    }
+
+    // MARK: Layers
+
+    /// Gradient of the cover's colours, the cover blurred over all of it (crossfading on a change),
+    /// as the phone's backdrop.
+    private func backdrop(coverFraction: CGFloat) -> some View {
+        ZStack {
+            LinearGradient(stops: [.init(color: gradient.top, location: 0), .init(color: gradient.bottom, location: coverFraction), .init(color: gradient.bottom, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+            Artwork(url: player.current?.coverUrl, radius: 0)
+                .blur(radius: 64)
+                .id(player.current?.coverUrl)
+                .transition(.opacity)
+                .animation(.easeInOut(duration: reduceMotion ? 0 : Self.trackChange), value: player.current?.coverUrl)
+        }
+        .ignoresSafeArea()
+    }
+
+    /// One continuous scrim over cover and blur keeps the lower text legible; another keeps the
+    /// status bar readable over bright covers.
+    private func scrims(coverFraction f: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: max(f - 0.18, 0)),
+                .init(color: .black.opacity(0.36), location: f),
+                .init(color: .black.opacity(0.64), location: 0.66),
+                .init(color: .black.opacity(0.84), location: 0.86),
+                .init(color: .black.opacity(0.94), location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            LinearGradient(stops: [
+                .init(color: .black.opacity(0.38), location: 0),
+                .init(color: .black.opacity(0.12), location: 0.55),
+                .init(color: .clear, location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(height: 120)
+        }
+    }
+
+    private func chrome(width w: CGFloat, coverH: CGFloat, top: CGFloat, p: CGFloat, bottomInset: CGFloat) -> some View {
+        // One title, two places: scaled about its top-left corner, it rides from under the cover
+        // into the compact header beside the thumbnail.
+        let compactStart: CGFloat = 56 + 48 + 12
+        let scale = min(max((w - compactStart - 12) / (w - 44), 0.70), 0.85)
+        let tx = compactStart - 22 * scale
+        let ty = (top + 8) - coverH - 18 * scale
+        return VStack(spacing: 0) {
+            Color.clear.frame(height: coverH).allowsHitTesting(false)
+            TrackMetaRow(ink: ink, inkSecondary: inkSecondary, accent: accent, controlsAlpha: max(0, 1 - p * 1.35)) { menuOpen = true }
+                .padding(.init(top: 18, leading: 22, bottom: 8, trailing: 22))
+                .scaleEffect(1 + (scale - 1) * p, anchor: .topLeading)
+                .offset(x: tx * p, y: ty * p)
+            Spacer(minLength: 0)
+            VStack(spacing: 0) {
+                CurrentLyricStrip(ink: ink, inkSecondary: inkSecondary, accent: accent) { lyricsOpen = true }
+                Spacer().frame(height: 12)
+                SeekSection(ink: ink, inkSecondary: inkSecondary, accent: accent)
+                Spacer().frame(height: 14)
+                TransportRow(ink: ink, accent: accent)
+                Spacer().frame(height: 20)
+                ActionRow(queueOpen: $queueOpen, lyricsOpen: $lyricsOpen, devicesOpen: $devicesOpen, ink: ink, inkSecondary: inkSecondary, accent: accent)
+                Spacer().frame(height: 24 + bottomInset)
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 8)
+            .background(LinearGradient(colors: [.clear, gradient.bottom.opacity(0.2)], startPoint: .top, endPoint: .bottom))
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { deckHeight = $0 }
+        }
+    }
+
+    /// The header the queue shows: close on the left, the song's actions on the right.
+    private func queueHeader(top: CGFloat) -> some View {
+        HStack {
+            Button { queueOpen = false } label: {
+                Image(systemName: "chevron.down").font(.title3.weight(.semibold)).foregroundStyle(.white.opacity(0.9)).frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Chiudi la coda")
+            Spacer()
+            Button { menuOpen = true } label: {
+                Image(systemName: "ellipsis").font(.title3).foregroundStyle(.white.opacity(0.75)).frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Opzioni del brano")
+        }
+        .padding(.leading, 8).padding(.trailing, 12)
+        .frame(height: 64)
+        .padding(.top, top)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// Buttons that shrink a little under the finger (the phone's pressScale).
+struct PressScale: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.spring(duration: 0.25, bounce: 0.4), value: configuration.isPressed)
+    }
+}
+
+/// The cover, full width with its bottom fading out. Swipe it sideways: the next or previous
+/// cover shows through as it moves, and past a quarter of the width the song changes. A new song
+/// dissolves in over 0.9 s. Pulling it down closes the player.
+private struct HeroCover: View {
+    @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let width: CGFloat
+    let height: CGFloat
+    let gradient: ArtworkGradient
+    let onClose: () -> Void
+    @State private var offset: CGFloat = 0
+    @State private var vertical: CGFloat = 0
+    @State private var axis: Axis?
+
+    var body: some View {
+        let progress = min(abs(offset) / max(width, 1), 1)
+        let peek: Song? = offset > 0 ? player.queue[safe: player.index - 1] : offset < 0 ? player.queue[safe: player.index + 1] : nil
+        ZStack {
+            if let peek, progress > 0 {
+                Artwork(url: peek.coverUrl, radius: 0).opacity(progress)
+            }
+            ZStack {
+                gradient.top
+                Artwork(url: player.current?.coverUrl, radius: 0)
+                    .id(player.current?.coverUrl)
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: reduceMotion ? 0 : NowPlayingView.trackChange), value: player.current?.coverUrl)
+            }
+            .offset(x: offset)
+            .scaleEffect(1 + 0.02 * progress)
+        }
+        .frame(width: width, height: height)
+        .clipped()
+        .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.76), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+        .offset(y: max(vertical, 0))
+        .contentShape(.rect)
+        .gesture(
+            DragGesture(minimumDistance: 10)
+                .onChanged { g in
+                    if axis == nil { axis = abs(g.translation.width) > abs(g.translation.height) ? .horizontal : .vertical }
+                    if axis == .horizontal {
+                        let goingNext = g.translation.width < 0
+                        let can = goingNext ? player.index + 1 < player.queue.count || player.autoplay : player.index > 0
+                        if can { offset = max(-width, min(width, g.translation.width)) }
+                    } else {
+                        vertical = g.translation.height
+                    }
+                }
+                .onEnded { g in
+                    defer { axis = nil }
+                    if axis == .vertical {
+                        if g.translation.height > 120 { onClose() }
+                        withAnimation(.spring(duration: 0.3)) { vertical = 0 }
+                        return
+                    }
+                    if abs(offset) > width * 0.24 {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        let forward = offset < 0
+                        withAnimation(.linear(duration: 0.18)) { offset = forward ? -width : width }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            if forward { player.next() } else { player.previous() }
+                            offset = 0
+                        }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.18)) { offset = 0 }
+                    }
+                }
+        )
+        .accessibilityLabel(player.current.map { "Copertina di \($0.title)" } ?? "Copertina")
+        .accessibilityHint("Scorri per cambiare brano, trascina in giù per chiudere")
+    }
+}
+
+/// Title (20 pt semibold), artists (19 pt), the heart with a bouncy spring, and more.
+private struct TrackMetaRow: View {
     @Environment(Player.self) private var player
     @Environment(Library.self) private var library
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scrubbing: Double?
-    @State private var panel: Panel = UserDefaults.standard.bool(forKey: "showLyrics") ? .lyrics : UserDefaults.standard.bool(forKey: "showQueue") ? .queue : .none
-    @State private var showDevices = false
-    @State private var dragX: CGFloat = 0
-    @Namespace private var cover
-
-    enum Panel { case none, lyrics, queue }
+    let ink: Color
+    let inkSecondary: Color
+    let accent: Color
+    let controlsAlpha: CGFloat
+    let onMore: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            header
-            if panel == .none {
-                VStack(spacing: 14) {
-                    heroCover
-                    CurrentLyricStrip()
-                        .frame(height: 30)
-                }
-                .frame(maxHeight: .infinity)
-            } else {
-                compactHeader
-                Group {
-                    if panel == .lyrics { LyricsView() } else { QueueList() }
-                }
-                .frame(maxHeight: .infinity)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-            if panel == .none { meta }
-            seekBar
-            transport
-            pill
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 16)
-        .background { AmbientGlow(url: player.current?.coverUrl).ignoresSafeArea() }
-        .animation(reduceMotion ? nil : .spring(duration: 0.42, bounce: 0.18), value: panel)
-        .presentationDragIndicator(.hidden)
-        .sheet(isPresented: $showDevices) { DevicesView() }
-    }
-
-    // MARK: Parts
-
-    private var header: some View {
-        HStack {
-            Capsule().fill(.secondary).frame(width: 40, height: 5).accessibilityHidden(true)
-                .frame(maxWidth: .infinity)
-                .overlay(alignment: .trailing) { moreMenu }
-        }
-        .padding(.top, 10)
-    }
-
-    private var heroCover: some View {
-        let song = player.current
-        return Artwork(url: song?.coverUrl, radius: 18)
-            .aspectRatio(1, contentMode: .fit)
-            .matchedGeometryEffect(id: "cover", in: cover)
-            .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
-            // Pauses smaller, plays full size (the phone's hero scale).
-            .scaleEffect(player.isPlaying ? 1 : 0.86)
-            .offset(x: dragX)
-            .rotationEffect(.degrees(Double(dragX) / 40))
-            .id(song?.id)
-            .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.94)), removal: .opacity))
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: song?.id)
-            .animation(reduceMotion ? nil : .spring(duration: 0.5, bounce: 0.28), value: player.isPlaying)
-            .gesture(
-                DragGesture(minimumDistance: 12)
-                    .onChanged { dragX = $0.translation.width }
-                    .onEnded { g in
-                        let w = g.translation.width
-                        if w < -90 { player.next() } else if w > 90 { player.previous() }
-                        withAnimation(.spring(duration: 0.35, bounce: 0.3)) { dragX = 0 }
-                    }
-            )
-            .accessibilityLabel(song.map { "Copertina di \($0.title)" } ?? "Copertina")
-            .accessibilityHint("Scorri a sinistra per il brano successivo, a destra per il precedente")
-    }
-
-    private var compactHeader: some View {
-        HStack(spacing: 12) {
-            Artwork(url: player.current?.coverUrl, radius: 8)
-                .frame(width: 56, height: 56)
-                .matchedGeometryEffect(id: "cover", in: cover)
+        HStack(alignment: .center, spacing: 4) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(player.current?.title ?? "").font(.headline).lineLimit(1)
-                Text(player.current?.artist ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(player.current?.title ?? "")
+                    .font(.system(size: 20, weight: .semibold)).tracking(-0.45)
+                    .foregroundStyle(ink).lineLimit(1)
+                Text(player.current?.artist ?? "")
+                    .font(.system(size: 19)).tracking(-0.38)
+                    .foregroundStyle(inkSecondary).lineLimit(1)
             }
-            Spacer()
-            heart
-        }
-    }
-
-    private var meta: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(player.current?.title ?? "").font(.title2.bold()).lineLimit(1)
-                    .contentTransition(.opacity)
-                Text(player.current?.artist ?? "").font(.title3).foregroundStyle(.secondary).lineLimit(1)
-            }
-            .animation(.easeInOut(duration: 0.3), value: player.current?.id)
-            Spacer(minLength: 12)
-            heart
-        }
-    }
-
-    @ViewBuilder
-    private var heart: some View {
-        if let song = player.current {
-            let liked = library.isFavorite(song)
-            Button { library.toggleFavorite(song) } label: {
-                Image(systemName: liked ? "heart.fill" : "heart").font(.title2)
-                    .foregroundStyle(liked ? Color.pink : .primary)
-                    .scaleEffect(liked ? 1.12 : 1)
-                    .animation(.spring(duration: 0.35, bounce: 0.6), value: liked)
-                    .symbolEffect(.bounce, value: liked)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(liked ? "Togli da Mi piace" : "Mi piace")
-        }
-    }
-
-    private var seekBar: some View {
-        VStack(spacing: 4) {
-            Slider(
-                value: Binding(get: { scrubbing ?? player.position }, set: { scrubbing = $0 }),
-                in: 0...max(player.duration, 1)
-            ) { editing in
-                if !editing, let s = scrubbing {
-                    player.seek(to: s)
-                    scrubbing = nil
-                }
-            }
-            HStack {
-                Text(timeText(scrubbing ?? player.position))
-                Spacer()
-                if player.rate != 1 { Text(String(format: "%.2g×", player.rate)) }
-                Spacer()
-                Text("-" + timeText(max(player.duration - (scrubbing ?? player.position), 0)))
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
-        }
-    }
-
-    private var transport: some View {
-        HStack {
-            Button { player.toggleShuffle() } label: {
-                Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Color.accentColor : .secondary)
-            }
-            .accessibilityLabel(player.shuffle ? "Casuale attivo" : "Casuale")
-            Spacer()
-            Button { player.previous() } label: { Image(systemName: "backward.fill").font(.title) }
-                .accessibilityLabel("Brano precedente")
-            Spacer()
-            Button { player.toggle() } label: {
-                ZStack {
-                    if player.isLoading {
-                        ProgressView().controlSize(.large)
-                    } else {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 46))
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                }
-                .frame(width: 64, height: 64)
-            }
-            .accessibilityLabel(player.isPlaying ? "Pausa" : "Riproduci")
-            Spacer()
-            Button { player.next() } label: { Image(systemName: "forward.fill").font(.title) }
-                .accessibilityLabel("Brano successivo")
-            Spacer()
-            Button { player.cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                    .foregroundStyle(player.repeatMode == .off ? .secondary : Color.accentColor)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .accessibilityLabel(player.repeatMode == .off ? "Ripeti" : player.repeatMode == .all ? "Ripeti tutto" : "Ripeti questo brano")
-        }
-        .font(.title3)
-        .buttonStyle(.plain)
-    }
-
-    /// The phone's bottom pill: Lyrics, Queue, Devices.
-    private var pill: some View {
-        HStack(spacing: 0) {
-            segment("Testo", "quote.bubble", on: panel == .lyrics) { panel = panel == .lyrics ? .none : .lyrics }
-                .disabled(player.lyrics == nil)
-            Divider().frame(height: 22)
-            segment("Coda", "list.bullet", on: panel == .queue) { panel = panel == .queue ? .none : .queue }
-            Divider().frame(height: 22)
-            segment("Dispositivi", "hifispeaker.2", on: false) { showDevices = true }
-        }
-        .padding(4)
-        .glassEffect(.regular.interactive(), in: .capsule)
-    }
-
-    private func segment(_ title: String, _ icon: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.subheadline.weight(.semibold))
-                .symbolVariant(on ? .fill : .none)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background { if on { Capsule().fill(.primary.opacity(0.12)) } }
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Download, add to a playlist, share, speed, sleep timer.
-    private var moreMenu: some View {
-        Menu {
+            .id(player.current?.id)
+            .transition(.opacity)
+            .animation(.easeInOut(duration: NowPlayingView.trackChange / 2), value: player.current?.id)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let song = player.current {
-                Button { player.playNext(song) } label: { Label("Riproduci di nuovo dopo", systemImage: "text.line.first.and.arrowtriangle.forward") }
-                Menu {
-                    Button { library.createPlaylist(song.title, songs: [song]) } label: { Label("Nuova playlist", systemImage: "plus") }
-                    ForEach(library.playlists) { p in Button(p.name) { library.add(song, to: p) } }
-                } label: { Label("Aggiungi a una playlist", systemImage: "text.badge.plus") }
-                if library.isDownloaded(song) {
-                    Button(role: .destructive) { library.removeDownload(song) } label: { Label("Rimuovi download", systemImage: "trash") }
-                } else {
-                    Button { library.download(song, core: model.core) } label: { Label("Scarica", systemImage: "arrow.down.circle") }
+                let liked = library.isFavorite(song)
+                Button { library.toggleFavorite(song) } label: {
+                    Image(systemName: liked ? "heart.fill" : "heart")
+                        .font(.system(size: 24))
+                        .foregroundStyle(liked ? accent : inkSecondary)
+                        .scaleEffect(liked ? 1.10 : 1)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.5), value: liked)
+                        .frame(width: 40, height: 40)
                 }
-                if let url = shareURL(song) {
-                    ShareLink(item: url, subject: Text(song.title), message: Text("\(song.title) – \(song.artist)")) {
-                        Label("Condividi", systemImage: "square.and.arrow.up")
-                    }
-                }
+                .accessibilityLabel(liked ? "Togli da Mi piace" : "Mi piace")
+                .opacity(controlsAlpha)
+                .disabled(controlsAlpha < 0.2)
             }
-            Menu {
-                ForEach([0.75, 1.0, 1.25, 1.5], id: \.self) { r in
-                    Button { player.setRate(Float(r)) } label: {
-                        if Float(r) == player.rate { Label(String(format: "%.2g×", r), systemImage: "checkmark") } else { Text(String(format: "%.2g×", r)) }
-                    }
-                }
-            } label: { Label("Velocità", systemImage: "gauge.with.dots.needle.67percent") }
-            Menu {
-                Button("Spento") { player.sleep(minutes: 0) }
-                ForEach([15, 30, 45, 60], id: \.self) { m in Button("\(m) minuti") { player.sleep(minutes: m) } }
-                Button("Alla fine del brano") { player.sleep(minutes: nil) }
-            } label: {
-                Label(player.sleepAt.map { "Timer: fino alle \($0.formatted(date: .omitted, time: .shortened))" } ?? (player.sleepAtEndOfSong ? "Timer: fine del brano" : "Timer"), systemImage: "moon.zzz")
+            Button(action: onMore) {
+                Image(systemName: "ellipsis").font(.system(size: 22, weight: .semibold)).foregroundStyle(inkSecondary).frame(width: 40, height: 40)
             }
-        } label: {
-            Image(systemName: "ellipsis").font(.title3).frame(width: 40, height: 32)
+            .accessibilityLabel("Altre azioni")
+            .opacity(controlsAlpha)
+            .disabled(controlsAlpha < 0.2)
         }
-        .buttonStyle(.glass)
-        .accessibilityLabel("Altre azioni")
-    }
-
-    private func shareURL(_ song: Song) -> URL? {
-        guard song.id.hasPrefix("yt_") else { return nil }
-        return URL(string: "https://music.youtube.com/watch?v=\(song.id.dropFirst(3))")
+        .buttonStyle(.plain)
     }
 }
 
-/// The phone's AmbientGlow: the cover, blurred, drifting slowly behind everything.
-struct AmbientGlow: View {
-    let url: String?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var drift = false
-
-    var body: some View {
-        ZStack {
-            Color(.systemBackground)
-            Artwork(url: url, radius: 0)
-                .scaleEffect(1.6)
-                .offset(x: drift ? 40 : -40, y: drift ? -30 : 30)
-                .rotationEffect(.degrees(drift ? 8 : -8))
-                .blur(radius: 70)
-                .opacity(0.6)
-                .animation(.easeInOut(duration: 0.9), value: url)
-        }
-        .clipped()
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 16).repeatForever(autoreverses: true)) { drift = true }
-        }
-    }
-}
-
-/// The line being sung, under the cover; each new line slides up into place.
-struct CurrentLyricStrip: View {
+/// The line being sung, 16 pt semibold; the accent sweeps over it as it is sung, with a glow.
+/// A new line slides up and in; a tap opens the lyrics.
+private struct CurrentLyricStrip: View {
     @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let ink: Color
+    let inkSecondary: Color
+    let accent: Color
+    let onTap: () -> Void
 
     var body: some View {
         let lines = player.lyrics?.lines ?? []
         let now = Int64(player.position * 1000)
         let i = lines.lastIndex { $0.timeMs <= now }
-        let text = i.map { lines[$0].text } ?? ""
-        ZStack {
-            if !text.isEmpty {
-                Text(text)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .id(i)
-                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .move(edge: .top).combined(with: .opacity)))
+        let line = i.map { lines[$0] }
+        let timed = line.map { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty } ?? false
+        let text: String = timed ? line!.text : (player.lyrics?.plain?.split(separator: "\n").first.map(String.init) ?? (player.lyrics == nil && player.isLoading ? "Carico il testo…" : "Testo non trovato"))
+        let sweep: CGFloat = {
+            guard timed, let i, let line else { return 0 }
+            let end = lines[safe: i + 1]?.timeMs ?? (line.timeMs + 4000)
+            return CGFloat(min(max(Double(now - line.timeMs) / Double(max(end - line.timeMs, 1)), 0), 1))
+        }()
+        let style = Font.system(size: 16, weight: .semibold)
+        ZStack(alignment: .leading) {
+            ZStack(alignment: .leading) {
+                Text(text).font(style).foregroundStyle(timed ? ink.opacity(0.64) : inkSecondary).lineLimit(1)
+                if timed {
+                    Text(text).font(style).foregroundStyle(accent).lineLimit(1)
+                        .shadow(color: accent.opacity(0.55), radius: 7)
+                        .mask(alignment: .leading) {
+                            GeometryReader { g in Rectangle().frame(width: g.size.width * sweep) }
+                        }
+                        .animation(.linear(duration: 0.16), value: sweep)
+                }
             }
+            .id(i ?? -1)
+            .transition(.asymmetric(
+                insertion: .offset(y: 15).combined(with: .opacity).combined(with: .scale(scale: 0.97, anchor: .leading)),
+                removal: .offset(y: -10).combined(with: .opacity).combined(with: .scale(scale: 1.01, anchor: .leading))
+            ))
         }
-        .animation(.easeOut(duration: 0.32), value: i)
-        .clipped()
-        .accessibilityHidden(true)
+        .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: 0.3), value: i)
+        .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30, alignment: .leading)
+        .contentShape(.rect)
+        .onTapGesture(perform: onTap)
+        .accessibilityLabel("Testo: \(text)")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
-/// The queue: tap to play, swipe to remove, drag to move.
+/// A 6 pt bar with no thumb: the ink fills what played; drag anywhere on it to seek. Times at
+/// its ends and, between them, where the song plays from.
+private struct SeekSection: View {
+    @Environment(Player.self) private var player
+    let ink: Color
+    let inkSecondary: Color
+    let accent: Color
+    @State private var seeking: Double?
+
+    var body: some View {
+        let duration = max(player.duration, 1)
+        let fraction = min(max((seeking ?? player.position) / duration, 0), 1)
+        VStack(spacing: 2) {
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(ink.opacity(0.18))
+                    Capsule().fill(ink).frame(width: g.size.width * fraction)
+                }
+                .frame(height: seeking == nil ? 6 : 9)
+                .frame(maxHeight: .infinity)
+                .contentShape(.rect)
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { v in seeking = min(max(v.location.x / g.size.width, 0), 1) * duration }
+                        .onEnded { _ in
+                            if let s = seeking { player.seek(to: s) }
+                            seeking = nil
+                        }
+                )
+                .animation(.spring(duration: 0.25), value: seeking == nil)
+            }
+            .frame(height: 30)
+            HStack {
+                Text(timeText(seeking ?? player.position))
+                Spacer()
+                if let provider = player.provider {
+                    Text(provider).font(.system(size: 10)).foregroundStyle(accent.opacity(0.9)).lineLimit(1).padding(.horizontal, 8)
+                }
+                Spacer()
+                Text(timeText(player.duration))
+            }
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundStyle(inkSecondary)
+            .padding(.horizontal, 2)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Posizione")
+        .accessibilityValue("\(timeText(player.position)) di \(timeText(player.duration))")
+        .accessibilityAdjustableAction { dir in
+            player.seek(to: max(0, player.position + (dir == .increment ? 10 : -10)))
+        }
+    }
+}
+
+/// Previous (38), play/pause (46 in a 72 box; a spinner while loading), next: evenly spread.
+private struct TransportRow: View {
+    @Environment(Player.self) private var player
+    let ink: Color
+    let accent: Color
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Button { player.previous() } label: { Image(systemName: "backward.fill").font(.system(size: 34)).frame(width: 62, height: 62) }
+                .accessibilityLabel("Brano precedente")
+            Spacer()
+            ZStack {
+                if player.isLoading {
+                    ProgressView().tint(accent).controlSize(.large)
+                } else {
+                    Button { player.toggle() } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 44))
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: 72, height: 72)
+                    }
+                    .accessibilityLabel(player.isPlaying ? "Pausa" : "Riproduci")
+                }
+            }
+            .frame(width: 76, height: 76)
+            Spacer()
+            Button { player.next() } label: { Image(systemName: "forward.fill").font(.system(size: 34)).frame(width: 62, height: 62) }
+                .accessibilityLabel("Brano successivo")
+            Spacer()
+        }
+        .foregroundStyle(ink)
+        .buttonStyle(PressScale())
+    }
+}
+
+/// Lyrics on the left, Queue on the right, a pill between: where the music plays and Devices; with
+/// the queue open the pill slides to the left edge and holds shuffle, repeat and autoplay.
+private struct ActionRow: View {
+    @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Binding var queueOpen: Bool
+    @Binding var lyricsOpen: Bool
+    @Binding var devicesOpen: Bool
+    let ink: Color
+    let inkSecondary: Color
+    let accent: Color
+
+    var body: some View {
+        ZStack {
+            HStack {
+                glyph("quote.bubble", "Testo", on: lyricsOpen) { lyricsOpen.toggle() }
+                    .opacity(queueOpen ? 0 : 1)
+                    .disabled(queueOpen)
+                Spacer()
+                glyph("list.bullet", "Coda", on: queueOpen) { queueOpen.toggle() }
+            }
+            Group {
+                if queueOpen {
+                    pill {
+                        segment("shuffle", "Casuale", on: player.shuffle) { player.toggleShuffle() }
+                        divider
+                        segment(player.repeatMode == .one ? "repeat.1" : "repeat", "Ripeti", on: player.repeatMode != .off) { player.cycleRepeat() }
+                        divider
+                        segment("infinity", "Autoplay", on: player.autoplay) { player.toggleAutoplay() }
+                    }
+                } else {
+                    pill {
+                        RoutePicker(tint: UIColor(inkSecondary), active: UIColor(accent))
+                            .frame(width: 56, height: 44)
+                            .accessibilityLabel("Dove si ascolta")
+                        divider
+                        segment("hifispeaker.2", "Dispositivi", on: false) { devicesOpen = true }
+                    }
+                }
+            }
+            .transition(.opacity)
+            .frame(maxWidth: .infinity, alignment: queueOpen ? .leading : .center)
+            .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: 0.24), value: queueOpen)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func glyph(_ icon: String, _ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 20)).foregroundStyle(on ? accent : inkSecondary)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(ink.opacity(0.14)))
+        }
+        .accessibilityLabel(label)
+    }
+
+    private func pill<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        HStack(spacing: 0) { content() }
+            .frame(height: 44)
+            .background(Color.white.opacity(0.12))
+            .clipShape(Capsule())
+    }
+
+    private var divider: some View { Rectangle().fill(ink.opacity(0.18)).frame(width: 1, height: 44) }
+
+    private func segment(_ icon: String, _ label: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 19)).foregroundStyle(on ? accent : inkSecondary)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 56, height: 44)
+                .background(on ? Color.white.opacity(0.08) : .clear)
+        }
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// The system's picker of where the music plays (AirPlay, Bluetooth, the speaker).
+private struct RoutePicker: UIViewRepresentable {
+    let tint: UIColor
+    let active: UIColor
+
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let v = AVRoutePickerView()
+        v.tintColor = tint
+        v.activeTintColor = active
+        v.prioritizesVideoDevices = false
+        return v
+    }
+
+    func updateUIView(_ v: AVRoutePickerView, context: Context) {
+        v.tintColor = tint
+        v.activeTintColor = active
+    }
+}
+
+/// The queue under the compact header: the playing song marked; tap to play, swipe to remove,
+/// drag to move.
 struct QueueList: View {
     @Environment(Player.self) private var player
+    var ink: Color = .primary
+    var inkSecondary: Color = .secondary
+    var accent: Color = .lfly
 
     var body: some View {
         List {
             ForEach(Array(player.queue.enumerated()), id: \.offset) { i, song in
                 Button { player.jump(to: i) } label: {
                     HStack(spacing: 12) {
-                        Artwork(url: song.coverUrl, radius: 6).frame(width: 44, height: 44)
-                        VStack(alignment: .leading) {
-                            Text(song.title).lineLimit(1).foregroundStyle(i == player.index ? Color.accentColor : .primary)
-                            Text(song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        Artwork(url: song.coverUrl, radius: 6).frame(width: 46, height: 46)
+                            .opacity(i < player.index ? 0.5 : 1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(song.title).font(.system(size: 16, weight: .medium)).lineLimit(1)
+                                .foregroundStyle(i == player.index ? accent : ink)
+                            Text(song.artist).font(.system(size: 14)).foregroundStyle(inkSecondary).lineLimit(1)
                         }
                         Spacer()
-                        if i == player.index { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: player.isPlaying).foregroundStyle(.tint) }
+                        if i == player.index {
+                            Image(systemName: "waveform").foregroundStyle(accent)
+                                .symbolEffect(.variableColor.iterative, isActive: player.isPlaying)
+                        }
                     }
+                    .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
             .onDelete { player.removeFromQueue(at: $0) }
             .onMove { player.moveInQueue(from: $0, to: $1) }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .environment(\.editMode, .constant(.inactive))
     }
 }
 
-/// Synced lyrics: the sung line in front, the others dimmed; follows the song.
-struct LyricsView: View {
+/// Lyrics over the whole player (the phone's LyricsView): the song at the top with close, the
+/// lines with the sung one in front and swept by the accent, the controls at the bottom.
+private struct LyricsOverlay: View {
     @Environment(Player.self) private var player
+    let gradient: ArtworkGradient
+    let accent: Color
+    let onClose: () -> Void
 
     var body: some View {
         let lines = player.lyrics?.lines ?? []
         let now = Int64(player.position * 1000)
         let active = lines.lastIndex { $0.timeMs <= now } ?? -1
-        ScrollViewReader { proxy in
-            ScrollView {
-                if lines.isEmpty {
-                    Text(player.lyrics?.plain ?? "Nessun testo").font(.title3).frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    VStack(alignment: .leading, spacing: 18) {
-                        ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                            Text(line.text.isEmpty ? "♪" : line.text)
-                                .font(.title2.bold())
-                                .foregroundStyle(i == active ? .primary : .secondary)
-                                .opacity(i == active ? 1 : 0.5)
-                                .id(i)
-                                .onTapGesture { player.seek(to: Double(line.timeMs) / 1000) }
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Artwork(url: player.current?.coverUrl, radius: 6).frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(player.current?.title ?? "").font(.headline).lineLimit(1)
+                    Text(player.current?.artist ?? "").font(.subheadline).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                }
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Chiudi il testo")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if lines.isEmpty {
+                        Text(player.lyrics?.plain ?? "Testo non trovato").font(.system(size: 26, weight: .bold))
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(24)
+                    } else {
+                        VStack(alignment: .leading, spacing: 22) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                                Text(line.text.isEmpty ? "♪" : line.text)
+                                    .font(.system(size: 30, weight: .bold))
+                                    .foregroundStyle(i == active ? .white : .white.opacity(0.35))
+                                    .blur(radius: i == active || abs(i - active) > 4 ? 0 : CGFloat(abs(i - active)) * 0.6)
+                                    .scaleEffect(i == active ? 1.0 : 0.96, anchor: .leading)
+                                    .animation(.spring(duration: 0.4, bounce: 0.2), value: active)
+                                    .id(i)
+                                    .onTapGesture { player.seek(to: Double(line.timeMs) / 1000) }
+                            }
                         }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 200)
                     }
-                    .padding(.vertical, 120)
+                }
+                .scrollIndicators(.hidden)
+                .onChange(of: active, initial: true) { _, i in
+                    withAnimation(.spring(duration: 0.6, bounce: 0.1)) { proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: 0.35)) }
                 }
             }
-            .scrollIndicators(.hidden)
-            .onChange(of: active) { _, i in
-                withAnimation(.smooth) { proxy.scrollTo(i, anchor: .center) }
+            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08), .init(color: .black, location: 0.85), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+            HStack(spacing: 40) {
+                Button { player.previous() } label: { Image(systemName: "backward.fill") }.accessibilityLabel("Brano precedente")
+                Button { player.toggle() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 38)).contentTransition(.symbolEffect(.replace))
+                }
+                .accessibilityLabel(player.isPlaying ? "Pausa" : "Riproduci")
+                Button { player.next() } label: { Image(systemName: "forward.fill") }.accessibilityLabel("Brano successivo")
             }
+            .font(.title)
+            .buttonStyle(PressScale())
+            .padding(.vertical, 12)
+            .padding(.bottom, 30)
         }
+        .foregroundStyle(.white)
+        .padding(.top, 50)
+        .background {
+            ZStack {
+                LinearGradient(colors: [gradient.top, gradient.bottom], startPoint: .top, endPoint: .bottom)
+                Artwork(url: player.current?.coverUrl, radius: 0).blur(radius: 80).opacity(0.5)
+                Color.black.opacity(0.35)
+            }
+            .ignoresSafeArea()
+        }
+    }
+}
+
+/// The song's actions (the phone's TrackActionsSheet): like, play next, add to the queue or a
+/// playlist, download, share, the artist, speed and the sleep timer.
+struct TrackActionsSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(Player.self) private var player
+    @Environment(Library.self) private var library
+    @Environment(\.dismiss) private var dismiss
+    let song: Song
+    @State private var artist: Item?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                HStack(spacing: 14) {
+                    Artwork(url: song.coverUrl, radius: 8).frame(width: 60, height: 60)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title).font(.headline).lineLimit(2)
+                        Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
+                        if let album = song.album { Text(album).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    }
+                }
+                Section {
+                    Button { library.toggleFavorite(song) } label: {
+                        library.isFavorite(song) ? Label("Togli da Mi piace", systemImage: "heart.slash") : Label("Mi piace", systemImage: "heart")
+                    }
+                    Button { player.playNext(song); dismiss() } label: { Label("Riproduci dopo", systemImage: "text.line.first.and.arrowtriangle.forward") }
+                    Button { player.addToQueue(song); dismiss() } label: { Label("Aggiungi alla coda", systemImage: "text.line.last.and.arrowtriangle.forward") }
+                    Menu {
+                        Button { library.createPlaylist(song.title, songs: [song]) } label: { Label("Nuova playlist", systemImage: "plus") }
+                        ForEach(library.playlists) { p in Button(p.name) { library.add(song, to: p) } }
+                    } label: { Label("Aggiungi a una playlist", systemImage: "text.badge.plus") }
+                    if library.isDownloaded(song) {
+                        Button(role: .destructive) { library.removeDownload(song) } label: { Label("Rimuovi download", systemImage: "trash") }
+                    } else if library.downloading[song.id] != nil {
+                        Label("Download in corso…", systemImage: "arrow.down.circle")
+                    } else {
+                        Button { library.download(song, core: model.core) } label: { Label("Scarica", systemImage: "arrow.down.circle") }
+                    }
+                    if song.id.hasPrefix("yt_"), let url = URL(string: "https://music.youtube.com/watch?v=\(song.id.dropFirst(3))") {
+                        ShareLink(item: url, subject: Text(song.title), message: Text("\(song.title) – \(song.artist)")) {
+                            Label("Condividi", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    Button { Task { await openArtist() } } label: { Label("Vai all'artista", systemImage: "person.crop.circle") }
+                }
+                Section("Riproduzione") {
+                    Picker(selection: Binding(get: { player.rate }, set: { player.setRate($0) })) {
+                        ForEach([Float(0.75), 1, 1.25, 1.5], id: \.self) { Text(String(format: "%.2g×", $0)).tag($0) }
+                    } label: { Label("Velocità", systemImage: "gauge.with.dots.needle.67percent") }
+                    Menu {
+                        Button("Spento") { player.sleep(minutes: 0) }
+                        ForEach([15, 30, 45, 60], id: \.self) { m in Button("\(m) minuti") { player.sleep(minutes: m) } }
+                        Button("Alla fine del brano") { player.sleep(minutes: nil) }
+                    } label: {
+                        Label(player.sleepAt.map { "Timer fino alle \($0.formatted(date: .omitted, time: .shortened))" } ?? (player.sleepAtEndOfSong ? "Timer: fine del brano" : "Timer"), systemImage: "moon.zzz")
+                    }
+                }
+            }
+            .navigationDestination(item: $artist) { ArtistView(item: $0).navigationDestination(for: Item.self) { ItemDestination(item: $0) } }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fine") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func openArtist() async {
+        let name = song.artist.split(separator: ",").first.map(String.init) ?? song.artist
+        if let r = try? await model.core.search(query: name), let a = r.artists.first { artist = a }
+    }
+}
+
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}
+
+extension UIColor {
+    /// This colour mixed toward [other] by [t] (Compose's lerp).
+    func mixed(with other: UIColor, _ t: CGFloat) -> UIColor {
+        var (r1, g1, b1, a1): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        var (r2, g2, b2, a2): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        other.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        return UIColor(red: r1 + (r2 - r1) * t, green: g1 + (g2 - g1) * t, blue: b1 + (b2 - b1) * t, alpha: a1 + (a2 - a1) * t)
     }
 }

@@ -7,6 +7,7 @@ struct LFlyApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .tint(.lfly)
                 .environment(model)
                 .environment(model.player)
                 .environment(model.library)

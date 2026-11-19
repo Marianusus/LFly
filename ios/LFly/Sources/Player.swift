@@ -17,6 +17,10 @@ final class Player {
     private(set) var lyrics: SongLyrics?
     private(set) var error: String?
     private(set) var shuffle = false
+    /// When the queue runs out, YouTube Music's next songs follow (the phone's ∞).
+    private(set) var autoplay = UserDefaults.standard.object(forKey: "autoplayOn") as? Bool ?? true
+    /// Where the song plays from ("YouTube Music (VISIONOS)", "Monochrome", "Scaricato").
+    private(set) var provider: String?
     private(set) var repeatMode: RepeatMode = .off
     /// Playback speed (pitch kept).
     private(set) var rate: Float = 1
@@ -40,6 +44,7 @@ final class Player {
     /// The queue in its own order, to go back to when shuffle goes off.
     private var unshuffled: [Song]?
     private var sleepTask: Task<Void, Never>?
+    private var extending = false
 
     init(core: Core, library: Library) {
         self.core = core
@@ -93,6 +98,28 @@ final class Player {
         shuffle.toggle()
         ready.removeAll()
         prepareNext()
+    }
+
+    func toggleAutoplay() {
+        autoplay.toggle()
+        UserDefaults.standard.set(autoplay, forKey: "autoplayOn")
+        if autoplay { extendIfNeeded() }
+    }
+
+    /// Near the queue's end with autoplay on: YouTube Music's next songs join it.
+    private func extendIfNeeded() {
+        guard autoplay, repeatMode == .off, let cur = current, index + 2 >= queue.count, !extending else { return }
+        extending = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.extending = false }
+            let more = (try? await self.core.upNext(song: cur)) ?? []
+            let have = Set(self.queue.map(\.id))
+            let new = more.filter { !have.contains($0.id) }.prefix(20)
+            guard !new.isEmpty else { return }
+            self.queue.append(contentsOf: new)
+            self.prepareNext()
+        }
     }
 
     /// Off → all → one → off, as on the phone.
@@ -174,6 +201,20 @@ final class Player {
     }
 
     func next() {
+        if index + 1 >= queue.count, autoplay, let cur = current {
+            Task { [weak self] in
+                guard let self else { return }
+                let more = (try? await self.core.upNext(song: cur)) ?? []
+                let have = Set(self.queue.map(\.id))
+                let new = more.filter { !have.contains($0.id) }.prefix(20)
+                if new.isEmpty { self.stopAtEnd() } else {
+                    self.queue.append(contentsOf: new)
+                    self.index += 1
+                    self.load()
+                }
+            }
+            return
+        }
         guard index + 1 < queue.count else {
             avPlayer.pause()
             isPlaying = false
@@ -182,6 +223,12 @@ final class Player {
         }
         index += 1
         load()
+    }
+
+    private func stopAtEnd() {
+        avPlayer.pause()
+        isPlaying = false
+        updateNowPlaying()
     }
 
     func previous() {
@@ -217,8 +264,10 @@ final class Player {
                 // A downloaded song plays from its file, without a network.
                 if let local = self.library.localFile(for: song) {
                     asset = AVURLAsset(url: local)
+                    self.provider = "Scaricato"
                 } else {
                     let stream = try await self.stream(for: song)
+                    self.provider = stream.provider
                     var options: [String: Any] = [:]
                     if let ua = stream.userAgent {
                         options["AVURLAssetHTTPHeaderFieldsKey"] = ["User-Agent": ua]
@@ -238,6 +287,7 @@ final class Player {
                 self.isLoading = false
                 self.updateNowPlaying()
                 self.prepareNext()
+                self.extendIfNeeded()
                 self.lyrics = try? await self.core.lyrics(song: song)
             } catch {
                 guard !Task.isCancelled else { return }

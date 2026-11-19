@@ -208,6 +208,10 @@ pub struct SongLyrics {
     pub source: String,
 }
 
+fn song_of(t: &Track) -> Song {
+    song(t)
+}
+
 fn song(t: &Track) -> Song {
     Song {
         id: t.id.clone(),
@@ -327,6 +331,13 @@ impl Core {
     /// The signed-in account's playlists on YouTube Music.
     pub async fn account_playlists(&self) -> Result<Vec<Item>> {
         Ok(self.yt.library_playlists().await?.into_iter().filter_map(|p| item(&MediaItem::Playlist(p))).collect())
+    }
+
+    /// What YouTube Music plays after this song (autoplay, the ∞ in the queue).
+    pub async fn up_next(&self, song: Song) -> Result<Vec<Song>> {
+        let t = track(&song)?;
+        let Some(id) = t.video_id() else { return Ok(Vec::new()) };
+        Ok(self.yt.up_next(id).await?.iter().filter(|x| x.id != song.id).map(song_of).collect())
     }
 
     /// The signed-in account's LFly Connect secret (devices of the same account trust each other).
