@@ -1,0 +1,98 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+:root {
+  --lfly-glass-tint: rgba(18, 18, 20, 0.5);
+  --lfly-glass-border: rgba(255, 255, 255, 0.15);
+  --lfly-glass-highlight: rgba(255, 255, 255, 0.5);
+  --lfly-glass-shade: rgba(0, 0, 0, 0.35);
+  --lfly-glass-blur: 26px;
+  --lfly-glass-sat: 1.525;
+  --lfly-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+html, body { margin: 0; width: 1100px; height: 720px; overflow: hidden; }
+body { background: url(backdrop.png) no-repeat 0 0 / 1100px 720px; }
+/* Glass.svelte, verbatim (default variant, pill, not hovered) */
+.lfly-g {
+  --g-tint: var(--lfly-glass-tint);
+  --g-light: 315deg;
+  position: absolute; left: 32px; top: 293px; width: 1036px; height: 76px;
+  isolation: isolate;
+  border-radius: var(--g-radius);
+  background: transparent;
+  box-shadow: var(--lfly-shadow-1);
+}
+.lfly-g-fx { position: absolute; inset: 0; z-index: -1; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.lfly-g-fx::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit;
+  background: var(--g-tint);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, var(--g-lip, 0.14)),
+    inset 0 -1px 0.5px rgba(0, 0, 0, 0.06),
+    inset 0 -14px 24px -18px var(--lfly-glass-shade);
+}
+.lfly-g-fx::after {
+  content: ""; position: absolute; inset: 0; z-index: 2;
+  background: radial-gradient(circle at var(--g-mx, 50%) var(--g-my, 0%), rgba(255,255,255,0.2), rgba(255,255,255,0.06) 38%, transparent 70%);
+  opacity: 0;
+}
+.lfly-g-rim {
+  position: absolute; inset: 0; z-index: -1; border-radius: inherit; padding: 1px; pointer-events: none;
+  background:
+    conic-gradient(from var(--g-light), var(--lfly-glass-highlight), transparent 70deg, transparent 110deg,
+      rgba(255, 255, 255, 0.28) 180deg, transparent 250deg, transparent 290deg, var(--lfly-glass-highlight)),
+    linear-gradient(var(--lfly-glass-border), var(--lfly-glass-border));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+</style></head>
+<body>
+<div class="lfly-g pill" id="g" style="--g-radius:9999px"><span class="lfly-g-fx"></span><span class="lfly-g-rim"></span></div>
+<script>
+// lens.ts drawSvg / buildSvg / displacementMap, verbatim apart from the types.
+function displacementMap(w, h, radius, refH, refAmt) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d"); const img = ctx.createImageData(w, h);
+  const hx = w / 2, hy = h / 2; const gr = Math.min(radius * 1.5, Math.min(hx, hy));
+  const sd = (px, py, r) => { const cx = Math.abs(px) - (hx - r), cy = Math.abs(py) - (hy - r);
+    return Math.hypot(Math.max(cx, 0), Math.max(cy, 0)) - r + Math.min(Math.max(cx, cy), 0); };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4; const px = x + 0.5 - hx, py = y + 0.5 - hy;
+    const inside = -sd(px, py, radius); let dx = 0, dy = 0;
+    if (inside < refH && inside > -1) {
+      const t = 1 - Math.max(0, inside) / refH; const d = (1 - Math.sqrt(Math.max(0, 1 - t * t))) * refAmt;
+      const cx = Math.abs(px) - (hx - gr), cy = Math.abs(py) - (hy - gr); let gx, gy;
+      if (cx >= 0 || cy >= 0) { const mx = Math.max(cx, 0), my = Math.max(cy, 0); const l = Math.hypot(mx, my) || 1;
+        gx = Math.sign(px) * (mx / l); gy = Math.sign(py) * (my / l); }
+      else { const s = cy <= cx ? 1 : 0; gx = Math.sign(px) * s; gy = Math.sign(py) * (1 - s); }
+      const pl = Math.hypot(px, py) || 1; gx += px / pl; gy += py / pl; const gl = Math.hypot(gx, gy) || 1;
+      dx = (-d * gx) / gl; dy = (-d * gy) / gl;
+    }
+    img.data[i] = 128 + (dx / refAmt) * 127; img.data[i + 1] = 128 + (dy / refAmt) * 127; img.data[i + 2] = 128; img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0); return c.toDataURL();
+}
+const k = 0.75, el = document.getElementById("g");
+const w = el.offsetWidth, h = el.offsetHeight, radius = Math.min(h / 2, Math.min(w, h) / 2);
+const refH = Math.min(Math.min(w, h) / 2, 10 + 18 * k), refAmt = 8 + 26 * k;
+const map = displacementMap(w, h, radius, refH, refAmt);
+const scale = refAmt * 2, disp = 0.06 + 0.06 * k, id = "lfly-lens-1";
+const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+svg.setAttribute("width", "0"); svg.setAttribute("height", "0"); svg.style.position = "absolute";
+svg.innerHTML = `<filter id="${id}" x="0" y="0" width="${w}" height="${h}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+  <feImage href="${map}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="none" result="map"/>
+  <feDisplacementMap in="SourceGraphic" in2="map" scale="${(scale * (1 + disp)).toFixed(2)}" xChannelSelector="R" yChannelSelector="G" result="dr"/>
+  <feColorMatrix in="dr" type="matrix" values="1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0" result="r"/>
+  <feDisplacementMap in="SourceGraphic" in2="map" scale="${scale.toFixed(2)}" xChannelSelector="R" yChannelSelector="G" result="dg"/>
+  <feColorMatrix in="dg" type="matrix" values="0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0" result="g"/>
+  <feDisplacementMap in="SourceGraphic" in2="map" scale="${(scale * (1 - disp)).toFixed(2)}" xChannelSelector="R" yChannelSelector="G" result="db"/>
+  <feColorMatrix in="db" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0" result="b"/>
+  <feBlend in="r" in2="g" mode="screen" result="rg"/>
+  <feBlend in="rg" in2="b" mode="screen"/>
+</filter>`;
+document.body.appendChild(svg);
+const value = `url(#${id}) blur(26px) saturate(1.525)`;
+el.style.setProperty("backdrop-filter", value);
+</script>
+</body></html>

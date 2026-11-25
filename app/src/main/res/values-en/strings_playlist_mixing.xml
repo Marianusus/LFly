@@ -101,4 +101,7 @@
     <string name="playlist_mixing_loop_8">8 beat loop</string>
     <string name="playlist_mixing_loop_16">16 beat loop</string>
     <string name="playlist_mixing_loop_halving">Loop halving</string>
+    <string name="playlist_mixing_keys_match">Keys match</string>
+    <string name="playlist_mixing_keys_clash">Keys far apart</string>
+    <string name="playlist_mixing_preview">Preview</string>
 </resources>

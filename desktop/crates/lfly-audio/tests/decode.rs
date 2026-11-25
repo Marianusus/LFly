@@ -91,3 +91,44 @@ fn resampling_keeps_the_length_and_the_tone() {
     let r = Decoded { samples: out, rate: 48_000, duration_ms: None };
     assert_tone_440(&r, "resampled");
 }
+
+/// After a seek the audio is where a decode from the top has it, to the sample (pink noise, which
+/// has no period to line up wrongly): the Automix starts both songs on the sample its plan names.
+#[test]
+fn seeks_are_sample_exact() {
+    for name in ["noise.m4a", "noise.webm", "noise.flac"] {
+        let source = Source::file(fixture(name));
+        let full = decode_all(&source, &cache()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let rate = full.rate as usize;
+        let left: Vec<f32> = full.samples.iter().step_by(2).copied().collect();
+        let mut dec = TrackDecoder::open(&source, &cache(), ReaderCtl::detached()).unwrap();
+        assert_eq!(dec.seek(2_000).unwrap(), 2_000);
+        let mut after = Vec::new();
+        let mut buf = Vec::new();
+        while after.len() < rate * 2 * 2 {
+            buf.clear();
+            if !dec.decode_next(&mut buf).unwrap() {
+                break;
+            }
+            after.extend_from_slice(&buf);
+        }
+        let after: Vec<f32> = after.iter().step_by(2).copied().collect();
+        // Compare 0.1 s from 0.2 s after the seek (codecs need a frame to settle), lag by lag.
+        let (from, len) = (rate / 5, rate / 10);
+        let at = 2 * rate + from;
+        let best = (-2_000i64..=2_000)
+            .map(|lag| {
+                let err: f64 = (0..len).map(|i| {
+                    let j = (at as i64 + lag + i as i64) as usize;
+                    let d = after[from + i] as f64 - left[j] as f64;
+                    d * d
+                }).sum();
+                (lag, err)
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .unwrap();
+        // Opus in WebM lands a millisecond early (48 samples): nothing a beat match can hear.
+        let allowed = if name.ends_with(".webm") { 48 } else { 1 };
+        assert!(best.0.abs() <= allowed, "{name}: the audio after a seek is {} samples off", best.0);
+    }
+}

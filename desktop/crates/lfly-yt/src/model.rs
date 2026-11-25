@@ -399,6 +399,8 @@ pub enum SourceKind {
     Lrclib,
     /// Any other lyrics provider.
     Lyrics,
+    /// A Monochrome instance (studio releases, by title and artist).
+    Monochrome,
 }
 
 /// Snapshot of one source's health.

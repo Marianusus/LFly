@@ -12,7 +12,10 @@ export type Track = TrackRef & { streamUrl?: string; releaseYear?: number };
 
 class Player {
   /** What the local player reported last, and this computer's clock then. */
-  private local = $state<RemoteState | null>(null);
+  // Raw: the whole state is swapped only when something real changes (song, queue, play/pause).
+  private local = $state.raw<RemoteState | null>(null);
+  /** The position at [localAt], moved on its own by the 4 Hz ticks without touching [local]. */
+  private localPos = $state(0);
   private localAt = 0;
   private now = $state(Date.now());
   scrubbing = $state<number | null>(null);
@@ -35,7 +38,7 @@ class Player {
     const s = this.local;
     if (!s) return 0;
     const moved = s.playing ? Math.max(0, this.now - this.localAt) : 0;
-    return Math.min(s.positionMs + moved, s.durationMs || Number.MAX_SAFE_INTEGER);
+    return Math.min(this.localPos + moved, s.durationMs || Number.MAX_SAFE_INTEGER);
   });
 
   /** The position right now, read without tracking (for animations running every frame). */
@@ -44,13 +47,19 @@ class Player {
     const s = this.local;
     if (!s) return 0;
     const moved = s.playing ? Math.max(0, Date.now() - this.localAt) : 0;
-    return Math.min(s.positionMs + moved, s.durationMs || Number.MAX_SAFE_INTEGER);
+    return Math.min(this.localPos + moved, s.durationMs || Number.MAX_SAFE_INTEGER);
   }
 
   async start() {
     try {
       await listen<{ state: RemoteState; receivedAt: number }>("player:state", (e) => {
         this.local = e.payload.state;
+        this.localPos = e.payload.state.positionMs;
+        this.localAt = e.payload.receivedAt;
+        this.now = Date.now();
+      });
+      await listen<{ positionMs: number; receivedAt: number }>("player:position", (e) => {
+        this.localPos = e.payload.positionMs;
         this.localAt = e.payload.receivedAt;
         this.now = Date.now();
       });
@@ -59,6 +68,7 @@ class Player {
       const first = await invoke<RemoteState | null>("player_state");
       if (first && !this.local) {
         this.local = first;
+        this.localPos = first.positionMs;
         this.localAt = Date.now();
       }
     } catch {

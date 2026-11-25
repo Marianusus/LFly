@@ -98,9 +98,25 @@ internal fun youtubeCandidateMatches(
     // Fix (requires explicit authorization + tests, NOT done in the artist-UX phase):
     // require exact normalized-title equality + compatible artist when both durations
     // are unknown, else treat as no-match. See ARTIST_METADATA_UX_PLAN.md §B.
-    val durationOk = wantDurationMs <= 0 || candidateDurationMs <= 0 ||
-        abs(candidateDurationMs - wantDurationMs) <= 8000
-    return titleOk && artistOk && durationOk
+    val durationKnown = wantDurationMs > 0 && candidateDurationMs > 0
+    val durationOk = !durationKnown || abs(candidateDurationMs - wantDurationMs) <= 8000
+    // Without both lengths only the very same title is taken (no wrong song for a namesake).
+    val exactWhenUnknown = durationKnown || cTitle == wantTitle
+    // A remix, live take or cover the wanted title does not name is another recording, even when
+    // its title contains the song's ("Saint Tropez (Costi Tech Mix)" for "Saint Tropez").
+    val extraVersion = versionWords(cTitle).any { it !in versionWords(wantTitle) }
+    return titleOk && artistOk && durationOk && exactWhenUnknown && !extraVersion
+}
+
+private val VERSION_WORDS = listOf(
+    "remix", "mix", "live", "edit", "version", "acoustic", "instrumental", "cover", "karaoke", "sped up", "slowed",
+    "reverb", "remake", "bootleg", "rework", "mashup", "nightcore", "8d", "extended", "unplugged"
+)
+
+/** The version words in an already normalized title, as whole words. */
+internal fun versionWords(normalized: String): Set<String> {
+    val padded = " ${normalized.replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()} "
+    return VERSION_WORDS.filter { padded.contains(" $it ") }.toSet()
 }
 
 /**
@@ -669,7 +685,7 @@ open class StreamResolver(
             val res = if (search != null) {
                 search(query, 5)
             } else {
-                withTimeoutOrNull(TIER_TIMEOUT_MS) { youTubeMusicClient.searchTracks(query, limit = 5) }?.getOrNull().orEmpty()
+                withTimeoutOrNull(TIER_TIMEOUT_MS) { youTubeMusicClient.searchTracks(query, limit = 10) }?.getOrNull().orEmpty()
             }
             res
         } catch (e: Exception) {
@@ -680,7 +696,7 @@ open class StreamResolver(
 
         val wantTitle = normalizeMatchText(sanitizeTitle(track.title, track.artist))
         val wantArtist = normalizeMatchText(track.artist)
-        return results.firstOrNull { candidate ->
+        val matches = results.filter { candidate ->
             val accepted = youtubeCandidateMatches(
                 wantTitle = wantTitle,
                 wantArtist = wantArtist,
@@ -719,6 +735,13 @@ open class StreamResolver(
                 Log.d("SpotifyMatch", "reject id=${candidate.id} title='$cTitle' artist='$cArtist' durDiff=${diff}ms reason=$reason")
             }
             accepted
+        }
+        // Of those that fit, the one that is the song most surely: the same title, then the
+        // closest length (not merely the first result, often a remix).
+        return matches.minByOrNull { candidate ->
+            val sameTitle = normalizeMatchText(candidate.title) == wantTitle
+            val diff = if (track.durationMs > 0 && candidate.durationMs > 0) abs(candidate.durationMs - track.durationMs) else 9_000L
+            (if (sameTitle) 0L else 100_000L) + diff
         }
     }
 

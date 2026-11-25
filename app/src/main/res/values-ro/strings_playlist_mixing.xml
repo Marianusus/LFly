@@ -101,4 +101,7 @@
     <string name="playlist_mixing_loop_8">Buclă de 8 bătăi</string>
     <string name="playlist_mixing_loop_16">Buclă de 16 bătăi</string>
     <string name="playlist_mixing_loop_halving">Buclă înjumătățită</string>
+    <string name="playlist_mixing_keys_match">Tonalități compatibile</string>
+    <string name="playlist_mixing_keys_clash">Tonalități îndepărtate</string>
+    <string name="playlist_mixing_preview">Previzualizare</string>
 </resources>

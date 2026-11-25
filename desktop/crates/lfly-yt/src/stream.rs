@@ -21,6 +21,35 @@ pub enum AudioPreference {
     AacFirst,
 }
 
+/// Where songs are played from first (the phone's PlaybackSource): Auto asks YouTube Music and
+/// Monochrome together, the others try theirs first and the other one after.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PlaybackSource {
+    #[default]
+    Auto,
+    YouTubeMusic,
+    Monochrome,
+}
+
+impl PlaybackSource {
+    /// The phone's names: "AUTO", "YOUTUBE_MUSIC", "MONOCHROME".
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "YOUTUBE_MUSIC" => PlaybackSource::YouTubeMusic,
+            "MONOCHROME" => PlaybackSource::Monochrome,
+            _ => PlaybackSource::Auto,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PlaybackSource::Auto => "AUTO",
+            PlaybackSource::YouTubeMusic => "YOUTUBE_MUSIC",
+            PlaybackSource::Monochrome => "MONOCHROME",
+        }
+    }
+}
+
 /// True for a 30 second preview url (`dur=` of 30 s or less).
 pub fn is_preview_url(url: &str) -> bool {
     DUR_PARAM_RE

@@ -112,7 +112,7 @@ import android.os.Build
 import android.os.SystemClock
 import kotlin.math.abs
 
-private const val LYRICS_ANCHOR_FRACTION = 0.42f
+private const val LYRICS_ANCHOR_FRACTION = 0.33f
 private const val FOLLOW_RESUME_DELAY_MS = 3_000L
 
 @Composable
@@ -186,41 +186,8 @@ fun LyricsView(
                 onClick = {} // Intercept click gestures so they don't leak to player controls beneath
             )
     ) {
-        // With the Dynamic cover look the lyrics flow over the same moving artwork as the app; the
-        // scrim stays light enough to let it show and dark enough for the white lines.
-        val coverLook = org.sonora.android.ui.theme.LocalAppearanceMode.current ==
-            org.sonora.android.ui.theme.AppearanceMode.DYNAMIC_COVER
-        if (coverLook) {
-            org.sonora.android.ui.theme.DynamicCoverBackdrop(track?.artworkUrl, veil = false)
-        } else if (!track?.artworkUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = track.artworkUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(80.dp)
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    if (coverLook) {
-                        Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.40f),
-                            0.45f to Color.Black.copy(alpha = 0.52f),
-                            1f to Color.Black.copy(alpha = 0.74f)
-                        )
-                    } else {
-                        Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.58f),
-                            0.45f to Color.Black.copy(alpha = 0.72f),
-                            1f to Color.Black.copy(alpha = 0.88f)
-                        )
-                    }
-                )
-        )
+        // Spicy Lyrics' background: the cover turning slowly, saturated and darkened.
+        SpicyBackground(track?.artworkUrl, reduceMotion = LocalMotionPreferences.current.reduceMotion)
 
         Column(
             modifier = Modifier
@@ -484,55 +451,46 @@ private fun SyncedLyricsList(
         }
     }
 
+    val motion = LocalMotionPreferences.current
+    val introMs = lines.firstOrNull()?.timeMs ?: 0L
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().spicyFadeEdges(),
             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 180.dp),
-            verticalArrangement = Arrangement.spacedBy(26.dp)
+            verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
+            // The intro: dots until the first line, when it comes after a few seconds.
+            if (introMs > 3_000L) {
+                item(key = "intro") {
+                    SpicyInterlude(0L, introMs, positionMs, active = activeIndex < 0, reduceMotion = motion.reduceMotion)
+                }
+            }
             itemsIndexed(lines, key = { index, line -> "$index-${line.timeMs}" }) { index, line ->
                 val isActive = index == activeIndex
                 val isPast = index < activeIndex
                 val nextLineStartMs = lines.getOrNull(index + 1)?.timeMs
-
+                val state = when {
+                    isActive -> SpicyState.Active
+                    isPast -> SpicyState.Sung
+                    else -> SpicyState.NotSung
+                }
                 val alpha by animateFloatAsState(
-                    targetValue = when {
-                        isActive -> 1f
-                        isPast -> 0.60f
-                        else -> 0.46f
+                    targetValue = when (state) {
+                        SpicyState.Active -> 1f
+                        SpicyState.Sung -> Spicy.SUNG_LINE
+                        SpicyState.NotSung -> Spicy.NEXT_LINE
                     },
-                    animationSpec = tween(durationMillis = 220),
+                    animationSpec = tween(durationMillis = 260),
                     label = "lyricsAlpha"
                 )
-                val scale by animateFloatAsState(
-                    targetValue = 1f,
-                    animationSpec = tween(durationMillis = 260),
-                    label = "lyricsScale"
+                val distance = if (activeIndex < 0) index + 1 else abs(index - activeIndex)
+                val blurTarget = if (Build.VERSION.SDK_INT >= 31) Spicy.blur(distance) else 0.dp
+                val blurRadius by androidx.compose.animation.core.animateDpAsState(
+                    targetValue = blurTarget,
+                    animationSpec = tween(durationMillis = 300),
+                    label = "lyricsBlur"
                 )
-                val lineColor by animateColorAsState(
-                    targetValue = when {
-                        isActive -> activeColor
-                        isPast -> pastColor
-                        else -> futureColor
-                    },
-                    animationSpec = tween(durationMillis = 220),
-                    label = "lyricsColor"
-                )
-
-                val glowShadow = if (isActive) {
-                    Shadow(
-                        color = Color.White.copy(alpha = 0.50f),
-                        offset = Offset.Zero,
-                        blurRadius = 22f
-                    )
-                } else null
-                val distance = abs(index - activeIndex)
-                val blurRadius = if (!isActive && Build.VERSION.SDK_INT >= 31) {
-                    (1.2f + distance * 0.65f).coerceAtMost(5f).dp
-                } else {
-                    0.dp
-                }
 
                 Column(
                     modifier = Modifier
@@ -548,72 +506,58 @@ private fun SyncedLyricsList(
                             onSeekTo(line.timeMs.coerceIn(0L, lastSafe))
                         }
                         .padding(vertical = 2.dp)
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            transformOrigin = TransformOrigin(0.5f, 0.5f)
-                        }
+                        .graphicsLayer { this.alpha = alpha }
+                        .blur(blurRadius)
                 ) {
-                    val activeStyle = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 30.sp,
-                        lineHeight = 40.sp,
-                        shadow = glowShadow
-                    )
-                    val idleStyle = MaterialTheme.typography.titleMedium.copy(
+                    if (line.text.isBlank()) {
+                        // An instrumental pause: Spicy's breathing dots.
+                        SpicyInterlude(
+                            startMs = line.timeMs,
+                            endMs = nextLineStartMs ?: (line.timeMs + 4_000L),
+                            positionMs = positionMs,
+                            active = isActive,
+                            reduceMotion = motion.reduceMotion
+                        )
+                        return@Column
+                    }
+                    val lineStyle = MaterialTheme.typography.headlineSmall.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 30.sp,
                         lineHeight = 40.sp
                     )
-
-                    // Karaoke only when the source really has word timings (like Sonora);
-                    // otherwise a line-only sheet is highlighted line-level instead of a
-                    // fabricated per-word sweep. HighlightMode.WORD still forces estimation.
+                    // Word by word only when the source really has word timings; otherwise the
+                    // line sweeps as a whole. HighlightMode.WORD still estimates the words.
                     val hasRealWords = !line.wordTimings.isNullOrEmpty()
-                    val useKaraoke = when (highlightMode) {
+                    val useWords = when (highlightMode) {
                         HighlightMode.WORD -> true
                         HighlightMode.AUTO -> hasRealWords
                         HighlightMode.LINE -> false
                     }
-                    if (isActive && useKaraoke) {
-                        WordHighlightedLine(
-                            line = line,
-                            nextLineStartMs = nextLineStartMs,
-                            positionMs = positionMs,
-                            baseColor = lineColor,
-                            accentColor = activeColor,
-                            accentStyle = activeStyle,
-                            modifier = Modifier
-                                .alpha(alpha)
-                                .blur(blurRadius)
-                        )
-                    } else {
-                        Text(
-                            text = line.text,
-                            style = if (isActive) activeStyle else idleStyle,
-                            color = lineColor,
-                            modifier = Modifier
-                                .alpha(alpha)
-                                .blur(blurRadius),
-                            textAlign = TextAlign.Start
-                        )
-                    }
+                    val timed = remember(line, nextLineStartMs) { LyricsTiming.wordTimingsForLine(line, nextLineStartMs) }
+                    val tokens = remember(line.text) { LyricsTiming.splitWords(line.text) }
+                    val words = if (useWords && timed.size == tokens.size) timed else emptyList()
+                    SpicyLine(
+                        text = line.text,
+                        words = words,
+                        lineStartMs = line.timeMs,
+                        lineEndMs = timed.lastOrNull()?.endMs ?: (nextLineStartMs ?: (line.timeMs + 4_000L)),
+                        positionMs = positionMs,
+                        state = state,
+                        style = lineStyle,
+                        reduceMotion = motion.reduceMotion,
+                    )
 
                     val background = line.background?.takeIf { it.isNotBlank() }
                     if (background != null) {
                         Text(
                             text = background,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp,
-                                lineHeight = 24.sp,
-                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 20.sp,
+                                lineHeight = 28.sp
                             ),
-                            color = lineColor.copy(alpha = 0.58f),
-                            modifier = Modifier
-                                .alpha(alpha)
-                                .padding(top = 2.dp)
-                                .blur(blurRadius),
+                            color = Color.White.copy(alpha = if (isActive) 0.78f else 0.5f),
+                            modifier = Modifier.padding(top = 4.dp),
                             textAlign = TextAlign.Start
                         )
                     }
@@ -627,10 +571,8 @@ private fun SyncedLyricsList(
                                 fontSize = 15.sp,
                                 lineHeight = 22.sp
                             ),
-                            color = lineColor.copy(alpha = 0.65f),
-                            modifier = Modifier
-                                .alpha(alpha)
-                                .padding(top = 3.dp),
+                            color = Color.White.copy(alpha = 0.65f),
+                            modifier = Modifier.padding(top = 3.dp),
                             textAlign = TextAlign.Start
                         )
                     }
@@ -639,148 +581,6 @@ private fun SyncedLyricsList(
         }
 
     }
-}
-
-private enum class WordState { Sung, Active, Future }
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun WordHighlightedLine(
-    line: LyricLine,
-    nextLineStartMs: Long?,
-    positionMs: Long,
-    baseColor: Color,
-    accentColor: Color,
-    accentStyle: TextStyle,
-    modifier: Modifier = Modifier
-) {
-    val words = remember(line, nextLineStartMs) {
-        LyricsTiming.wordTimingsForLine(line, nextLineStartMs)
-    }
-    val tokens = remember(line.text) { LyricsTiming.splitWords(line.text) }
-
-    if (words.isEmpty() || tokens.size != words.size) {
-        Text(
-            text = line.text,
-            style = accentStyle,
-            color = baseColor,
-            modifier = modifier,
-            textAlign = TextAlign.Start
-        )
-        return
-    }
-
-    val activeWord = remember(positionMs, words) { LyricsTiming.activeWordIndex(words, positionMs) }
-    val motion = LocalMotionPreferences.current
-    val shineTransition = rememberInfiniteTransition(label = "karaokeShine")
-    val shine by shineTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "karaokeShineOffset"
-    )
-
-    // Each word is its own composable so its colour/scale can animate smoothly instead of
-    // snapping frame-to-frame. FlowRow keeps the natural word wrapping.
-    FlowRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
-        tokens.forEachIndexed { index, token ->
-            val state = when {
-                index < activeWord -> WordState.Sung
-                index == activeWord -> WordState.Active
-                else -> WordState.Future
-            }
-            KaraokeWord(
-                text = token,
-                state = state,
-                baseColor = baseColor,
-                accentColor = accentColor,
-                style = accentStyle,
-                animationMs = motion.standardMs,
-                reduceMotion = motion.reduceMotion,
-                shine = if (motion.reduceMotion) 0.5f else shine
-            )
-        }
-    }
-}
-
-@Composable
-private fun KaraokeWord(
-    text: String,
-    state: WordState,
-    baseColor: Color,
-    accentColor: Color,
-    style: TextStyle,
-    animationMs: Int,
-    reduceMotion: Boolean,
-    shine: Float
-) {
-    val targetColor = when (state) {
-        WordState.Sung -> baseColor
-        WordState.Active -> accentColor
-        WordState.Future -> baseColor.copy(alpha = 0.42f)
-    }
-    // Sung words crossfade to full brightness; the active word lights up in the accent colour.
-    val color by animateColorAsState(
-        targetValue = targetColor,
-        animationSpec = tween(durationMillis = animationMs),
-        label = "karaokeWordColor"
-    )
-
-    // Apple Music-like word bloom: the active word lifts and glows softly, then settles
-    // back as the next one takes over. Honours the reduce-motion preference.
-    val pop by animateFloatAsState(
-        targetValue = if (state == WordState.Active) 1f else 0f,
-        animationSpec = if (reduceMotion) tween(0) else spring(
-            dampingRatio = 0.46f,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "karaokeWordPop"
-    )
-    val scale = 1f + pop * 0.13f
-    val lift = with(LocalDensity.current) { (-pop * 2f).dp.toPx() }
-    val glow = if (pop > 0.01f) {
-        Shadow(
-            color = Color.White.copy(alpha = 0.70f * pop),
-            offset = Offset.Zero,
-            blurRadius = 26f * pop
-        )
-    } else {
-        null
-    }
-    val sheen = if (state == WordState.Active) {
-        Brush.linearGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.86f),
-                Color.White,
-                Color.White.copy(alpha = 0.86f)
-            ),
-            start = Offset(shine * 260f - 130f, 0f),
-            end = Offset(shine * 260f + 130f, 0f)
-        )
-    } else {
-        null
-    }
-
-    Text(
-        text = text,
-        style = style.copy(brush = sheen, shadow = glow),
-        color = color,
-        maxLines = 1,
-        softWrap = false,
-        modifier = Modifier.graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-            translationY = lift
-            transformOrigin = TransformOrigin(0.5f, 0.5f)
-        }
-    )
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────

@@ -36,6 +36,7 @@
   import Icon from "../../Icon.svelte";
   import { api } from "../../api";
   import { player } from "../../player.svelte";
+  import { isIdle } from "../../idle";
   import { nav } from "../../nav.svelte";
   import { themes } from "../../theme/theme.svelte";
   import { prefs } from "../../prefs.svelte";
@@ -104,6 +105,7 @@
   let placed = false;
   let pausedUntil = 0;
   let raf = 0;
+  let idleTimer = 0;
   let last = 0;
   let wokeAt = 0;
   let edges = "";
@@ -225,7 +227,17 @@
       }
     }
 
-    if (player.playing || scroll.moving || now - wokeAt < 900) raf = requestAnimationFrame(frame);
+    if (player.playing || scroll.moving || now - wokeAt < 900) schedule();
+  }
+
+  // In the background (a game in front) 30 sweeps a second are plenty, whatever the monitor's rate.
+  function schedule() {
+    if (!isIdle()) {
+      raf = requestAnimationFrame(frame);
+      return;
+    }
+    raf = -1;
+    idleTimer = window.setTimeout(() => (raf = requestAnimationFrame(frame)), 33);
   }
 
   // A new sheet: find its elements, measure, place without gliding.
@@ -269,7 +281,10 @@
     kick();
   });
 
-  onDestroy(() => cancelAnimationFrame(raf));
+  onDestroy(() => {
+    cancelAnimationFrame(raf);
+    clearTimeout(idleTimer);
+  });
 
   function seek(ms: number) {
     const to = Math.max(0, ms + offset);

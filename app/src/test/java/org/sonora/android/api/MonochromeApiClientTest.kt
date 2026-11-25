@@ -164,9 +164,27 @@ class MonochromeApiClientTest {
             }
         }
 
-        val result = client.resolveStream("Blinding Lights", "The Weeknd")
+        val result = client.resolveStream("Blinding Lights", "The Weeknd", durationMs = 200000L)
         assertTrue(result.isSuccess)
         assertTrue(recordedSuccess)
         assertTrue(recordedLatency >= 0L)
+    }
+
+    @Test
+    fun onlyTheSameRecordingIsPlayed() = runBlocking {
+        val client = object : MonochromeApiClient() {
+            override suspend fun searchTracks(query: String, limit: Int, baseUrl: String): Result<List<MonochromeTrack>> =
+                Result.success(
+                    listOf(
+                        MonochromeTrack(id = "1", trackId = "1", title = "Sorry Not Sorry", artistNames = listOf("Demi Lovato"), durationMs = 203000L, isrc = null, artwork = null, playable = true)
+                    )
+                )
+        }
+        // A title that only contains the picked one, and an unknown length: no Monochrome.
+        assertTrue(client.resolveStream("Sorry", "Demi Lovato", durationMs = 203000L).isFailure)
+        assertTrue(client.resolveStream("Sorry Not Sorry", "Demi Lovato").isFailure)
+        // Six seconds apart: another edit.
+        assertTrue(client.resolveStream("Sorry Not Sorry", "Demi Lovato", durationMs = 209000L).isFailure)
+        assertTrue(client.resolveStream("Sorry Not Sorry", "Demi Lovato", durationMs = 204000L).isSuccess)
     }
 }

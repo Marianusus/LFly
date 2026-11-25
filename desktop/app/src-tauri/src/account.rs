@@ -7,10 +7,8 @@
 //! Connect the same secret as the phone, so devices on the same account trust each other without
 //! a code. Signing in or out applies at once, without a restart.
 
-use std::path::PathBuf;
-
 use lfly_yt::{account, Account, AccountInfo, YtMusic};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 const LOGIN_LABEL: &str = "login";
@@ -38,11 +36,6 @@ const YTCFG_PROBE: &str = r#"(function () {
   }
 })()"#;
 
-#[derive(Default, Serialize, Deserialize)]
-pub struct Saved {
-    pub account: Option<Account>,
-    pub info: Option<AccountInfo>,
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,29 +47,7 @@ struct Probe {
     visitor_data: Option<String>,
 }
 
-fn path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("lfly").join("account.json"))
-}
-
-pub fn load() -> Saved {
-    path().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
-}
-
-fn save(saved: &Saved) -> Result<(), String> {
-    let path = path().ok_or("Nessuna cartella di configurazione")?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let bytes = serde_json::to_vec_pretty(saved).map_err(|e| e.to_string())?;
-    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-    // The cookies are a login: only this user may read them.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
-}
+pub use lfly_core::account::{load, save, Saved};
 
 #[tauri::command]
 pub fn account_get() -> Option<AccountInfo> {
@@ -161,9 +132,7 @@ pub async fn account_login_cancel(app: AppHandle) {
 /// Forgets the account (and the sign-in window's cookies), then restarts.
 #[tauri::command]
 pub async fn account_logout(app: AppHandle) -> Result<(), String> {
-    if let Some(path) = path() {
-        let _ = std::fs::remove_file(path);
-    }
+    lfly_core::account::forget();
     // The next sign-in starts from a clean browser (the windows share one cookie jar).
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.clear_all_browsing_data();

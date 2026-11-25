@@ -1,0 +1,10 @@
+[package]
+name = "lfly-mix"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LFly club Automix, the pure half: beat grids, energy, key, loudness, the transition planner and its curves"
+
+# No dependencies on purpose: everything here is arithmetic on samples and numbers, ported from the
+# Android app, so the audio engine can depend on it without pulling anything in.
+[dependencies]

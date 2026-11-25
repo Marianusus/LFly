@@ -14,6 +14,7 @@
 // changes, never while the window is hidden, and not at all when it is scrolled out of sight.
 
 import { scene } from "./scene";
+import { isIdle } from "../idle";
 
 /** Least time between two scene refreshes inside the lenses. */
 const LENS_SCENE_MS = 80;
@@ -264,7 +265,7 @@ class LensEngine {
     this.ro?.observe(el);
     if (!this.poll) {
       // Catches layout shifts nothing announces (images loading above, panels opening).
-      this.poll = window.setInterval(() => this.invalidate(), 400);
+      this.poll = window.setInterval(() => !isIdle() && this.invalidate(), 400);
     }
     this.invalidate();
     return () => {

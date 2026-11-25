@@ -249,6 +249,15 @@ open class MonochromeApiClient(
             }
         }
 
+        // The very recording the listener picked, or nothing: Monochrome is searched by name, so a
+        // song merely like it (another "Sorry", the original of a rework, another edit) must lose
+        // to YouTube, which plays the picked song by its id. Same length (known on both sides,
+        // within 4 s), same title (whole, or cleaned with the same version words), its artist.
+        if (targetDurationMs == null || targetDurationMs <= 0 || candidate.durationMs <= 0 ||
+            abs(targetDurationMs - candidate.durationMs) / 1000 > 4) {
+            return 0
+        }
+
         var score = 0
 
         // 1. Raw alphanumeric comparison (preserving version tags like 'extended', 'remix', 'live')
@@ -270,14 +279,18 @@ open class MonochromeApiClient(
             val candHasVersion = hasVersionKeyword(candidate.title)
             if (targetHasVersion == candHasVersion) {
                 score += 15
+            } else {
+                return 0
             }
-        } else if (cleanTargetAlpha.contains(cleanCandAlpha) || cleanCandAlpha.contains(cleanTargetAlpha)) {
-            score += 65
+        } else {
+            // A title that only contains the other one is another song.
+            return 0
         }
 
         val targetNormArtist = toAlphanumericOnly(cleanArtist(targetArtist))
         val candidateArtistsNorm = candidate.artistNames.map { toAlphanumericOnly(it) }
 
+        if (targetNormArtist.isBlank()) return 0
         if (targetNormArtist.isNotBlank()) {
             val hasArtistMatch = candidateArtistsNorm.any { cArtist ->
                 cArtist == targetNormArtist || cArtist.contains(targetNormArtist) || targetNormArtist.contains(cArtist)

@@ -58,7 +58,7 @@ pub fn save(dir: &Path, name: &str, value: &Value) -> Result<(), String> {
         return Err(format!("File sconosciuto: {name}"));
     }
     if !value.is_array() {
-        return Err("Serve un elenco".into());
+        return Err(crate::lang::pick("Serve un elenco", "A list is needed", "Este nevoie de o listă").into());
     }
     let path = dir.join(name);
     let tmp = path.with_extension("json.tmp");
@@ -70,9 +70,9 @@ pub fn save(dir: &Path, name: &str, value: &Value) -> Result<(), String> {
 /// every list in it reads.
 pub fn import_backup(backup: &Path, dir: &Path) -> Result<ImportSummary, String> {
     let file = std::fs::File::open(backup).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipArchive::new(file).map_err(|_| "Non è un backup di LFly".to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| crate::lang::pick("Non è un backup di LFly", "This is not an LFly backup", "Nu este un backup LFly").to_string())?;
     if zip.by_name("lfly-backup.json").is_err() {
-        return Err("Non è un backup di LFly".into());
+        return Err(crate::lang::pick("Non è un backup di LFly", "This is not an LFly backup", "Nu este un backup LFly").into());
     }
     let mut found: Vec<(&str, Value)> = Vec::new();
     for name in FILES {
@@ -85,12 +85,12 @@ pub fn import_backup(backup: &Path, dir: &Path) -> Result<ImportSummary, String>
         entry.read_to_string(&mut text).map_err(|e| format!("{name}: {e}"))?;
         let value: Value = serde_json::from_str(&text).map_err(|e| format!("{name}: {e}"))?;
         if !value.is_array() {
-            return Err(format!("{name} non è un elenco"));
+            return Err(crate::lang::pick("{} non è un elenco", "{} is not a list", "{} nu este o listă").replacen("{}", name, 1));
         }
         found.push((name, value));
     }
     if found.is_empty() {
-        return Err("Il backup non contiene una libreria".into());
+        return Err(crate::lang::pick("Il backup non contiene una libreria", "The backup holds no library", "Backupul nu conține o bibliotecă").into());
     }
     let count = |n: &str| found.iter().find(|(f, _)| *f == n).and_then(|(_, v)| v.as_array()).map_or(0, Vec::len);
     let summary = ImportSummary { favorites: count(FAVORITES), playlists: count(PLAYLISTS), history: count(HISTORY) };

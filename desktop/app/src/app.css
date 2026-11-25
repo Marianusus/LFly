@@ -641,3 +641,12 @@ input[type="range"]::-moz-range-thumb {
     background: var(--lfly-surface);
   }
 }
+
+/* ---- In the background (lib/idle.ts): decoration holds still ---- */
+/* Behind a game or another app, an infinite animation (playing bars, the drifting cover) still
+   repaints at the monitor's rate, and every glass surface over it re-blurs each frame.
+   Only the endless ones: a one-shot (a cover fading in, a menu opening) must still finish, or it
+   would stay on its first frame until the window is clicked. */
+:root[data-lfly-idle] :is(.eq i, .ambient img, .pulse, .where-dot, .dots i, .spinner, .spin, .sk-row, .sk-title, .sk-card, .sk-top, .sk-list div, .skeleton, .loading span) {
+  animation-play-state: paused !important;
+}

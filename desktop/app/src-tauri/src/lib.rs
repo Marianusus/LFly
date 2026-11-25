@@ -1,21 +1,19 @@
 //! LFly for the desktop. The core is Rust (player, YouTube Music, LFly Connect); the window shows it.
 
+// Moved to lfly-core: the paths `crate::queue::…` and friends keep working.
+use lfly_core::{discord, identity, library, player, store};
+
 mod account;
 mod covers;
-mod discord;
 mod drive;
 mod libsync;
 mod market;
 mod settings;
 mod spotify;
 mod downloads;
-mod identity;
-mod library;
 mod media;
-mod player;
-mod queue;
+mod player_host;
 mod yt;
-mod store;
 
 use lfly_connect::protocol::{Device, Message, TrackRef};
 use std::sync::Arc;
@@ -338,7 +336,13 @@ pub fn run() {
                 }
                 None => return Err("Non riesco a creare la cartella dei download".into()),
             }
-            let local = match LocalPlayer::new(app.handle().clone(), yt.clone(), me.id.clone()) {
+            let local = match LocalPlayer::new(
+                std::sync::Arc::new(player_host::TauriPlayerHost(app.handle().clone())),
+                tauri::async_runtime::handle().inner().clone(),
+                yt.clone(),
+                me.id.clone(),
+                dirs::cache_dir().unwrap_or_default().join("lfly").join("audio"),
+            ) {
                 Ok(p) => Some(p),
                 Err(e) => {
                     log::warn!("No local player: {e}");
