@@ -499,26 +499,7 @@ impl Tween {
     }
 }
 
-// --- the phone's word by word (LyricsView.kt, KaraokeWord) ---------------------------------
-
-/// The step response of the phone's word spring (Compose `spring(dampingRatio = 0.46,
-/// stiffness = StiffnessMediumLow)`): 0 before [ms] 0, toward 1 after, overshooting by about a fifth.
-fn spring_step(ms: f64) -> f64 {
-    if ms <= 0. {
-        return 0.;
-    }
-    let (w, z): (f64, f64) = (400f64.sqrt(), 0.46);
-    let r = (1. - z * z).sqrt();
-    let t = ms / 1000.;
-    1. - (-z * w * t).exp() * ((w * r * t).cos() + z / r * (w * r * t).sin())
-}
-
-/// How far a word has popped (lifted, grown, glowing) at [at]: it springs up when it is the one
-/// sung ([from]) and back down when the next one is ([until]). A spring is linear, so the two
-/// moves simply add, whatever their overlap: a pure function of the song's time, no state.
-pub fn pop(from: f64, until: f64, at: f64) -> f64 {
-    spring_step(at - from) - spring_step(at - until.max(from))
-}
+// --- word by word (the springs are in spicy.rs) -------------------------------------------
 
 /// When each word of a timed line is the one sung: (group index, from, until). Words are the
 /// groups that are not spaces; one is sung from its first syllable until the next word starts
@@ -531,14 +512,14 @@ pub fn word_spans(line: &LineModel) -> Vec<(usize, f64, f64)> {
     starts.iter().enumerate().map(|(k, &(i, from))| (i, from, starts.get(k + 1).map_or(line.exit, |n| n.1))).collect()
 }
 
-/// The phone's blur of a line [distance] lines from the one sung, as a Gaussian's sigma for
-/// lyrics 30 px tall (`blur((1.2 + 0.65·d).coerceAtMost(5).dp)`: Android turns a blur radius
-/// into a sigma of 0.577·r + 0.5 px).
+/// The blur of a line [distance] lines from the one sung, as a Gaussian's sigma for
+/// lyrics 30 px tall, after Spicy Lyrics (the phone's SpicyLyrics.kt blurs alike).
 pub fn line_blur(distance: usize) -> f64 {
     if distance == 0 {
         return 0.;
     }
-    0.577 * (1.2 + 0.65 * distance as f64).min(5.) + 0.18
+    // Spicy Lyrics' depth: 1.25 px of shadow blur a line (a sigma of half that), up to 6.8 px.
+    (0.5 + 0.625 * distance as f64).min(3.9)
 }
 
 #[cfg(test)]
@@ -622,20 +603,6 @@ mod tests {
         let d = f.decide(&m, &boxes, 1600., 400.).expect("line b comes in");
         assert_eq!((d.top, d.anchor, d.jump), (-73., 1, false));
         assert_eq!(max_scroll(&boxes, 400.), 0.);
-    }
-
-    #[test]
-    fn a_word_pops_up_and_settles_back() {
-        assert_eq!(pop(1000., 1400., 999.), 0.);
-        // Up past 1 (the spring overshoots), then about 1 while it is still the one sung.
-        let peak = (1000..1400).map(|t| pop(1000., 1400., t as f64)).fold(0f64, f64::max);
-        assert!(peak > 1.1 && peak < 1.3, "peak {peak}");
-        assert!((pop(1000., 3000., 2500.) - 1.).abs() < 0.01);
-        // And back down once the next word is sung.
-        assert!(pop(1000., 1400., 2400.).abs() < 0.01);
-        // A word sung for a moment still moves, less.
-        let short = (1000..1600).map(|t| pop(1000., 1040., t as f64)).fold(0f64, f64::max);
-        assert!(short > 0.05 && short < peak);
     }
 
     #[test]

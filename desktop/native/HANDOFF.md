@@ -64,6 +64,14 @@ Notes on these checks:
   - "Lex Amarni" was cut to "Le" (the artist split on "x "), which hid the word timings;
   - the lyrics clock follows Velocità.
 
+## What was done on 2026-11-25 (all committed)
+
+- **Lyrics in Spicy Lyrics' look** (github.com/Spikerko/spicy-lyrics, AGPL-3.0: only its numbers are taken, the code is ours), here and on the phone (`SpicyLyrics.kt`):
+  - `src/spicy.rs`: springs and curves. Each word sung grows (0.95 → 1.05 at 70% → 1), lifts and glows; words held 1 s or more go letter by letter (1.175); words not sung rest at 0.95.
+  - `motion::line_blur` takes Spicy's depth (1.25 px a line, up to 6.8). The old `pop` is gone.
+  - The lyrics page's ambient is saturated ×2.5 (`Ambient::saturation`).
+  - Checked headless: `tools/headless.sh OUT.png 30 LFLY_AUTOPLAY="Coldplay Viva La Vida" LFLY_SEEK="12@60000" LFLY_ROUTE=lyrics`.
+
 ## Open items, most useful first
 
 1. **Ask the user what they still see** after restarting the app:

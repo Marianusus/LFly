@@ -172,7 +172,7 @@ fn pixmap_image(pm: &Pixmap) -> Option<Arc<RenderImage>> {
 
 /// The ambient for a box of [w] x [h] logical px over [bg], from the cover's bytes. `dim` and
 /// `blur` as Ambient.svelte takes them (the full player: 0.42 and 80).
-pub fn paint(cover: &[u8], w: f32, h: f32, bg: Rgb, dim: f32, blur: f32) -> Option<Painted> {
+pub fn paint(cover: &[u8], w: f32, h: f32, bg: Rgb, dim: f32, blur: f32, saturation: f32) -> Option<Painted> {
     let src = image::load_from_memory(cover).ok()?.resize_to_fill(96, 96, image::imageops::FilterType::Triangle).to_rgba8();
     let src = premultiplied(&src)?;
     let (cw, ch) = ((w / STEP).ceil().max(8.), (h / STEP).ceil().max(8.));
@@ -194,7 +194,7 @@ pub fn paint(cover: &[u8], w: f32, h: f32, bg: Rgb, dim: f32, blur: f32) -> Opti
         pm.draw_pixmap(0, 0, src.as_ref(), &PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() }, t, Some(&mask));
         let mut l = Layer::from_pixmap(&pm);
         l.blur(sigma);
-        l.saturate(1.7);
+        l.saturate(saturation);
         Some(l)
     };
 
@@ -259,6 +259,8 @@ pub struct Ambient {
     pub moving: bool,
     dim: f32,
     blur: f32,
+    /// CSS saturate() of the copies: 1.7 as Tauri has it; the lyrics page takes Spicy Lyrics' 2.5.
+    pub saturation: f32,
     shown_url: Option<String>,
     bytes: Option<Arc<Vec<u8>>>,
     painted: (f32, f32),
@@ -285,6 +287,7 @@ impl Ambient {
             moving: false,
             dim,
             blur,
+            saturation: 1.7,
             shown_url: None,
             bytes: None,
             painted: (0., 0.),
@@ -318,14 +321,14 @@ impl Ambient {
             return;
         };
         self.busy = true;
-        let (bytes, bg, dim, blur, core) = (self.bytes.clone(), self.bg, self.dim, self.blur, self.core.clone());
+        let (bytes, bg, dim, blur, saturation, core) = (self.bytes.clone(), self.bg, self.dim, self.blur, self.saturation, self.core.clone());
         cx.spawn(async move |this, cx| {
             let bytes = match bytes {
                 Some(b) => Some(b),
                 None => core.fetch(url.clone()).await.map(Arc::new),
             };
             let painted = match bytes.clone() {
-                Some(b) => cx.background_executor().spawn(async move { paint(&b, w, h, bg, dim, blur) }).await,
+                Some(b) => cx.background_executor().spawn(async move { paint(&b, w, h, bg, dim, blur, saturation) }).await,
                 None => None,
             };
             let _ = this.update(cx, |this, cx| {
@@ -455,7 +458,7 @@ mod tests {
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
         let t = std::time::Instant::now();
-        assert!(paint(&bytes, 1100., 720., Rgb::hex(0x101014), 0.42, 80.).is_some());
+        assert!(paint(&bytes, 1100., 720., Rgb::hex(0x101014), 0.42, 80., 1.7).is_some());
         let took = t.elapsed();
         println!("ambient 1100x720: {took:?}");
     }

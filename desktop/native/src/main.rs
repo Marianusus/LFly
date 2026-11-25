@@ -50,6 +50,7 @@ mod scene;
 mod search;
 mod settings_page;
 mod sleep;
+mod spicy;
 mod spotify_account;
 mod spotify_import;
 mod sync;

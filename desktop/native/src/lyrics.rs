@@ -31,8 +31,9 @@ use crate::core::{track_of, Core};
 use crate::glass;
 use crate::icons::icon;
 use crate::look::Look;
-use crate::motion::{build_lines, is_live, light_of, line_blur, max_scroll, pop, word_spans, CubicBezier, Follower, LineBox, LineModel, Scroll, CUBIC_OUT, DARK, EDGE_WIDTH};
+use crate::motion::{build_lines, is_live, light_of, line_blur, max_scroll, word_spans, CubicBezier, Follower, LineBox, LineModel, Scroll, CUBIC_OUT, DARK, EDGE_WIDTH};
 use crate::player_model::PlayerModel;
+use crate::spicy;
 
 const OFFSETS_KEY: &str = "lyrics-offsets";
 /// The fog's own easing (cubic-bezier(0.22, 1, 0.36, 1), 450 ms).
@@ -210,6 +211,8 @@ struct Motion {
     browsed: f64,
     /// Each line's blur, deeper the farther it is from the one sung.
     blur: Vec<Blur>,
+    /// The springs of the words of the lines being sung (line, group), after Spicy Lyrics.
+    words: HashMap<(usize, usize), spicy::Word>,
 }
 
 impl Default for Motion {
@@ -234,6 +237,7 @@ impl Default for Motion {
             timer: false,
             browsed: -1e9,
             blur: Vec::new(),
+            words: HashMap::new(),
         }
     }
 }
@@ -586,6 +590,7 @@ impl Render for Lyrics {
             st.measured = None;
             st.on = vec![(false, -1e9); self.lines.len()];
             st.blur = vec![Blur::STILL; self.lines.len()];
+            st.words.clear();
         }
 
         let lines = self.lines.clone();
@@ -685,6 +690,7 @@ impl Render for Lyrics {
                 };
                 let at = clock - offset;
                 let dt = (now - st.last).min(64.);
+                let dt_s = dt as f32 / 1000.;
                 st.last = now;
 
                 if now >= st.paused_until {
@@ -803,12 +809,25 @@ impl Render for Lyrics {
                                 }
                             }
                         }
-                        // The sung word springs up (timed lines only, never with reduced motion).
-                        let mut pops = vec![0f32; line.groups.len()];
+                        // Spicy's springs: each word of a line being sung follows its own progress
+                        // (it grows, lifts, glows); the others rest, at 0.95 before their line starts
+                        // and at 1 after. Never with reduced motion.
+                        let ng = line.groups.len();
+                        let rest = if reduce || at >= line.start { 1. } else { spicy::IDLE };
+                        let mut wscale = vec![rest; ng];
+                        let mut wlift = vec![0f32; ng];
+                        let mut wglow = vec![0f32; ng];
+                        // The words held long enough to go letter by letter: when they are sung.
+                        let mut letters: Vec<Option<(f64, f64)>> = vec![None; ng];
                         if live && !reduce {
                             for &(gi, from, until) in &spans[i] {
-                                if at >= from && at < until + 1500. {
-                                    pops[gi] = pop(from, until, at) as f32;
+                                let w = st.words.entry((i, gi)).or_insert_with(spicy::Word::new);
+                                w.follow(from, until, at, dt_s);
+                                wscale[gi] = w.scale.pos;
+                                wlift[gi] = w.lift.pos;
+                                wglow[gi] = w.glow.pos;
+                                if until - from >= spicy::LETTER_MIN_MS {
+                                    letters[gi] = Some((from, until));
                                 }
                             }
                         }
@@ -817,24 +836,21 @@ impl Render for Lyrics {
                         placed.clear();
                         let mut oy = place(&shaped, text_origin, px(main_lh), align, px(text_w), &mut placed);
                         let ink_of = |p: &Placed| inks[letter.get(p.index).copied().unwrap_or(0) as usize];
-                        // Each popping word's middle, on its first row: what it grows around.
-                        let mut pivots: Vec<Option<(Pixels, Pixels, Pixels)>> = vec![None; line.groups.len()];
-                        if pops.iter().any(|p| p.abs() > 1e-3) {
-                            for p in &placed {
-                                let w = ink_of(p).word;
-                                if pops[w].abs() <= 1e-3 {
-                                    continue;
-                                }
-                                let e = pivots[w].get_or_insert((p.at.x, p.at.x + p.advance, p.row_top));
-                                if p.row_top == e.2 {
-                                    e.0 = e.0.min(p.at.x);
-                                    e.1 = e.1.max(p.at.x + p.advance);
-                                }
+                        // Each word's box on its first row (what it grows around) and its glyphs.
+                        let mut pivots: Vec<Option<(Pixels, Pixels, Pixels)>> = vec![None; ng];
+                        let mut counts = vec![0usize; ng];
+                        for p in &placed {
+                            let w = ink_of(p).word;
+                            counts[w] += 1;
+                            let e = pivots[w].get_or_insert((p.at.x, p.at.x + p.advance, p.row_top));
+                            if p.row_top == e.2 {
+                                e.0 = e.0.min(p.at.x);
+                                e.1 = e.1.max(p.at.x + p.advance);
                             }
                         }
-                        // A grown word pushes the others on its row aside (the phone's words have
-                        // room around them; these share the spaces), keeping the aligned edge put:
-                        // left-aligned rows grow to the right, centred ones both ways.
+                        // A grown word pushes the others on its row aside (a shrunk one draws them
+                        // in), keeping the aligned edge put: left-aligned rows grow to the right,
+                        // centred ones both ways.
                         let k_align = match align {
                             TextAlign::Left => 0.,
                             TextAlign::Center => 0.5,
@@ -844,8 +860,8 @@ impl Render for Lyrics {
                             let mut d = px(0.);
                             for (w, e) in pivots.iter().enumerate() {
                                 if let Some((x0, x1, top)) = *e {
-                                    if top == row {
-                                        let grow = (x1 - x0) * (0.13 * pops[w]);
+                                    if top == row && (wscale[w] - 1.).abs() > 1e-4 {
+                                        let grow = (x1 - x0) * (wscale[w] - 1.);
                                         d += grow * if x < x0 { -k_align } else if x >= x1 { 1. - k_align } else { 0.5 - k_align };
                                     }
                                 }
@@ -853,30 +869,50 @@ impl Render for Lyrics {
                             d
                         };
                         // The glows first, under every letter; then the letters.
+                        let mut nth = vec![0usize; ng];
                         for glow_pass in [true, false] {
+                            nth.iter_mut().for_each(|n| *n = 0);
                             for p in &placed {
                                 let k = ink_of(p);
-                                let pw = pops[k.word];
+                                let w = k.word;
                                 let dx = push(p.at.x, p.row_top);
-                                let (scale, lift, pivot) = match pivots[k.word] {
-                                    Some((x0, x1, top)) => {
-                                        let lift = px(2. * s * pw);
-                                        (1. + 0.13 * pw, lift, point((x0 + x1) / 2. + dx, top + px(main_lh / 2.) - lift))
+                                let (x0, x1, top) = pivots[w].unwrap_or((p.at.x, p.at.x + p.advance, p.row_top));
+                                let mut scale = wscale[w];
+                                let mut lift = px(-wlift[w] * size);
+                                let mut glow = wglow[w];
+                                let mut pivot = point((x0 + x1) / 2. + dx, top + px(main_lh / 2.) - lift);
+                                let mut shift = px(0.);
+                                if let Some((from, until)) = letters[w] {
+                                    // Letter by letter: each letter its share of the word's time. The
+                                    // word still grows as a whole (its neighbours make room for that);
+                                    // each letter grows on top of it, about its own middle.
+                                    let n = counts[w].max(1) as f32;
+                                    let kk = nth[w] as f32;
+                                    nth[w] += 1;
+                                    let pr = ((at - from) / (until - from)).clamp(0., 1.) as f32;
+                                    let lt = if at >= until { 1. } else { (pr * n - kk).clamp(0., 1.) };
+                                    let middle = p.at.x + dx + p.advance / 2.;
+                                    let moved = pivot.x + (middle - pivot.x) * scale;
+                                    shift = moved - middle;
+                                    scale *= spicy::LETTER_SCALE.at(lt) / spicy::SCALE.at(lt);
+                                    lift += px(-spicy::LETTER_LIFT.at(lt) * 2. * size);
+                                    if at >= from && at < until && pr * n >= kk {
+                                        glow = glow.max(spicy::GLOW.at(lt));
                                     }
-                                    None => (1., px(0.), p.at),
-                                };
-                                let at = point(p.at.x + dx, p.at.y - lift);
+                                    pivot = point(moved, p.row_top + px(main_lh / 2.) - lift);
+                                }
+                                let at_pt = point(p.at.x + dx + shift, p.at.y - lift);
                                 if p.emoji {
                                     if !glow_pass {
-                                        let _ = window.paint_emoji(at, p.font, p.glyph, px(size));
+                                        let _ = window.paint_emoji(at_pt, p.font, p.glyph, px(size));
                                     }
                                 } else if glow_pass {
-                                    let g = k.glow.max(0.7 * pw.clamp(0., 1.)) * alpha;
+                                    let g = k.glow.max(0.6 * glow.clamp(0., 1.)) * alpha;
                                     if g > 0.004 {
-                                        let _ = window.paint_glyph_fx(at, p.font, p.glyph, px(size), ink(g), glow_sigma, scale, pivot);
+                                        let _ = window.paint_glyph_fx(at_pt, p.font, p.glyph, px(size), ink(g), glow_sigma, scale, pivot);
                                     }
                                 } else {
-                                    let _ = window.paint_glyph_fx(at, p.font, p.glyph, px(size), ink(k.alpha * alpha), blur, scale, pivot);
+                                    let _ = window.paint_glyph_fx(at_pt, p.font, p.glyph, px(size), ink(k.alpha * alpha), blur, scale, pivot);
                                 }
                             }
                         }
@@ -900,6 +936,7 @@ impl Render for Lyrics {
                             }
                         }
                     }
+                    st.words.retain(|(li, _), _| lines.get(*li).is_some_and(|l| is_live(l, at)));
                     // "Testo da …", riding with the last line.
                     let y = last_y as f32 + 24.;
                     if show_source && y < view_h {
@@ -920,7 +957,8 @@ impl Render for Lyrics {
                     || st.fog_top.moving(now)
                     || st.fog_bottom.moving(now)
                     || now - st.browsed < BROWSE_MS + 50.
-                    || st.blur.iter().any(|b| b.moving(now));
+                    || st.blur.iter().any(|b| b.moving(now))
+                    || st.words.values().any(|w| w.moving());
                 // At most 60 a second, whatever the monitor's rate (a 180 Hz screen would draw
                 // three times the frames for a sweep nobody can tell apart); behind another
                 // window (a game), four.

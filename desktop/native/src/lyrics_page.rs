@@ -39,7 +39,12 @@ impl LyricsPage {
             cx.observe(&look, |_, _, cx| cx.notify()),
             cx.subscribe(&model, |_, _, _: &crate::player_model::PlayerEvent, cx| cx.notify()),
         ];
-        let ambient = cx.new(|_| Ambient::new(core, 0.5, 70.));
+        // Spicy Lyrics' background: the cover saturated ×2.5 and darker (brightness 0.65).
+        let ambient = cx.new(|_| {
+            let mut a = Ambient::new(core, 0.55, 70.);
+            a.saturation = 2.5;
+            a
+        });
         Self { model, covers, look, nav, lyrics, ambient, width: 1100., page_width: 820., height: 720., _subs: subs }
     }
 }
