@@ -1,6 +1,15 @@
 package org.sonora.android.ui.mix
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
+import org.sonora.android.playback.automix.AutomixPlanner
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.selection.selectable
@@ -287,7 +296,7 @@ fun PlaylistMixButton(
 fun PlaylistMixStatus(mixed: Boolean, canMix: Boolean, progress: MixAnalysisProgress?) {
     val scheme = LocalBackgroundScheme.current
     val text = when {
-        progress != null -> stringResource(R.string.playlist_mixing_analyzing, progress.done + 1, progress.total)
+        progress != null -> stringResource(R.string.playlist_mixing_analyzing, (progress.done + 1).coerceAtMost(progress.total), progress.total)
         !canMix && !mixed -> stringResource(R.string.playlist_mixing_needs_tracks)
         else -> return
     }
@@ -301,8 +310,9 @@ fun PlaylistMixStatus(mixed: Boolean, canMix: Boolean, progress: MixAnalysisProg
 }
 
 /**
- * The transition between two songs of a mixed playlist, as Spotify shows it: a slim row lined up
- * with the song titles, the transition's name and both tempos and keys; it opens the editor.
+ * The transition between two songs of a mixed playlist, as Spotify shows it: a dotted thread from
+ * one cover to the next and, on it, a pill with the transition's shape, its name and both tempos
+ * and keys. It opens the editor.
  */
 @Composable
 fun MixTransitionRow(
@@ -315,47 +325,105 @@ fun MixTransitionRow(
     val scheme = LocalBackgroundScheme.current
     val fromBpm = from?.tailBpm ?: from?.bpm
     val toBpm = to?.headBpm ?: to?.bpm
-    val matchable = fromBpm == null || toBpm == null || abs(toBpm / fromBpm - 1.0) <= 0.10
+    val matchable = fromBpm == null || toBpm == null || abs(toBpm / fromBpm - 1.0) <= AutomixPlanner.MAX_STRETCH
+    val active = !transition.isNone
+    val tint = if (active) scheme.accent else scheme.onBackgroundTertiary
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(start = Spacing.gutter + 48.dp + Spacing.sm, end = Spacing.gutter)
-            .heightIn(min = 40.dp),
+            .padding(start = Spacing.gutter + 23.dp, end = Spacing.gutter)
+            .heightIn(min = 44.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            if (matchable) Icons.Default.GraphicEq else Icons.Default.WarningAmber,
-            contentDescription = null,
-            tint = if (transition.isNone) scheme.onBackgroundTertiary else scheme.accent,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = transitionLabel(transition),
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-            color = scheme.onBackground,
-            maxLines = 1,
-        )
-        val detail = when {
-            !matchable -> stringResource(R.string.playlist_mixing_no_beatmatch)
-            fromBpm != null && toBpm != null -> "${fromBpm.roundToInt()} → ${toBpm.roundToInt()} BPM" +
-                (if (from?.key != null && to?.key != null) " · ${from.key.camelot} → ${to.key.camelot}" else "")
-            else -> null
-        }
-        if (detail != null) {
-            Text(
-                text = " · $detail",
-                style = MaterialTheme.typography.labelMedium,
-                color = scheme.onBackgroundSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+        // The thread between the two covers.
+        Canvas(Modifier.width(2.dp).height(44.dp)) {
+            drawLine(
+                tint.copy(alpha = 0.7f),
+                Offset(size.width / 2, 0f),
+                Offset(size.width / 2, size.height),
+                strokeWidth = size.width,
+                cap = StrokeCap.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())),
             )
-        } else {
-            Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.width(Spacing.md + 8.dp))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(if (active) scheme.accent.copy(alpha = 0.14f) else scheme.glassTint)
+                .border(BorderStroke(1.dp, if (active) scheme.accent.copy(alpha = 0.45f) else scheme.glassBorder), RoundedCornerShape(50))
+                .clickable(role = Role.Button, onClick = onClick)
+                .padding(start = 10.dp, end = 12.dp, top = 6.dp, bottom = 6.dp)
+                .weight(1f, fill = false),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (matchable) {
+                MiniCurve(transition.custom ?: transition.preset.recipe, none = transition.isNone, out = scheme.onBackground, inc = tint)
+            } else {
+                Icon(Icons.Default.WarningAmber, contentDescription = null, tint = scheme.onBackgroundSecondary, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = transitionLabel(transition),
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                color = scheme.onBackground,
+                maxLines = 1,
+            )
+            val detail = when {
+                !matchable -> stringResource(R.string.playlist_mixing_no_beatmatch)
+                fromBpm != null && toBpm != null -> "${fromBpm.roundToInt()} → ${toBpm.roundToInt()} BPM" +
+                    (if (from?.key != null && to?.key != null) " · ${from.key.camelot} → ${to.key.camelot}" else "")
+                else -> null
+            }
+            if (detail != null) {
+                Text(
+                    text = "  $detail",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = scheme.onBackgroundSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = scheme.onBackgroundSecondary, modifier = Modifier.size(16.dp))
         }
     }
+}
+
+/** A transition's shape in a few pixels: the outgoing level falling, the incoming one rising. */
+@Composable
+private fun MiniCurve(recipe: MixRecipe?, none: Boolean, out: Color, inc: Color, modifier: Modifier = Modifier.size(width = 22.dp, height = 14.dp)) {
+    Canvas(modifier) { drawCurves(recipe, none, out.copy(alpha = 0.8f), inc, 1.6.dp.toPx()) }
+}
+
+/** Draws [recipe]'s two levels across the box (or, with none, one song ending and the next starting). */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCurves(recipe: MixRecipe?, none: Boolean, out: Color, inc: Color, stroke: Float) {
+    val r = recipe ?: if (none) null else MixRecipe(VolumeCurve.CROSSFADE)
+    if (none || r == null) {
+        val mid = size.width / 2
+        val y = size.height * 0.2f
+        drawLine(out, Offset(0f, y), Offset(mid - stroke * 2, y), strokeWidth = stroke, cap = StrokeCap.Round)
+        drawLine(inc, Offset(mid + stroke * 2, y), Offset(size.width, y), strokeWidth = stroke, cap = StrokeCap.Round)
+        return
+    }
+    val steps = 40
+    val outPath = androidx.compose.ui.graphics.Path()
+    val inPath = androidx.compose.ui.graphics.Path()
+    for (i in 0..steps) {
+        val p = i / steps.toFloat()
+        val frame = org.sonora.android.playback.automix.TransitionCurves.frame(r, p, swapWidth = 1f / 32)
+        val x = p * size.width
+        val yOut = size.height * (1f - 0.9f * presence(frame.outgoing)) + stroke / 2
+        val yIn = size.height * (1f - 0.9f * presence(frame.incoming)) + stroke / 2
+        if (i == 0) {
+            outPath.moveTo(x, yOut); inPath.moveTo(x, yIn)
+        } else {
+            outPath.lineTo(x, yOut); inPath.lineTo(x, yIn)
+        }
+    }
+    val style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+    drawPath(outPath, out, style = style)
+    drawPath(inPath, inc, style = style)
 }
 
 /** Smart Reorder's suggestion, to apply or keep the current order. */
@@ -439,6 +507,7 @@ fun TransitionEditorDialog(model: PlaylistMixModel, onClose: () -> Unit) {
                 .background(SonoraOpaqueSurfaceCard),
         ) {
             val current = data
+            EditorBackdrop(current?.outgoing?.track?.coverUrl, current?.incoming?.track?.coverUrl)
             if (current == null) {
                 Column(
                     modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -479,6 +548,7 @@ private fun EditorContent(
     val plan = remember(data, transition) { model.plan(data, transition) }
     val changed = transition != data.saved
     val playing = preview?.playing == true
+    val preparing by model.previewPreparing.collectAsState()
 
     fun change(next: MixTransition) {
         if (next == transition) return
@@ -493,23 +563,30 @@ private fun EditorContent(
         if (changed) showDiscard = true else onClose()
     }
 
+    androidx.activity.compose.BackHandler(onBack = ::close)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // Bar: a way out, a short title naming the task, and Save as the one prominent action.
+        // Bar: a way out, the task's name, and Save as the one prominent action.
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.xs).heightIn(min = 52.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = ::close) {
-                Text(stringResource(R.string.playlist_mixing_cancel), color = scheme.onBackground)
+            IconButton(onClick = ::close, modifier = Modifier.size(44.dp)) {
+                Box(
+                    Modifier.size(36.dp).clip(CircleShape).background(scheme.glassTint).border(BorderStroke(1.dp, scheme.glassBorder), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.playlist_mixing_cancel), tint = scheme.onBackground, modifier = Modifier.size(20.dp))
+                }
             }
             Text(
                 stringResource(R.string.playlist_mixing_edit_title_short),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = scheme.onBackground,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f),
@@ -517,6 +594,7 @@ private fun EditorContent(
             )
             Box(
                 modifier = Modifier
+                    .padding(end = Spacing.xs)
                     .heightIn(min = 36.dp)
                     .clip(RoundedCornerShape(50))
                     .background(if (changed) scheme.accent else scheme.glassTint)
@@ -525,7 +603,7 @@ private fun EditorContent(
                         model.stopPreview()
                         onClose()
                     }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -539,17 +617,19 @@ private fun EditorContent(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Spacing.gutter),
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
-            WaveformPanel(
+            EditorHero(data, modifier = Modifier.padding(horizontal = Spacing.gutter))
+
+            TimelinePanel(
                 data = data,
                 plan = plan,
                 transition = transition,
                 previewProgress = preview?.progress,
                 onExit = { change(transition.copy(exitMs = it)) },
                 onEntry = { change(transition.copy(entryMs = it)) },
+                modifier = Modifier.padding(horizontal = Spacing.gutter),
             )
 
             // Transport: undo and redo either side of the preview, where the result is heard.
@@ -567,24 +647,41 @@ private fun EditorContent(
                         )
                     }
                     val canPlay = !transition.isNone && plan != null
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape)
-                            .background(if (canPlay) scheme.accent else scheme.glassTint)
-                            .clickable(enabled = canPlay, role = Role.Button) {
-                                if (playing) model.stopPreview() else plan?.let { model.preview(data, it) }
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = if (playing) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = stringResource(
-                                if (playing) R.string.playlist_mixing_stop_preview else R.string.playlist_mixing_play_preview
-                            ),
-                            tint = if (canPlay) onColorFor(scheme.accent) else scheme.onBackgroundTertiary,
-                            modifier = Modifier.size(34.dp),
-                        )
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(76.dp)) {
+                        // The preview's progress runs around the button.
+                        val progress = preview?.progress?.takeIf { playing } ?: 0f
+                        Canvas(Modifier.fillMaxSize()) {
+                            val w = 3.dp.toPx()
+                            drawCircle(scheme.onBackground.copy(alpha = 0.12f), radius = size.minDimension / 2 - w / 2, style = androidx.compose.ui.graphics.drawscope.Stroke(w))
+                            if (progress > 0f) {
+                                drawArc(
+                                    scheme.accent, -90f, 360f * progress, false,
+                                    topLeft = Offset(w / 2, w / 2), size = Size(size.width - w, size.height - w),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = StrokeCap.Round),
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(62.dp)
+                                .clip(CircleShape)
+                                .background(if (canPlay) scheme.accent else scheme.glassTint)
+                                .clickable(enabled = canPlay, role = Role.Button) {
+                                    if (playing || preparing) model.stopPreview() else plan?.let { model.preview(data, it) }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (preparing) {
+                                CircularProgressIndicator(color = onColorFor(scheme.accent), strokeWidth = 2.5.dp, modifier = Modifier.size(28.dp))
+                            } else Icon(
+                                imageVector = if (playing) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = stringResource(
+                                    if (playing) R.string.playlist_mixing_stop_preview else R.string.playlist_mixing_play_preview
+                                ),
+                                tint = if (canPlay) onColorFor(scheme.accent) else scheme.onBackgroundTertiary,
+                                modifier = Modifier.size(32.dp),
+                            )
+                        }
                     }
                     IconButton(enabled = redo.isNotEmpty(), modifier = Modifier.size(48.dp), onClick = {
                         model.stopPreview()
@@ -601,7 +698,8 @@ private fun EditorContent(
                 Spacer(Modifier.height(Spacing.xs))
                 Text(
                     text = if (plan != null && !transition.isNone) {
-                        stringResource(R.string.playlist_mixing_bars, plan.bars) + " · " + "%.1f s".format(plan.mixMs / 1_000.0)
+                        stringResource(R.string.playlist_mixing_bars, plan.bars) + " · " + "%.1f s".format(plan.mixMs / 1_000.0) +
+                            (if (plan.beatMatched) " · " + stringResource(R.string.playlist_mixing_beatmatching) else "")
                     } else {
                         presetLabel(MixPreset.NONE)
                     },
@@ -610,8 +708,8 @@ private fun EditorContent(
                 )
             }
 
-            // Presets: every one on screen, each drawn as the shape it gives the two songs.
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Presets: a row of cards, each drawn as the shape it gives the two songs.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = Spacing.gutter)) {
                 SectionHeader(stringResource(R.string.playlist_mixing_presets), modifier = Modifier.weight(1f))
                 // Changed ingredients leave every preset unselected: say what is playing instead.
                 if (transition.custom != null) {
@@ -622,121 +720,122 @@ private fun EditorContent(
                     )
                 }
             }
-            val presets = MixPreset.SHOWN
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                presets.chunked(4).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        row.forEach { preset ->
-                            val recipe = if (preset == MixPreset.AUTO) plan?.let { p -> p.autoPreset?.recipe ?: p.recipe } else preset.recipe
-                            val label = if (preset == MixPreset.AUTO && plan?.autoPreset != null) {
-                                stringResource(R.string.playlist_mixing_auto_is, presetLabel(plan.autoPreset))
-                            } else {
-                                presetLabel(preset)
-                            }
-                            PresetTile(
-                                label = label,
-                                recipe = recipe,
-                                none = preset == MixPreset.NONE,
-                                selected = transition.custom == null && transition.preset == preset,
-                                onClick = { change(transition.copy(preset = preset, custom = null)) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.gutter),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                MixPreset.SHOWN.forEach { preset ->
+                    val recipe = if (preset == MixPreset.AUTO) plan?.let { p -> p.autoPreset?.recipe ?: p.recipe } else preset.recipe
+                    PresetCard(
+                        label = presetLabel(preset),
+                        caption = if (preset == MixPreset.AUTO) plan?.autoPreset?.let { presetLabel(it) } else null,
+                        recipe = recipe,
+                        none = preset == MixPreset.NONE,
+                        selected = transition.custom == null && transition.preset == preset,
+                        onClick = { change(transition.copy(preset = preset, custom = null)) },
+                    )
                 }
             }
 
             if (!transition.isNone) {
-                GroupCard {
-                    Column(modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.md)) {
-                        Text(
-                            stringResource(R.string.playlist_mixing_duration_bars),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = scheme.onBackground,
-                        )
-                        Spacer(Modifier.height(Spacing.sm))
-                        Segmented(
-                            options = listOf<Int?>(null) + DURATION_SEGMENTS,
-                            selected = transition.bars,
-                            label = { it?.toString() ?: presetLabel(MixPreset.AUTO) },
-                            onSelect = { change(transition.copy(bars = it)) },
-                        )
-                    }
-                    GroupDivider()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .toggleable(
-                                value = transition.beatmatch && data.beatmatchPossible,
-                                enabled = data.beatmatchPossible,
-                                role = Role.Switch,
-                                onValueChange = { change(transition.copy(beatmatch = it)) },
-                            )
-                            .padding(horizontal = Spacing.md, vertical = Spacing.sm)
-                            .heightIn(min = 52.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.playlist_mixing_beatmatching), style = MaterialTheme.typography.bodyLarge, color = scheme.onBackground)
-                            Text(
-                                stringResource(
-                                    if (data.beatmatchPossible) R.string.playlist_mixing_beatmatching_desc else R.string.playlist_mixing_no_beatmatch
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = scheme.onBackgroundSecondary,
-                            )
-                        }
-                        Switch(
-                            checked = transition.beatmatch && data.beatmatchPossible,
-                            onCheckedChange = null,
-                            enabled = data.beatmatchPossible,
-                            colors = SwitchDefaults.colors(checkedTrackColor = scheme.accent),
-                        )
-                    }
-                }
-
-                // Customize: progressive disclosure for the ingredients behind the presets.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(role = Role.Button) { customize = !customize }
-                        .heightIn(min = 44.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SectionHeader(stringResource(R.string.playlist_mixing_customize), modifier = Modifier.weight(1f))
-                    Icon(
-                        if (customize) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = scheme.onBackgroundSecondary,
-                    )
-                }
-                AnimatedVisibility(visible = customize) {
-                    val base = transition.custom ?: plan?.recipe ?: MixRecipe(VolumeCurve.CROSSFADE)
-                    fun custom(recipe: MixRecipe) = change(transition.copy(custom = recipe.copy(riser = false)))
+                Column(Modifier.padding(horizontal = Spacing.gutter), verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
                     GroupCard {
-                        MenuRow(stringResource(R.string.playlist_mixing_volume), VolumeCurve.entries, base.volume, { volumeLabel(it) }) {
-                            custom(base.copy(volume = it))
+                        Column(modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.md)) {
+                            Text(
+                                stringResource(R.string.playlist_mixing_duration_bars),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = scheme.onBackground,
+                            )
+                            Spacer(Modifier.height(Spacing.sm))
+                            Segmented(
+                                options = listOf<Int?>(null) + DURATION_SEGMENTS,
+                                selected = transition.bars,
+                                label = { it?.toString() ?: presetLabel(MixPreset.AUTO) },
+                                onSelect = { change(transition.copy(bars = it)) },
+                            )
                         }
                         GroupDivider()
-                        MenuRow(stringResource(R.string.playlist_mixing_eq), EqCurve.entries, base.eq, { eqLabel(it) }) {
-                            custom(base.copy(eq = it))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = transition.beatmatch && data.beatmatchPossible,
+                                    enabled = data.beatmatchPossible,
+                                    role = Role.Switch,
+                                    onValueChange = { change(transition.copy(beatmatch = it)) },
+                                )
+                                .padding(horizontal = Spacing.md, vertical = Spacing.sm)
+                                .heightIn(min = 52.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.playlist_mixing_beatmatching), style = MaterialTheme.typography.bodyLarge, color = scheme.onBackground)
+                                Text(
+                                    stringResource(
+                                        if (data.beatmatchPossible) R.string.playlist_mixing_beatmatching_desc else R.string.playlist_mixing_no_beatmatch
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = scheme.onBackgroundSecondary,
+                                )
+                            }
+                            Switch(
+                                checked = transition.beatmatch && data.beatmatchPossible,
+                                onCheckedChange = null,
+                                enabled = data.beatmatchPossible,
+                                colors = SwitchDefaults.colors(checkedTrackColor = scheme.accent),
+                            )
                         }
-                        GroupDivider()
-                        SegmentRow(stringResource(R.string.playlist_mixing_filter_in), base.filterIn) { custom(base.copy(filterIn = it)) }
-                        GroupDivider()
-                        SegmentRow(stringResource(R.string.playlist_mixing_filter_out), base.filterOut) { custom(base.copy(filterOut = it)) }
-                        GroupDivider()
-                        MenuRow(stringResource(R.string.playlist_mixing_effects), EffectCurve.entries, base.effect, { effectLabel(it) }) {
-                            custom(base.copy(effect = it))
+                    }
+
+                    // Customize: progressive disclosure for the ingredients behind the presets.
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(role = Role.Button) { customize = !customize }
+                                .heightIn(min = 44.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, tint = scheme.onBackgroundSecondary, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(Spacing.sm))
+                            SectionHeader(stringResource(R.string.playlist_mixing_customize), modifier = Modifier.weight(1f))
+                            Icon(
+                                if (customize) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = scheme.onBackgroundSecondary,
+                            )
                         }
-                        GroupDivider()
-                        MenuRow(stringResource(R.string.playlist_mixing_jogwheel), JogwheelCurve.entries, base.jogwheel, { jogwheelLabel(it) }) {
-                            custom(base.copy(jogwheel = it))
-                        }
-                        GroupDivider()
-                        MenuRow(stringResource(R.string.playlist_mixing_looping), LoopCurve.entries, base.loop, { loopLabel(it) }) {
-                            custom(base.copy(loop = it))
+                        AnimatedVisibility(visible = customize) {
+                            val base = transition.custom ?: plan?.recipe ?: MixRecipe(VolumeCurve.CROSSFADE)
+                            fun custom(recipe: MixRecipe) = change(transition.copy(custom = recipe.copy(riser = false)))
+                            Column(Modifier.padding(top = Spacing.sm)) {
+                                GroupCard {
+                                    MenuRow(stringResource(R.string.playlist_mixing_volume), VolumeCurve.entries, base.volume, { volumeLabel(it) }) {
+                                        custom(base.copy(volume = it))
+                                    }
+                                    GroupDivider()
+                                    MenuRow(stringResource(R.string.playlist_mixing_eq), EqCurve.entries, base.eq, { eqLabel(it) }) {
+                                        custom(base.copy(eq = it))
+                                    }
+                                    GroupDivider()
+                                    SegmentRow(stringResource(R.string.playlist_mixing_filter_in), base.filterIn) { custom(base.copy(filterIn = it)) }
+                                    GroupDivider()
+                                    SegmentRow(stringResource(R.string.playlist_mixing_filter_out), base.filterOut) { custom(base.copy(filterOut = it)) }
+                                    GroupDivider()
+                                    MenuRow(stringResource(R.string.playlist_mixing_effects), EffectCurve.entries, base.effect, { effectLabel(it) }) {
+                                        custom(base.copy(effect = it))
+                                    }
+                                    GroupDivider()
+                                    MenuRow(stringResource(R.string.playlist_mixing_jogwheel), JogwheelCurve.entries, base.jogwheel, { jogwheelLabel(it) }) {
+                                        custom(base.copy(jogwheel = it))
+                                    }
+                                    GroupDivider()
+                                    MenuRow(stringResource(R.string.playlist_mixing_looping), LoopCurve.entries, base.loop, { loopLabel(it) }) {
+                                        custom(base.copy(loop = it))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -764,6 +863,138 @@ private fun EditorContent(
                     Text(stringResource(R.string.playlist_mixing_discard), color = scheme.onBackgroundSecondary)
                 }
             },
+        )
+    }
+}
+
+/** The two songs, as Spotify opens its editor: both covers leaning together with the mix between them. */
+@Composable
+private fun EditorHero(data: TransitionEditorData, modifier: Modifier = Modifier) {
+    val scheme = LocalBackgroundScheme.current
+    val out = data.outgoing
+    val inc = data.incoming
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.height(128.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            listOf(Triple(out.track, -46.dp, -7f), Triple(inc.track, 46.dp, 7f)).forEach { (track, dx, angle) ->
+                AsyncImage(
+                    model = track.coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .offset(x = dx)
+                        .graphicsLayer { rotationZ = angle }
+                        .size(112.dp)
+                        .shadow(18.dp, RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(scheme.glassTint),
+                )
+            }
+            Box(
+                Modifier
+                    .size(46.dp)
+                    .shadow(10.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(scheme.accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.GraphicEq, contentDescription = null, tint = onColorFor(scheme.accent), modifier = Modifier.size(24.dp))
+            }
+        }
+        Spacer(Modifier.height(Spacing.md))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SongLabel(out.track, stringResource(R.string.playlist_mixing_out_label), Alignment.End, Modifier.weight(1f))
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = scheme.onBackgroundSecondary, modifier = Modifier.padding(horizontal = 10.dp).size(18.dp))
+            SongLabel(inc.track, stringResource(R.string.playlist_mixing_in_label), Alignment.Start, Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(Spacing.sm))
+        // Tempo and key, from the outgoing song's ending to the incoming one's start.
+        val fromBpm = out.info.tailBpm ?: out.info.bpm
+        val toBpm = inc.info.headBpm ?: inc.info.bpm
+        val fromKey = out.info.key
+        val toKey = inc.info.key
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (fromBpm != null && toBpm != null) {
+                InfoChip("${fromBpm.roundToInt()} → ${toBpm.roundToInt()} BPM", good = abs(toBpm / fromBpm - 1.0) <= AutomixPlanner.MAX_STRETCH)
+            }
+            if (fromKey != null && toKey != null) {
+                val near = fromKey.distance(toKey) <= 1
+                InfoChip(
+                    "${fromKey.camelot} → ${toKey.camelot} · " + stringResource(if (near) R.string.playlist_mixing_keys_match else R.string.playlist_mixing_keys_clash),
+                    good = near,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SongLabel(track: Track, label: String, align: Alignment.Horizontal, modifier: Modifier) {
+    val scheme = LocalBackgroundScheme.current
+    val textAlign = if (align == Alignment.End) TextAlign.End else TextAlign.Start
+    Column(modifier, horizontalAlignment = align) {
+        Text(
+            label.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+            color = scheme.onBackgroundTertiary,
+        )
+        Text(
+            track.title,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+            color = scheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = textAlign,
+        )
+        Text(
+            track.artist,
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onBackgroundSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = textAlign,
+        )
+    }
+}
+
+@Composable
+private fun InfoChip(text: String, good: Boolean) {
+    val scheme = LocalBackgroundScheme.current
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(scheme.glassTint)
+            .border(BorderStroke(1.dp, scheme.glassBorder), RoundedCornerShape(50))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(6.dp).clip(CircleShape).background(if (good) scheme.accent else Color(0xFFFFB020)))
+        Spacer(Modifier.width(6.dp))
+        Text(text, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = scheme.onBackground, maxLines = 1)
+    }
+}
+
+/** Behind the editor: the two covers side by side, blurred and darkened. */
+@Composable
+private fun EditorBackdrop(outCover: String?, inCover: String?) {
+    Box(Modifier.fillMaxSize().background(SonoraOpaqueSurfaceCard)) {
+        Row(Modifier.fillMaxSize().blur(70.dp)) {
+            listOf(outCover, inCover).forEach { url ->
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                )
+            }
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.45f),
+                    0.4f to Color.Black.copy(alpha = 0.7f),
+                    1f to Color.Black.copy(alpha = 0.9f),
+                )
+            )
         )
     }
 }
@@ -890,63 +1121,57 @@ private fun <T> Segmented(options: List<T>, selected: T, label: @Composable (T) 
 }
 
 /**
- * A preset drawn as what it does: the outgoing song's level (plain) falling and the incoming one's
- * (accent) rising across the mix, with filters and EQ cuts thinning each line where they act.
+ * A preset card of the carousel: its shape drawn large (the outgoing song's level in white, the
+ * incoming one's in the accent), its name under it, a check when chosen.
  */
 @Composable
-private fun PresetTile(label: String, recipe: MixRecipe?, none: Boolean, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun PresetCard(label: String, caption: String?, recipe: MixRecipe?, none: Boolean, selected: Boolean, onClick: () -> Unit) {
     val scheme = LocalBackgroundScheme.current
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(18.dp)
     Column(
-        modifier = modifier
-            .clip(shape)
-            .background(if (selected) scheme.accent.copy(alpha = 0.16f) else scheme.glassTint)
-            .border(BorderStroke(if (selected) 2.dp else 1.dp, if (selected) scheme.accent else scheme.glassBorder), shape)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = Spacing.sm),
+        modifier = Modifier
+            .width(104.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val outColor = scheme.onBackground.copy(alpha = 0.75f)
-        val inColor = scheme.accent
-        Canvas(modifier = Modifier.fillMaxWidth().height(34.dp)) {
-            val stroke = 2.5.dp.toPx()
-            if (none || recipe == null) {
-                // One song ends, then the next one starts.
-                val mid = size.width / 2
-                drawLine(outColor, Offset(0f, size.height * 0.2f), Offset(mid - 4.dp.toPx(), size.height * 0.2f), strokeWidth = stroke, cap = StrokeCap.Round)
-                drawLine(inColor, Offset(mid + 4.dp.toPx(), size.height * 0.2f), Offset(size.width, size.height * 0.2f), strokeWidth = stroke, cap = StrokeCap.Round)
-                return@Canvas
+        Box(
+            Modifier
+                .size(104.dp, 78.dp)
+                .clip(shape)
+                .background(if (selected) scheme.accent.copy(alpha = 0.18f) else scheme.glassTint)
+                .border(BorderStroke(if (selected) 2.dp else 1.dp, if (selected) scheme.accent else scheme.glassBorder), shape)
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawCurves(recipe, none, scheme.onBackground.copy(alpha = 0.8f), scheme.accent, 3.dp.toPx())
             }
-            val steps = 40
-            val outPath = androidx.compose.ui.graphics.Path()
-            val inPath = androidx.compose.ui.graphics.Path()
-            for (i in 0..steps) {
-                val p = i / steps.toFloat()
-                val frame = org.sonora.android.playback.automix.TransitionCurves.frame(recipe, p, swapWidth = 1f / 32)
-                val x = p * size.width
-                val yOut = size.height * (1f - 0.85f * presence(frame.outgoing))
-                val yIn = size.height * (1f - 0.85f * presence(frame.incoming))
-                if (i == 0) {
-                    outPath.moveTo(x, yOut)
-                    inPath.moveTo(x, yIn)
-                } else {
-                    outPath.lineTo(x, yOut)
-                    inPath.lineTo(x, yIn)
+            if (selected) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-8).dp).size(18.dp).clip(CircleShape).background(scheme.accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = onColorFor(scheme.accent), modifier = Modifier.size(12.dp))
                 }
             }
-            val style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke, cap = StrokeCap.Round)
-            drawPath(outPath, outColor, style = style)
-            drawPath(inPath, inColor, style = style)
         }
         Spacer(Modifier.height(6.dp))
         Text(
             label,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold),
-            color = scheme.onBackground,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold),
+            color = if (selected) scheme.accent else scheme.onBackground,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (caption != null) {
+            Text(
+                caption,
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onBackgroundSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -963,77 +1188,98 @@ private fun presence(deck: org.sonora.android.playback.automix.DeckMix): Float {
 }
 
 /**
- * Both songs' waveforms on the outgoing song's clock, the mix shaded where they overlap. Dragging a
+ * Both songs on one timeline, the outgoing song's clock: the outgoing waveform on top, the incoming
+ * one under it, the mix shaded across both with the transition's two levels drawn over it. Dragging a
  * waveform moves that song's mix point; it snaps to the nearest bar line when the finger lifts.
  */
 @Composable
-private fun WaveformPanel(
+private fun TimelinePanel(
     data: TransitionEditorData,
     plan: EditorPlan?,
     transition: MixTransition,
     previewProgress: Float?,
     onExit: (Long) -> Unit,
     onEntry: (Long) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scheme = LocalBackgroundScheme.current
-    val exit = plan?.exitMs ?: (data.outgoing.track.durationMs - 5_000L)
+    val exit = plan?.exitMs ?: (data.outgoing.track.durationMs - 5_000L).coerceAtLeast(0L)
     val entry = plan?.entryMs ?: 0L
     val mix = plan?.mixMs ?: 5_000L
     val rate = plan?.incomingRate ?: 1f
-    // The view: a little before the mix to a little after it, on the outgoing song's clock.
+    // The view: a little before the mix to a little after it.
     val margin = (mix * 0.45).toLong().coerceAtLeast(4_000L)
     val viewStart = exit - margin
     val viewSpan = (mix + 2 * margin).toFloat()
     var exitDrag by remember(data, exit) { mutableFloatStateOf(0f) }
     var entryDrag by remember(data, entry) { mutableFloatStateOf(0f) }
+    val enabled = !transition.isNone
+    val playhead = previewProgress?.let { playheadMs(it, exit, mix, data) }
+    val recipe = transition.custom ?: plan?.recipe
+    val shape = RoundedCornerShape(20.dp)
 
-    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        TrackHeader(data.outgoing.track, data.outgoing.info, stringResource(R.string.playlist_mixing_out_label), ending = true)
-        WaveformLane(
-            wave = data.outgoing.waveform,
-            toView = { songMs -> songMs },
-            viewStart = viewStart,
-            viewSpan = viewSpan,
-            mixStart = exit,
-            mixMs = mix,
-            dragMs = exitDrag,
-            color = scheme.onBackground,
-            accent = scheme.accent,
-            playhead = previewProgress?.let { playheadMs(it, exit, mix, data) },
-            enabled = !transition.isNone,
-            onDrag = { exitDrag = it },
-            onDragEnd = { msShift ->
-                val wanted = exit + msShift.toLong()
-                val snapped = plan?.exitChoicesMs?.minByOrNull { abs(it - wanted) } ?: wanted
-                exitDrag = 0f
-                if (snapped != exit) onExit(snapped)
-            },
-        )
-        WaveformLane(
-            wave = data.incoming.waveform,
-            toView = { songMs -> exit + ((songMs - entry) / rate).toLong() },
-            viewStart = viewStart,
-            viewSpan = viewSpan,
-            mixStart = exit,
-            mixMs = mix,
-            dragMs = entryDrag,
-            color = scheme.onBackground,
-            accent = scheme.accent,
-            playhead = previewProgress?.let { playheadMs(it, exit, mix, data) },
-            enabled = !transition.isNone,
-            onDrag = { entryDrag = it },
-            onDragEnd = { msShift ->
-                val wanted = entry + (msShift * rate).toLong()
-                val snapped = plan?.entryChoicesMs?.minByOrNull { abs(it - wanted) } ?: wanted.coerceAtLeast(0L)
-                entryDrag = 0f
-                if (snapped != entry) onEntry(snapped)
-            },
-        )
-        TrackHeader(data.incoming.track, data.incoming.info, stringResource(R.string.playlist_mixing_in_label))
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(Color.Black.copy(alpha = 0.28f))
+                .border(BorderStroke(1.dp, scheme.glassBorder), shape),
+        ) {
+            Column {
+                Lane(
+                    wave = data.outgoing.waveform,
+                    toView = { it },
+                    viewStart = viewStart, viewSpan = viewSpan, mixStart = exit, mixMs = mix,
+                    dragMs = exitDrag,
+                    color = Color.White, accent = scheme.accent,
+                    playhead = playhead, enabled = enabled, top = true,
+                    curve = recipe?.takeIf { enabled }, none = transition.isNone,
+                    onDrag = { exitDrag = it },
+                    onDragEnd = { shift ->
+                        val wanted = exit + shift.toLong()
+                        val snapped = plan?.exitChoicesMs?.minByOrNull { abs(it - wanted) } ?: wanted
+                        exitDrag = 0f
+                        if (snapped != exit) onExit(snapped)
+                    },
+                )
+                Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.glassBorder))
+                Lane(
+                    wave = data.incoming.waveform,
+                    toView = { songMs -> exit + ((songMs - entry) / rate).toLong() },
+                    viewStart = viewStart, viewSpan = viewSpan, mixStart = exit, mixMs = mix,
+                    dragMs = entryDrag,
+                    color = scheme.accent, accent = scheme.accent,
+                    playhead = playhead, enabled = enabled, top = false,
+                    curve = recipe?.takeIf { enabled }, none = transition.isNone,
+                    onDrag = { entryDrag = it },
+                    onDragEnd = { shift ->
+                        val wanted = entry + (shift * rate).toLong()
+                        val snapped = plan?.entryChoicesMs?.minByOrNull { abs(it - wanted) } ?: wanted.coerceAtLeast(0L)
+                        entryDrag = 0f
+                        if (snapped != entry) onEntry(snapped)
+                    },
+                )
+            }
+            Text(
+                stringResource(R.string.playlist_mixing_out_label),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+            )
+            Text(
+                stringResource(R.string.playlist_mixing_in_label),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = scheme.accent,
+                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+            )
+        }
         Text(
             stringResource(R.string.playlist_mixing_drag_hint),
             style = MaterialTheme.typography.bodySmall,
             color = scheme.onBackgroundSecondary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
@@ -1046,8 +1292,9 @@ private fun playheadMs(progress: Float, exit: Long, mix: Long, data: TransitionE
     return start + ((end - start) * progress).toLong()
 }
 
+/** One song's lane of the timeline: its waveform, the mix shaded, that song's level over the mix. */
 @Composable
-private fun WaveformLane(
+private fun Lane(
     wave: Waveform?,
     toView: (Long) -> Long,
     viewStart: Long,
@@ -1059,10 +1306,12 @@ private fun WaveformLane(
     accent: Color,
     playhead: Long?,
     enabled: Boolean,
+    top: Boolean,
+    curve: MixRecipe?,
+    none: Boolean,
     onDrag: (Float) -> Unit,
     onDragEnd: (Float) -> Unit,
 ) {
-    val scheme = LocalBackgroundScheme.current
     var width by remember { mutableFloatStateOf(1f) }
     val currentDrag by rememberUpdatedState(dragMs)
     val currentSpan by rememberUpdatedState(viewSpan)
@@ -1071,10 +1320,7 @@ private fun WaveformLane(
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(scheme.glassTint)
-            .border(BorderStroke(1.dp, scheme.glassBorder), RoundedCornerShape(12.dp))
+            .height(96.dp)
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectHorizontalDragGestures(
@@ -1089,24 +1335,32 @@ private fun WaveformLane(
     ) {
         width = size.width
         fun x(ms: Long): Float = ((ms - viewStart) / viewSpan) * size.width
-        // The mix, shaded.
         val left = x(mixStart)
         val right = x(mixStart + mixMs)
-        drawRect(accent.copy(alpha = 0.16f), topLeft = Offset(left, 0f), size = Size(right - left, size.height))
-        drawLine(accent.copy(alpha = 0.7f), Offset(left, 0f), Offset(left, size.height), strokeWidth = 2f)
-        drawLine(accent.copy(alpha = 0.7f), Offset(right, 0f), Offset(right, size.height), strokeWidth = 2f)
+        if (!none) {
+            drawRect(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(accent.copy(alpha = if (top) 0.06f else 0.20f), accent.copy(alpha = if (top) 0.20f else 0.06f))
+                ),
+                topLeft = Offset(left, 0f),
+                size = Size(right - left, size.height),
+            )
+            val dash = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+            drawLine(accent.copy(alpha = 0.8f), Offset(left, 0f), Offset(left, size.height), strokeWidth = 2f, pathEffect = dash)
+            drawLine(accent.copy(alpha = 0.8f), Offset(right, 0f), Offset(right, size.height), strokeWidth = 2f, pathEffect = dash)
+        }
         if (wave != null) {
-            val shift = dragMs
             val step = (size.width / (viewSpan / 1_000f * wave.rate.toFloat())).coerceAtLeast(1.5f)
             val mid = size.height / 2
             for (index in wave.levels.indices) {
                 val songMs = ((wave.startSeconds + index / wave.rate) * 1_000).toLong()
-                val px = x(toView(songMs) - shift.toLong())
+                val px = x(toView(songMs) - dragMs.toLong())
                 if (px < -step || px > size.width + step) continue
-                val inMix = px in left..right
-                val half = (wave.levels[index] * (size.height * 0.42f)).coerceAtLeast(1f)
+                // Heard while it plays: the outgoing song before and in the mix, the incoming one in it and after.
+                val heard = if (top) px <= right else px >= left
+                val half = (wave.levels[index] * (size.height * 0.4f)).coerceAtLeast(1f)
                 drawLine(
-                    color = if (inMix) accent else color.copy(alpha = 0.55f),
+                    color = color.copy(alpha = if (heard) 0.9f else 0.25f),
                     start = Offset(px, mid - half),
                     end = Offset(px, mid + half),
                     strokeWidth = (step * 0.6f).coerceIn(1f, 6f),
@@ -1114,46 +1368,24 @@ private fun WaveformLane(
                 )
             }
         }
+        // This song's level across the mix.
+        if (curve != null && right > left) {
+            val path = androidx.compose.ui.graphics.Path()
+            val steps = 48
+            for (i in 0..steps) {
+                val p = i / steps.toFloat()
+                val frame = org.sonora.android.playback.automix.TransitionCurves.frame(curve, p, swapWidth = 1f / 32)
+                val level = presence(if (top) frame.outgoing else frame.incoming)
+                val px = left + (right - left) * p
+                val py = size.height * (0.92f - 0.84f * level)
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            drawPath(path, Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
+        }
         if (playhead != null) {
             val px = x(playhead)
-            drawLine(color, Offset(px, 0f), Offset(px, size.height), strokeWidth = 3f)
-        }
-    }
-}
-
-@Composable
-private fun TrackHeader(track: Track, info: MixTrackInfo, label: String, ending: Boolean = false) {
-    val scheme = LocalBackgroundScheme.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        AsyncImage(
-            model = track.coverUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(scheme.glassTint),
-        )
-        Spacer(Modifier.width(Spacing.sm))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                track.title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = scheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                listOfNotNull(label, track.artist.takeIf { it.isNotBlank() }).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onBackgroundSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        trackMixLabel(info, ending)?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = scheme.onBackgroundSecondary,
-            )
+            drawLine(Color.White, Offset(px, 0f), Offset(px, size.height), strokeWidth = 2.5f)
+            if (top) drawCircle(Color.White, radius = 5.dp.toPx(), center = Offset(px, 5.dp.toPx()))
         }
     }
 }

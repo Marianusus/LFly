@@ -101,4 +101,7 @@
     <string name="playlist_mixing_loop_8">Loop di 8 beat</string>
     <string name="playlist_mixing_loop_16">Loop di 16 beat</string>
     <string name="playlist_mixing_loop_halving">Loop che si dimezza</string>
+    <string name="playlist_mixing_keys_match">Tonalità compatibili</string>
+    <string name="playlist_mixing_keys_clash">Tonalità lontane</string>
+    <string name="playlist_mixing_preview">Anteprima</string>
 </resources>

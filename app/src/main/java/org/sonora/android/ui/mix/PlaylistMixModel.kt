@@ -110,6 +110,9 @@ class PlaylistMixModel internal constructor(
     /** The transition being edited, once its songs are analysed. */
     val editor: StateFlow<TransitionEditorData?> = _editor.asStateFlow()
 
+    /** The editor's analysis: a newer open or a close cancels it, so a slow one never shows a stale pair. */
+    private var editorJob: kotlinx.coroutines.Job? = null
+
     private val _editorLoading = MutableStateFlow(false)
     val editorLoading: StateFlow<Boolean> = _editorLoading.asStateFlow()
 
@@ -161,13 +164,16 @@ class PlaylistMixModel internal constructor(
     fun openEditor(playlist: Playlist, index: Int) {
         val from = playlist.tracks.getOrNull(index) ?: return
         val to = playlist.tracks.getOrNull(index + 1) ?: return
+        editorJob?.cancel()
         _editor.value = null
         _editorLoading.value = true
-        scope.launch {
+        editorJob = scope.launch {
             val tail = playback.mixAnalysis(from.id, AutomixAnalyzer.Part.TAIL)
                 ?: runCatching { playback.analyzeForMix(from, AutomixAnalyzer.Part.TAIL) }.getOrNull()
             val head = playback.mixAnalysis(to.id, AutomixAnalyzer.Part.HEAD)
                 ?: runCatching { playback.analyzeForMix(to, AutomixAnalyzer.Part.HEAD) }.getOrNull()
+            // runCatching swallows a cancel: stop here when a newer open or a close came meanwhile.
+            kotlinx.coroutines.yield()
             refreshInfo(listOf(from.id, to.id))
             _editor.value = TransitionEditorData(
                 playlistId = playlist.id,
@@ -180,7 +186,9 @@ class PlaylistMixModel internal constructor(
     }
 
     fun closeEditor() {
-        playback.stopTransitionPreview()
+        editorJob?.cancel()
+        editorJob = null
+        stopPreview()
         _editor.value = null
         _editorLoading.value = false
     }
@@ -246,12 +254,26 @@ class PlaylistMixModel internal constructor(
         )
     }
 
-    /** Plays [plan] between the editor's two songs. */
+    private var previewJob: kotlinx.coroutines.Job? = null
+    private val _previewPreparing = MutableStateFlow(false)
+
+    /** True while the preview's two streams are being found, before it plays. */
+    val previewPreparing: StateFlow<Boolean> = _previewPreparing.asStateFlow()
+
+    /**
+     * Plays [plan] between the editor's two songs. Finding the streams can take seconds: a stop or a
+     * close meanwhile cancels it, so a preview never starts after the editor is gone.
+     */
     fun preview(data: TransitionEditorData, plan: EditorPlan) {
         val recipe = plan.recipe ?: return
-        scope.launch {
-            val outSource = playback.mixSourceFor(data.outgoing.track) ?: return@launch
-            val inSource = playback.mixSourceFor(data.incoming.track) ?: return@launch
+        previewJob?.cancel()
+        _previewPreparing.value = true
+        previewJob = scope.launch {
+            val outSource = playback.mixSourceFor(data.outgoing.track)
+            val inSource = playback.mixSourceFor(data.incoming.track)
+            _previewPreparing.value = false
+            if (outSource == null || inSource == null) return@launch
+            kotlinx.coroutines.yield()
             playback.previewTransition(
                 TransitionPreview.Request(
                     outgoingSource = outSource,
@@ -270,7 +292,12 @@ class PlaylistMixModel internal constructor(
         }
     }
 
-    fun stopPreview() = playback.stopTransitionPreview()
+    fun stopPreview() {
+        previewJob?.cancel()
+        previewJob = null
+        _previewPreparing.value = false
+        playback.stopTransitionPreview()
+    }
 
     // ── Smart Reorder ───────────────────────────────────────────────────────
 
