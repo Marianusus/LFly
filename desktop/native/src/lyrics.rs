@@ -187,6 +187,8 @@ struct Ink {
 
 /// Everything the canvas changes from frame to frame.
 struct Motion {
+    /// The last frame painted was playing (a long gap after it: the view was off screen).
+    was_playing: bool,
     scroll: Scroll,
     follower: Follower,
     boxes: Vec<LineBox>,
@@ -218,6 +220,7 @@ struct Motion {
 impl Default for Motion {
     fn default() -> Self {
         Self {
+            was_playing: false,
             scroll: Scroll::default(),
             follower: Follower::default(),
             boxes: Vec::new(),
@@ -242,12 +245,20 @@ impl Default for Motion {
     }
 }
 
+/// How long "nothing found" online is believed before asking again.
+const MISS_TTL: Duration = Duration::from_secs(60);
+
 /// The lyrics fetched so far and the timing corrections, shared by every lyrics view (the side
 /// panel, the page and the full player read the same songs: one fetch each).
 pub struct LyricsData {
     core: Arc<Core>,
     cache: HashMap<String, Option<Rc<pages::Lyrics>>>,
     loading: std::collections::HashSet<String>,
+    /// When an online lookup found nothing: asked again after MISS_TTL (a network blip reads as
+    /// "nothing found" too).
+    missed: HashMap<String, Instant>,
+    /// Bumped when the sources change: a lookup started before is dropped.
+    generation: u64,
     /// Per-song timing correction in ms (positive: the words come later), kept as Tauri keeps it.
     offsets: serde_json::Map<String, Value>,
 }
@@ -258,6 +269,7 @@ impl LyricsData {
     pub fn forget_missing(&mut self, cx: &mut Context<Self>) {
         let before = self.cache.len();
         self.cache.retain(|_, v| v.is_some());
+        self.missed.clear();
         if self.cache.len() != before {
             cx.notify();
         }
@@ -265,29 +277,35 @@ impl LyricsData {
 
     /// Settings changed the sources: every song is asked again (kept lyrics stay first).
     pub fn forget_all(&mut self, cx: &mut Context<Self>) {
-        if !self.cache.is_empty() {
-            self.cache.clear();
-            cx.notify();
-        }
+        self.generation += 1;
+        self.loading.clear();
+        self.missed.clear();
+        self.cache.clear();
+        cx.notify();
     }
 
     pub fn new(core: Arc<Core>) -> Self {
         let offsets = lfly_core::store::get(OFFSETS_KEY).ok().flatten().and_then(|v| v.as_object().cloned()).unwrap_or_default();
-        Self { core, cache: HashMap::new(), loading: Default::default(), offsets }
+        Self { core, cache: HashMap::new(), loading: Default::default(), missed: HashMap::new(), generation: 0, offsets }
     }
 
     /// The song's lyrics: `None` while they are being fetched (the fetch starts here).
     pub(crate) fn get(&mut self, t: &lfly_connect::protocol::TrackRef, cx: &mut Context<Self>) -> Option<Option<Rc<pages::Lyrics>>> {
         if let Some(l) = self.cache.get(&t.id) {
-            return Some(l.clone());
+            if l.is_some() || self.missed.get(&t.id).is_none_or(|at| at.elapsed() < MISS_TTL) {
+                return Some(l.clone());
+            }
+            self.cache.remove(&t.id);
+            self.missed.remove(&t.id);
         }
         // Kept with a download: read here, no connection needed (DownloadLyricsStore.kt).
         if self.loading.contains(&t.id) {
             return None;
         }
-        if let Some(saved) = crate::downloads::DownloadsModel::entity(cx).read(cx).kept_lyrics(&t.id) {
+        // Only lyrics found count: a "not found" mark is asked online again (SonoraViewModel.kt).
+        if let Some(found) = crate::downloads::DownloadsModel::entity(cx).read(cx).kept_lyrics(&t.id).and_then(|s| s.lyrics) {
             log::info!("lyrics of {}: kept offline", t.id);
-            let l = saved.lyrics.map(Rc::new);
+            let l = Some(Rc::new(found));
             self.cache.insert(t.id.clone(), l.clone());
             return Some(l);
         }
@@ -298,9 +316,14 @@ impl LyricsData {
                 return Some(None);
             };
             let core = self.core.clone();
+            let generation = self.generation;
             cx.spawn(async move |this, cx| {
                 let got = core.lyrics(track).await;
                 let _ = this.update(cx, |this, cx| {
+                    // Started with the old sources: the fresh lookup answers instead.
+                    if this.generation != generation {
+                        return;
+                    }
                     // A downloaded song keeps what was found, when the downloads bring lyrics.
                     if let Ok(l) = &got {
                         let dl = crate::downloads::DownloadsModel::entity(cx);
@@ -316,6 +339,9 @@ impl LyricsData {
                         }
                     };
                     this.loading.remove(&id);
+                    if l.is_none() {
+                        this.missed.insert(id.clone(), Instant::now());
+                    }
                     this.cache.insert(id, l);
                     cx.notify();
                 });
@@ -363,6 +389,8 @@ pub struct Lyrics {
     pub variant: Variant,
     pub window_width: f32,
     loaded_for: String,
+    /// The song whose lyrics (or "none") are on screen: a re-ask for it keeps them shown.
+    shown_for: String,
     status: Status,
     lyrics: Option<Rc<pages::Lyrics>>,
     lines: Rc<Vec<LineModel>>,
@@ -413,6 +441,7 @@ impl Lyrics {
             variant,
             window_width: 1100.,
             loaded_for: String::new(),
+            shown_for: String::new(),
             status: Status::Loading,
             lyrics: None,
             lines: Rc::new(Vec::new()),
@@ -456,11 +485,15 @@ impl Lyrics {
         match got {
             Some(l) => {
                 self.loaded_for = t.id.clone();
+                self.shown_for = t.id.clone();
                 self.show(l);
             }
             None => {
-                // Asked again when the data arrives (it notifies).
-                if self.status != Status::Loading || self.lyrics.is_some() {
+                // Asked again when the data arrives (it notifies); forgotten, so going back to the
+                // song before finds it in the cache.
+                self.loaded_for.clear();
+                // The same song asked again (a "none" being re-checked): what is shown stays.
+                if self.shown_for != t.id && (self.status != Status::Loading || self.lyrics.is_some()) {
                     self.status = Status::Loading;
                     self.lyrics = None;
                     self.generation += 1;
@@ -566,7 +599,7 @@ impl Render for Lyrics {
         let Some(synced) = lyrics.synced.as_ref().filter(|s| !s.is_empty()) else {
             // Plain text: a page to scroll.
             return div()
-                .id("lyrics-plain")
+                .id(("lyrics-plain", self.generation as usize))
                 .size_full()
                 .overflow_y_scroll()
                 .pt(px(24.))
@@ -689,6 +722,10 @@ impl Render for Lyrics {
                     carried
                 };
                 let at = clock - offset;
+                // No frame for a second while playing (frames come every 250 ms at most): the view
+                // was not on screen. Place the list, don't glide it across the song.
+                let unseen = (playing_now || st.was_playing) && now - st.last > 1000.;
+                st.was_playing = playing_now;
                 let dt = (now - st.last).min(64.);
                 let dt_s = dt as f32 / 1000.;
                 st.last = now;
@@ -696,7 +733,7 @@ impl Render for Lyrics {
                 if now >= st.paused_until {
                     let view_h = st.view_h;
                     if let Some(d) = st.follower.decide(&lines, &st.boxes, at, view_h) {
-                        if st.placed && !reduce {
+                        if st.placed && !reduce && !unseen {
                             st.scroll.glide(d.top, d.anchor, now);
                         } else {
                             st.scroll.jump(d.top);
@@ -813,7 +850,17 @@ impl Render for Lyrics {
                         // (it grows, lifts, glows); the others rest, at 0.95 before their line starts
                         // and at 1 after. Never with reduced motion.
                         let ng = line.groups.len();
-                        let rest = if reduce || at >= line.start { 1. } else { spicy::IDLE };
+                        let rest = if reduce {
+                            1.
+                        } else if on {
+                            // Eased up from 0.95 as the line turns on, not snapped.
+                            let p = ((now - st.on[i].1) / 400.).clamp(0., 1.);
+                            spicy::IDLE + (1. - spicy::IDLE) * CUBIC_OUT.at(p) as f32
+                        } else if at >= line.start {
+                            1.
+                        } else {
+                            spicy::IDLE
+                        };
                         let mut wscale = vec![rest; ng];
                         let mut wlift = vec![0f32; ng];
                         let mut wglow = vec![0f32; ng];

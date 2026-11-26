@@ -43,12 +43,17 @@ fn tracker(bounds: SliderBounds, vertical: bool, on_drag: OnFrac, on_release: Op
         move |_, _, window, _| {
             let frac = move |b: &SliderBounds, at: Point<Pixels>| if vertical { b.fraction_y(at) } else { b.fraction(at) };
             let (b1, b2) = (bounds.clone(), bounds);
+            let missed = on_release.clone();
             window.on_mouse_event(move |e: &MouseMoveEvent, phase, w, cx| {
                 if phase == DispatchPhase::Bubble && b1.1.get() {
                     if e.pressed_button == Some(MouseButton::Left) {
                         on_drag(frac(&b1, e.position), w, cx);
                     } else {
+                        // The button came up where this slider was not listening: end the drag here.
                         b1.1.set(false);
+                        if let Some(f) = &missed {
+                            f(frac(&b1, e.position), w, cx);
+                        }
                     }
                 }
             });
@@ -350,3 +355,38 @@ pub fn hslider(
             ),
         )
 }
+
+/// Spicy Lyrics' volume capsule: frosted, the white fill rising from the bottom is the level.
+pub fn vcapsule(
+    id: impl Into<ElementId>,
+    frac: f32,
+    width: f32,
+    height: f32,
+    bounds: SliderBounds,
+    on_drag: impl Fn(f32, &mut Window, &mut App) + 'static,
+    on_release: impl Fn(f32, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let f = frac.clamp(0., 1.);
+    let b1 = bounds.clone();
+    let on_drag: OnFrac = Rc::new(on_drag);
+    let on_drag2 = on_drag.clone();
+    div()
+        .id(id)
+        .relative()
+        .w(px(width))
+        .h(px(height))
+        .rounded_full()
+        .overflow_hidden()
+        .cursor_pointer()
+        .bg(white().opacity(0.16))
+        .border_1()
+        .border_color(white().opacity(0.16))
+        .on_mouse_down(MouseButton::Left, move |e, w, cx| {
+            cx.stop_propagation();
+            b1.1.set(true);
+            on_drag2(b1.fraction_y(e.position), w, cx);
+        })
+        .child(tracker(bounds, true, on_drag, Some(Rc::new(on_release))))
+        .child(div().absolute().left_0().right_0().bottom_0().h(relative(f)).bg(white()))
+}
+

@@ -27,6 +27,11 @@ pub struct PrefsData {
     pub lyrics_off: Vec<String>,
     pub lyrics_words_first: bool,
     pub paxsenix_key: String,
+    /// The full player, as Spicy Lyrics' settings: the timeline under the cover (off: on it), the
+    /// volume capsule on the cover, the cover's light moving behind.
+    pub np_timeline_outside: bool,
+    pub np_volume: bool,
+    pub np_animated_bg: bool,
 }
 
 impl PrefsData {
@@ -75,6 +80,9 @@ fn read() -> PrefsData {
         lyrics_off: list("lyricsSourcesOff"),
         lyrics_words_first: flag("lyricsWordsFirst", false),
         paxsenix_key: s.get("paxsenixKey").and_then(Value::as_str).unwrap_or_default().to_string(),
+        np_timeline_outside: flag("npTimelineOutside", true),
+        np_volume: flag("npVolumeSlider", true),
+        np_animated_bg: flag("npAnimatedBg", true),
     }
 }
 
@@ -124,6 +132,9 @@ impl Prefs {
             ("lyricsSourcesOff", json!(v.lyrics_off)),
             ("lyricsWordsFirst", json!(v.lyrics_words_first)),
             ("paxsenixKey", json!(v.paxsenix_key.trim())),
+            ("npTimelineOutside", json!(v.np_timeline_outside)),
+            ("npVolumeSlider", json!(v.np_volume)),
+            ("npAnimatedBg", json!(v.np_animated_bg)),
         ] {
             s[k] = x;
         }

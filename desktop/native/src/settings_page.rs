@@ -1146,10 +1146,36 @@ impl SettingsPage {
                 ],
                 i,
             ))
-            .into_any_element()]
+            .into_any_element(), self.full_player(i, p, cx)]
         .into_iter()
         .chain(sources)
         .collect()
+    }
+
+    /// Testi > Player grande: Spicy Lyrics' own settings for its full view.
+    fn full_player(&self, i: &Ink, p: &PrefsData, cx: &mut Context<Self>) -> AnyElement {
+        let prefs = Prefs::entity(cx);
+        let (p1, p2, p3) = (prefs.clone(), prefs.clone(), prefs);
+        let (outside, volume, moving) = (p.np_timeline_outside, p.np_volume, p.np_animated_bg);
+        group(tr("Player grande"), None, i)
+            .child(list(
+                vec![
+                    row()
+                        .child(label(tr("Barra del brano sotto la copertina"), Some(tr("Spenta: sulla copertina, con i comandi.").into()), i))
+                        .child(switch("sw-np-timeline", outside, false, i, move |cx| p1.update(cx, |p, cx| p.update(|d| d.np_timeline_outside = !outside, cx))))
+                        .into_any_element(),
+                    row()
+                        .child(label(tr("Volume sulla copertina"), None, i))
+                        .child(switch("sw-np-volume", volume, false, i, move |cx| p2.update(cx, |p, cx| p.update(|d| d.np_volume = !volume, cx))))
+                        .into_any_element(),
+                    row()
+                        .child(label(tr("Sfondo animato"), Some(tr("La luce della copertina si muove dietro, mentre suona.").into()), i))
+                        .child(switch("sw-np-bg", moving, false, i, move |cx| p3.update(cx, |p, cx| p.update(|d| d.np_animated_bg = !moving, cx))))
+                        .into_any_element(),
+                ],
+                i,
+            ))
+            .into_any_element()
     }
 
     /// Testi > Fonti (the phone's LyricsSourcesDialog): the sources in the order they are read,

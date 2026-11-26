@@ -689,7 +689,7 @@ impl Lfly {
         let n = self.nav.read(cx);
         let (can_back, can_forward, on_search) = (n.can_back(), n.can_forward(), n.route == Route::Search);
         let nav = self.nav.clone();
-        let (n1, n2, n3, n4) = (nav.clone(), nav.clone(), nav.clone(), nav);
+        let (n1, n2, n3) = (nav.clone(), nav.clone(), nav);
         let maximized = window.is_maximized();
         div()
             .id("topbar")
@@ -777,25 +777,6 @@ impl Lfly {
                         }
                     }),
             )
-            // macOS: Settings live in the app menu (⌘,), not in the toolbar (HIG › Settings).
-            .when(!SYSTEM_WINDOW_BUTTONS, |d| d.child(
-                div()
-                    .id("theme")
-                    .relative()
-                    .size(px(38.))
-                    .flex_none()
-                    .rounded_full()
-                    .cursor_pointer()
-                    .on_click({
-                        let settings = self.settings.clone();
-                        move |_, _, cx| {
-                            settings.update(cx, |s, _| s.section = crate::settings_page::Section::Appearance);
-                            n4.update(cx, |n, cx| n.go(Route::Settings, cx))
-                        }
-                    })
-                    .child(glass::glass_layer(look, px(19.), glass::Pointer::default()))
-                    .child(div().relative().size_full().flex().items_center().justify_center().child(icon("palette", 17., text))),
-            ))
             // With the panel open the window controls sit at its top instead.
             .when(!panel_open && !SYSTEM_WINDOW_BUTTONS, |d| d.child(
                 div()
@@ -1189,9 +1170,13 @@ impl Render for Lfly {
                 cx.notify();
             }
         });
+        let retheme = crate::console::set_theme(&self.look.read(cx).scheme);
         self.console.update(cx, |c, cx| {
-            if put(&mut c.page_width, stage_w) | put(&mut c.height, win_h) {
+            if put(&mut c.page_width, stage_w) | put(&mut c.height, win_h) || retheme {
                 cx.notify();
+            }
+            if retheme {
+                c.repaint(cx);
             }
         });
 

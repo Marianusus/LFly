@@ -124,8 +124,35 @@ const DECK: [u32; 2] = [0x2fa8ff, 0xff4148];
 const CUE_COLORS: [u32; HOT_CUES] = [0xff3b3b, 0xff9a1f, 0xffe03a, 0x3ddc84, 0x2ee6e6, 0x3d8bff, 0xa66bff, 0xff5fc8];
 const CUE_MAIN: u32 = 0xff8c00;
 
+thread_local! {
+    /// The app's dark tint and accent; the console's greys lean to the tint (None: plain greys).
+    static THEME: Cell<(Option<crate::theme::Rgb>, Option<Hsla>)> = const { Cell::new((None, None)) };
+}
+
+/// Follows the app's look; true when the console must be drawn again.
+pub fn set_theme(s: &crate::theme::Scheme) -> bool {
+    use crate::theme::{build_scheme, luma, Mode};
+    // DJ software stays dark: a light look lends the console its dark twin.
+    let dark = if s.light { build_scheme(Mode::DynamicDark, Some(s.accent), Some(s.accent2)) } else { s.clone() };
+    let tint = dark.gradient[0];
+    let next = ((luma(tint) > 0.02).then_some(tint), Some(dark.accent.hsla(1.)));
+    THEME.with(|t| t.replace(next) != next)
+}
+
+/// The main cue and the other accents: the app's accent.
+fn accent() -> Hsla {
+    THEME.with(|t| t.get().1).unwrap_or(c(CUE_MAIN))
+}
+
+/// A colour; the near-black and near-white greys take the app's tint, darker ones more.
 fn c(hex: u32) -> Hsla {
-    rgb(hex).into()
+    let k = crate::theme::Rgb::hex(hex);
+    let (hi, lo) = (k.0.max(k.1).max(k.2), k.0.min(k.1).min(k.2));
+    let g = hi / 255.;
+    match THEME.with(|t| t.get().0) {
+        Some(tint) if hi - lo <= 12. && g > 0.02 && g < 0.98 => crate::theme::mix(k, tint, 0.35 * (1. - g)).hsla(1.),
+        _ => rgb(hex).into(),
+    }
 }
 
 fn deck_color(deck: usize) -> Hsla {
@@ -193,6 +220,14 @@ impl Console {
     }
 }
 
+impl Console {
+    /// The decks and the browser are views of their own: a new look reaches them here.
+    pub fn repaint(&self, cx: &mut App) {
+        self.decks.update(cx, |_, cx| cx.notify());
+        self.browser.update(cx, |_, cx| cx.notify());
+    }
+}
+
 impl Render for Console {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Under the top bar (72) and over the player bar (104), as the other pages.
@@ -220,7 +255,7 @@ impl Render for Console {
                     .px(px(16.))
                     .flex()
                     .items_center()
-                    .rounded(px(6.))
+                    .rounded_full()
                     .cursor_pointer()
                     .text_size(px(12.5))
                     .font_weight(FontWeight::SEMIBOLD)
@@ -248,7 +283,7 @@ impl Render for Console {
                             .flex()
                             .flex_col()
                             .gap(px(8.))
-                            .rounded(px(12.))
+                            .rounded(px(18.))
                             .bg(c(PANEL))
                             .border_1()
                             .border_color(deck_color(d))
@@ -280,7 +315,8 @@ impl Render for Console {
                     .size_full()
                     .flex()
                     .flex_col()
-                    .rounded(px(12.))
+                    // The app's card corners, the app's tint (c()).
+                    .rounded(px(18.))
                     .overflow_hidden()
                     .bg(c(BG))
                     .border_1()
@@ -726,7 +762,7 @@ fn strip(d: &Deck, deck: usize, pos: f64, half: f64, w: f32, h: f32, ap_mark: Op
                         rect(x - 4., 0., 8., 4., color, window);
                     }
                 };
-                marker(cue, rgb(CUE_MAIN).into(), window);
+                marker(cue, accent(), window);
                 for (i, h) in hot.iter().enumerate() {
                     if let Some(t) = h {
                         marker(*t, rgb(CUE_COLORS[i]).into(), window);
@@ -1019,7 +1055,7 @@ impl Decks {
                             if let Some((a, b2)) = looped {
                                 rect(x_of(a), 0., (x_of(b2) - x_of(a)).max(1.), height, hsla(0.36, 0.7, 0.45, 0.45), window);
                             }
-                            rect(x_of(cue) - 0.5, 0., 1.5, height, rgb(CUE_MAIN).into(), window);
+                            rect(x_of(cue) - 0.5, 0., 1.5, height, accent(), window);
                             for (i, h) in hot.iter().enumerate() {
                                 if let Some(t) = h {
                                     rect(x_of(*t) - 0.5, 0., 1.5, height, rgb(CUE_COLORS[i]).into(), window);
@@ -1391,8 +1427,8 @@ impl Decks {
                     .on_click(cx.listener(move |this, _, _, cx| this.dj.update(cx, |dj, cx| dj.stop(deck, cx)))),
             )
             .child(
-                pill("CUE", 46., 30., loaded.then_some(c(CUE_MAIN))).text_size(px(11.))
-                    .when(dj.lit(deck, Lamp::Cue), |p| p.bg(c(CUE_MAIN).opacity(0.7)).text_color(c(0x000000)))
+                pill("CUE", 46., 30., loaded.then_some(accent())).text_size(px(11.))
+                    .when(dj.lit(deck, Lamp::Cue), |p| p.bg(accent().opacity(0.7)).text_color(c(0x000000)))
                     .cursor_pointer()
                     .on_mouse_down(MouseButton::Left, self.grab(Ctl::Cue(deck), 1., cx)),
             )
@@ -2839,5 +2875,23 @@ mod tests {
         assert_eq!(tenths(48_512.), "0:48.5");
         assert_eq!(tenths(3_725_000.), "62:05.0");
         assert_eq!(clock(201_000), "3:21");
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::{c, set_theme, BG, DECK};
+    use gpui_kit::rgb;
+
+    #[test]
+    fn greys_take_the_tint_colours_and_extremes_stay() {
+        let plain = c(BG);
+        assert!(set_theme(&crate::theme::build_scheme(crate::theme::Mode::DynamicDark, Some(crate::theme::Rgb::hex(0xd62f2f)), None)));
+        assert_ne!(c(BG), plain, "a dark grey leans to the tint");
+        assert_eq!(c(0x000000), rgb(0x000000).into());
+        assert_eq!(c(DECK[0]), rgb(DECK[0]).into(), "a colour is left alone");
+        // AMOLED black: plain greys again.
+        set_theme(&crate::theme::build_scheme(crate::theme::Mode::AmoledBlack, None, None));
+        assert_eq!(c(BG), plain);
     }
 }
