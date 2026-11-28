@@ -16,6 +16,20 @@ const KEY: &str = "appearance";
 /// the glass pass. Kept as a switch for a platform without one (surfaces are then solid).
 pub const GLASS_RENDERER: bool = true;
 
+/// The app's look, for the windows that are not the main one (the Console's video out).
+struct LookGlobal(Entity<Look>);
+impl Global for LookGlobal {}
+
+impl Look {
+    pub fn share(look: &Entity<Look>, cx: &mut App) {
+        cx.set_global(LookGlobal(look.clone()));
+    }
+
+    pub fn entity(cx: &App) -> Entity<Look> {
+        cx.global::<LookGlobal>().0.clone()
+    }
+}
+
 pub struct Look {
     pub mode: Mode,
     /// palette.ts ACCENTS id.

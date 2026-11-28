@@ -48,6 +48,56 @@ pub enum Variant {
     Panel,
     /// The right panel: 21 px in the theme's text colour, 14 px in from the sides.
     Side,
+    /// The Console's video out, for a projector: large, clamp(30px, 3.4vw, 96px).
+    Video,
+}
+
+/// Where the lines take their song and clock from: the app's player, or a Console deck (the
+/// video out shows the deck the crowd hears, [Feed::Deck]'s cell says which).
+#[derive(Clone)]
+pub enum Feed {
+    Player(Entity<PlayerModel>),
+    Deck(Entity<crate::deck_model::DjDecks>, Rc<std::cell::Cell<usize>>),
+}
+
+/// What a [Feed] says now.
+struct Heard {
+    track: Option<lfly_connect::protocol::TrackRef>,
+    duration_ms: u64,
+    position_ms: f64,
+    playing: bool,
+    rate: f64,
+}
+
+impl Feed {
+    fn heard(&self, cx: &App) -> Heard {
+        match self {
+            Feed::Player(m) => {
+                let m = m.read(cx);
+                Heard { track: m.current().cloned(), duration_ms: m.duration_ms(), position_ms: m.live_position(), playing: m.playing(), rate: m.rate() }
+            }
+            Feed::Deck(dj, d) => {
+                let dj = dj.read(cx);
+                let d = d.get().min(dj.decks.len() - 1);
+                let deck = &dj.decks[d];
+                Heard {
+                    track: deck.track.clone(),
+                    duration_ms: (deck.duration() * 1000.) as u64,
+                    position_ms: dj.position(d) * 1000.,
+                    playing: dj.is_playing(d),
+                    // The tempo the deck plays at (its pitch fader), not its sample rate.
+                    rate: deck.ratio(),
+                }
+            }
+        }
+    }
+
+    /// A click on a line: the player goes there; a deck on a projector is never moved from it.
+    fn seek(&self, ms: f64, cx: &App) {
+        if let Feed::Player(m) = self {
+            m.read(cx).command(lfly_connect::protocol::CMD_SEEK, ms as i64);
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -383,7 +433,9 @@ impl LyricsData {
 
 pub struct Lyrics {
     data: Entity<LyricsData>,
-    model: Entity<PlayerModel>,
+    feed: Feed,
+    /// Word by word (true) or whole lines (false) for this view alone, over Settings → Testi.
+    pub words: Option<bool>,
     look: Entity<Look>,
     nav: Option<Entity<crate::nav::Nav>>,
     pub variant: Variant,
@@ -410,13 +462,27 @@ impl Lyrics {
     /// [nav]: the side panel's lyrics open the page from their capsule.
     pub fn new(
         data: Entity<LyricsData>,
-        model: Entity<PlayerModel>,
+        feed: Feed,
         look: Entity<Look>,
         nav: Option<Entity<crate::nav::Nav>>,
         variant: Variant,
         cx: &mut Context<Self>,
     ) -> Self {
+        // The song moved, played or paused: wake the loop.
+        let woken = match &feed {
+            Feed::Player(m) => cx.observe(m, |this: &mut Self, _, cx| {
+                let now = this.now();
+                this.motion.borrow_mut().woke = now;
+                cx.notify();
+            }),
+            Feed::Deck(dj, _) => cx.observe(dj, |this: &mut Self, _, cx| {
+                let now = this.now();
+                this.motion.borrow_mut().woke = now;
+                cx.notify();
+            }),
+        };
         let subs = vec![
+            woken,
             cx.observe(&crate::prefs::Prefs::entity(cx), |this, _, cx| {
                 this.motion.borrow_mut().measured = None;
                 cx.notify();
@@ -425,17 +491,12 @@ impl Lyrics {
                 this.loaded_for.clear();
                 cx.notify();
             }),
-            // The song moved, played or paused: wake the loop.
-            cx.observe(&model, |this, _, cx| {
-                let now = this.now();
-                this.motion.borrow_mut().woke = now;
-                cx.notify();
-            }),
             cx.observe(&look, |_, _, cx| cx.notify()),
         ];
         Self {
             data,
-            model,
+            feed,
+            words: None,
             look,
             nav,
             variant,
@@ -476,7 +537,7 @@ impl Lyrics {
 
     /// The playing song's lyrics, from the shared data (which fetches them once).
     fn follow_track(&mut self, cx: &mut Context<Self>) {
-        let Some(t) = self.model.read(cx).current().cloned() else { return };
+        let Some(t) = self.feed.heard(cx).track else { return };
         if t.id == self.loaded_for {
             return;
         }
@@ -514,11 +575,10 @@ impl Lyrics {
 
     fn seek(&mut self, line: usize, cx: &mut Context<Self>) {
         let Some(start) = self.lines.get(line).map(|l| l.start) else { return };
-        let m = self.model.read(cx);
-        let duration = m.duration_ms() as f64;
+        let duration = self.feed.heard(cx).duration_ms as f64;
         let to = (start + self.offset).max(0.);
         let end = if duration > 0. { (duration - 500.).max(0.) } else { to };
-        m.command(lfly_connect::protocol::CMD_SEEK, to.min(end) as i64);
+        self.feed.seek(to.min(end), cx);
         let now = self.now();
         let mut st = self.motion.borrow_mut();
         st.paused_until = 0.;
@@ -534,6 +594,7 @@ fn font_size(variant: Variant, window_width: f32) -> f32 {
         Variant::Page => (window_width * 0.027).clamp(28., 40.),
         Variant::Panel => (window_width * 0.022).clamp(24., 34.),
         Variant::Side => 21.,
+        Variant::Video => (window_width * 0.034).clamp(30., 96.),
     }
 }
 
@@ -541,8 +602,8 @@ impl Render for Lyrics {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_track(cx);
         let (track, duration) = {
-            let m = self.model.read(cx);
-            (m.current().cloned(), m.duration_ms())
+            let h = self.feed.heard(cx);
+            (h.track, h.duration_ms)
         };
         let prefs = crate::prefs::Prefs::get(cx);
         // Settings → Testi: the size, centred lines, the source line.
@@ -614,7 +675,7 @@ impl Render for Lyrics {
 
         // The sheet, built again when the song or its duration changes.
         // Whole lines instead of word by word, when asked.
-        let words = prefs.lyrics_words;
+        let words = self.words.unwrap_or(prefs.lyrics_words);
         if self.sheet != (self.generation, duration, words) {
             self.lines = Rc::new(build_lines(synced, duration as f64, !words));
             self.spans = Rc::new(self.lines.iter().map(word_spans).collect());
@@ -629,7 +690,7 @@ impl Render for Lyrics {
         let lines = self.lines.clone();
         let spans = self.spans.clone();
         let motion = self.motion.clone();
-        let model = self.model.clone();
+        let feed = self.feed.clone();
         let epoch = self.epoch;
         let offset = self.offset;
         let generation = self.generation;
@@ -709,8 +770,8 @@ impl Render for Lyrics {
 
                 // The clock between the player's samples: carried forward, re-anchored on drift.
                 let (raw, playing_now, rate) = {
-                    let m = model.read(cx);
-                    (m.live_position(), m.playing(), m.rate())
+                    let h = feed.heard(cx);
+                    (h.position_ms, h.playing, h.rate)
                 };
                 // At the song's own rate (Velocità, an Automix's tempo match), not the wall's.
                 let carried = st.anchor_pos + (now - st.anchor_at) * rate;

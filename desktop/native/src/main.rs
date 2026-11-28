@@ -196,6 +196,7 @@ impl Lfly {
     fn new(core: Arc<Core>, model: Entity<PlayerModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let covers = cx.new(|_| Covers::new(core.clone()));
         let look = cx.new(|_| Look::new());
+        Look::share(&look, cx);
         let nav = cx.new(|_| Nav::new());
         // macOS: the red light hides the app and the music goes on (the Dock brings it back).
         if SYSTEM_WINDOW_BUTTONS {
@@ -262,9 +263,9 @@ impl Lfly {
             .detach();
             LyricsData::new(core.clone())
         });
-        let lyrics_np = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Panel, cx));
-        let lyrics_pg = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), None, Variant::Page, cx));
-        let lyrics_side = cx.new(|cx| Lyrics::new(lyrics_data.clone(), model.clone(), look.clone(), Some(nav.clone()), Variant::Side, cx));
+        let lyrics_np = cx.new(|cx| Lyrics::new(lyrics_data.clone(), crate::lyrics::Feed::Player(model.clone()), look.clone(), None, Variant::Panel, cx));
+        let lyrics_pg = cx.new(|cx| Lyrics::new(lyrics_data.clone(), crate::lyrics::Feed::Player(model.clone()), look.clone(), None, Variant::Page, cx));
+        let lyrics_side = cx.new(|cx| Lyrics::new(lyrics_data.clone(), crate::lyrics::Feed::Player(model.clone()), look.clone(), Some(nav.clone()), Variant::Side, cx));
         let now_playing = cx.new(|cx| NowPlaying::new(core.clone(), model.clone(), covers.clone(), look.clone(), nav.clone(), library.clone(), lyrics_np, cx));
         let spotify = cx.new(|cx| crate::spotify_import::SpotifyImport::new(core.clone(), look.clone(), library.clone(), nav.clone(), window, cx));
         library_page.update(cx, |l, cx| l.set_spotify(spotify, cx));

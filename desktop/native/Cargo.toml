@@ -67,3 +67,8 @@ opt-level = 3
 # app builds without it, and Automix falls back to a crossfade.
 [target.'cfg(not(all(windows, target_env = "gnu")))'.dependencies]
 lfly-core = { path = "../crates/lfly-core", features = ["beat-model"] }
+
+# The Console's video out shares a screen through the desktop's screen-cast portal (Linux).
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "screencast"] }
+libc = "0.2"

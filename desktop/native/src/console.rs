@@ -374,6 +374,8 @@ pub struct Decks {
     lyrics: Entity<crate::lyrics::LyricsData>,
     /// The video out's window, while it is open.
     video: Option<AnyWindowHandle>,
+    /// What the video out shows (the mixer's card, VIDEO).
+    video_settings: Entity<crate::video::VideoSettings>,
     /// The mixer's settings card is open (and where its button is).
     mixer_menu: bool,
     mixer_menu_spot: Spot,
@@ -393,13 +395,20 @@ pub struct Decks {
 impl Decks {
     fn new(core: Arc<crate::core::Core>, dj: Entity<DjDecks>, covers: Entity<Covers>, lyrics: Entity<crate::lyrics::LyricsData>, cx: &mut Context<Self>) -> Self {
         let stems = crate::stems_model::StemsModel::entity(cx);
-        let subs = vec![cx.observe(&dj, |_, _, cx| cx.notify()), cx.observe(&covers, |_, _, cx| cx.notify()), cx.observe(&stems, |_, _, cx| cx.notify())];
+        let video_settings = crate::video::VideoSettings::entity(cx);
+        let subs = vec![
+            cx.observe(&dj, |_, _, cx| cx.notify()),
+            cx.observe(&covers, |_, _, cx| cx.notify()),
+            cx.observe(&stems, |_, _, cx| cx.notify()),
+            cx.observe(&video_settings, |_, _, cx| cx.notify()),
+        ];
         Self {
             core,
             dj,
             covers,
             lyrics,
             video: None,
+            video_settings,
             mixer_menu: false,
             mixer_menu_spot: Spot::default(),
             width: 900.,
@@ -1567,8 +1576,39 @@ impl Decks {
             .child(row(words::SET_MIXFX).child(opt(("mixfx", 0), dj.mix_fx_label().to_string(), (dj.mix_fx != 0).then_some(c(TEXT)), 80.).on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.cycle_mix_fx(cx))))))
             .child(row(words::SET_HAMSTER).child(opt(("hamster", 0), if dj.hamster { "ON" } else { "OFF" }.into(), dj.hamster.then_some(c(TEXT)), 80.).on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.toggle_hamster(cx))))))
             .child(row(words::SET_LOCK).child(opt(("plock", 0), if dj.pitch_lock { "ON" } else { "OFF" }.into(), dj.pitch_lock.then_some(c(TEXT)), 80.).on_click(cx.listener(|this, _, _, cx| this.dj.update(cx, |dj, cx| dj.toggle_pitch_lock(cx))))))
-            .child(row(words::SET_SAMPLER).child(knob(20., dj.sampler_volume, c(TEXT2)).id("sampler-vol").on_mouse_down(MouseButton::Left, self.grab(Ctl::SamplerVol, 160., cx))));
+            .child(row(words::SET_SAMPLER).child(knob(20., dj.sampler_volume, c(TEXT2)).id("sampler-vol").on_mouse_down(MouseButton::Left, self.grab(Ctl::SamplerVol, 160., cx))))
+            .child(self.video_settings_rows(cx));
         deferred(anchored().position(point(at.origin.x - px(240.), at.origin.y - px(8.))).anchor(Anchor::BottomLeft).snap_to_window_with_margin(px(8.)).child(card)).with_priority(2)
+    }
+
+    /// VIDEO in the mixer's card: what the video out shows (lyrics, a video in a loop, a screen),
+    /// the lyrics word by word or line by line, the file, the screen and its part.
+    fn video_settings_rows(&self, cx: &Context<Self>) -> impl IntoElement {
+        use crate::video::{words as vw, Show};
+        let vs = self.video_settings.read(cx);
+        let row = |label: &'static str| div().flex().items_center().justify_between().gap(px(8.)).child(div().text_size(px(9.5)).text_color(c(TEXT2)).child(tr(label)));
+        let opt = |id: &'static str, label: String, on: bool| pill(label, 120., 20., on.then_some(c(TEXT))).id(id).cursor_pointer().text_size(px(8.5)).truncate();
+        let set = self.video_settings.clone();
+        let act = move |f: fn(&mut crate::video::VideoSettings, &mut Context<crate::video::VideoSettings>)| {
+            let set = set.clone();
+            move |_: &ClickEvent, _: &mut Window, cx: &mut App| set.update(cx, |s, cx| f(s, cx))
+        };
+        div()
+            .pt(px(6.))
+            .mt(px(2.))
+            .border_t_1()
+            .border_color(c(LINE))
+            .flex()
+            .flex_col()
+            .gap(px(7.))
+            .child(div().text_size(px(9.)).font_weight(FontWeight::BOLD).text_color(c(TEXT3)).child(tr(vw::SECTION).to_uppercase()))
+            .child(row(vw::SET_SHOW).child(opt("v-show", vs.show_label().into(), vs.show != Show::Lyrics).on_click(act(|s, cx| s.cycle_show(cx)))))
+            .child(row(vw::SET_LYRICS).child(opt("v-words", vs.words_label().into(), vs.words).on_click(act(|s, cx| s.toggle_words(cx)))))
+            .child(row(vw::SET_FILE).child(opt("v-file", vs.file_label(), vs.show == Show::Loop).on_click(act(|s, cx| s.pick_file(cx)))))
+            .when(cfg!(target_os = "linux"), |d| {
+                d.child(row(vw::SET_SCREEN).child(opt("v-screen", vs.screen_label(), vs.show == Show::Screen).on_click(act(|s, cx| s.pick_screen(cx)))))
+                    .child(row(vw::SET_ZONE).child(opt("v-zone", vs.zone.label().into(), false).on_click(act(|s, cx| s.cycle_zone(cx)))))
+            })
     }
 
     /// The mixer between the decks: gain, three bands and the filter for each, the channel faders
