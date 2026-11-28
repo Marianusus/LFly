@@ -417,6 +417,11 @@ pub(crate) fn drop_intro_card(lines: &mut Vec<Line>, title: &str, artist: &str) 
 /// local artist match, KRC candidate by hash; when the catalogue answers
 /// empty (it often does), the KRC search by "Artist - Title". Then download
 /// and decode.
+/// KuGou's line for a track without words: "纯音乐，请欣赏", "此歌曲为没有填词的纯音乐，请您欣赏".
+fn is_kugou_instrumental(text: &str) -> bool {
+    text.contains("纯音乐")
+}
+
 pub(crate) async fn kugou(http: &reqwest::Client, state: &State, q: &Query) -> Result<Vec<Hit>, String> {
     let mid = {
         let mut slot = state.kugou_mid.lock().unwrap_or_else(|e| e.into_inner());
@@ -511,11 +516,17 @@ pub(crate) async fn kugou(http: &reqwest::Client, state: &State, q: &Query) -> R
     if lines.is_empty() {
         return Ok(Vec::new());
     }
+    // KuGou's card for a track without words ("纯音乐，请欣赏", "pure music, enjoy"): an
+    // instrumental, not lyrics to show.
+    let instrumental = lines.iter().all(|l| l.text.trim().is_empty() || is_kugou_instrumental(&l.text));
+    if instrumental {
+        lines.clear();
+    }
     Ok(vec![Hit {
         source: "KuGou",
         trust: 25,
         sheet: Sheet::Synced(lines),
-        instrumental: false,
+        instrumental,
         title: song,
         artist: singer.replace('、', ","),
         album,
