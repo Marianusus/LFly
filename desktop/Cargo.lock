@@ -2389,6 +2389,7 @@ name = "lfly-beat"
 version = "0.1.0"
 dependencies = [
  "lfly-mix",
+ "libc",
  "log",
  "ort",
 ]

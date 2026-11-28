@@ -14,3 +14,6 @@ onnx = ["dep:ort"]
 lfly-mix = { path = "../lfly-mix" }
 log.workspace = true
 ort = { version = "=2.0.0-rc.15", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

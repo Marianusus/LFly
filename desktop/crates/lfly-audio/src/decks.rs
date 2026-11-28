@@ -995,6 +995,8 @@ pub struct MixState {
     pub busy: AtomicBool,
     /// The stream failed (device gone): the device thread reopens it.
     failed: AtomicBool,
+    /// Buffers the device ran out of (each one a click or a gap heard), logged as they come.
+    xruns: AtomicU64,
 }
 
 impl MixState {
@@ -1017,6 +1019,7 @@ impl MixState {
             samples_playing: Default::default(),
             busy: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            xruns: AtomicU64::new(0),
         }
     }
 }
@@ -2206,9 +2209,11 @@ fn open_stream(id: Option<&str>, state: &Arc<MixState>, render: &Arc<Mutex<MixRe
     let device = find_device(&host, id).ok_or("no audio output device")?;
     let supported = device.default_output_config().map_err(|e| format!("output config: {e}"))?;
     let mut config = supported.config();
-    // Small buffers: a cue is heard within ~11 ms when the device allows it.
+    // 1024 frames (~21 ms at 48 kHz): a cue still answers at once, and a moment of heavy work
+    // elsewhere (a song being split, a page drawn) no longer leaves the device without sound;
+    // at 512 the Autopilot's mixes had small gaps.
     if let cpal::SupportedBufferSize::Range { min, max } = supported.buffer_size() {
-        let want = 512.clamp(*min, *max);
+        let want = 1024.clamp(*min, *max);
         config.buffer_size = cpal::BufferSize::Fixed(want);
     }
     render.lock().unwrap_or_else(|e| e.into_inner()).set_rate(config.sample_rate);
@@ -2261,7 +2266,10 @@ fn build<T: SizedSample + FromSample<f32>>(
             move |err: cpal::Error| {
                 use cpal::ErrorKind::*;
                 match err.kind() {
-                    Xrun | DeviceChanged | RealtimeDenied => log::debug!("decks output: {err}"),
+                    Xrun => {
+                        failed.xruns.fetch_add(1, Ordering::Relaxed);
+                    }
+                    DeviceChanged | RealtimeDenied => log::debug!("decks output: {err}"),
                     _ => {
                         log::warn!("decks output error: {err}");
                         failed.failed.store(true, Ordering::SeqCst);
@@ -2294,7 +2302,13 @@ fn device_thread(
     // keeps the whole sound server at its quantum. The next command wakes it.
     let mut paused = false;
     let mut idle_since: Option<std::time::Instant> = None;
+    let mut xruns_told = 0;
     loop {
+        let xruns = state.xruns.load(Ordering::Relaxed);
+        if xruns != xruns_told {
+            log::info!("decks output: {} buffer(s) ran out ({} in all)", xruns - xruns_told, xruns);
+            xruns_told = xruns;
+        }
         match rx.recv_timeout(Duration::from_millis(250)) {
             Ok(DevMsg::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Ok(DevMsg::Wake) => {

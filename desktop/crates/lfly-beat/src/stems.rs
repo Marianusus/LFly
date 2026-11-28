@@ -23,7 +23,8 @@ pub fn separate(model: &Path, stereo: &[f32], progress: impl Fn(f32), cancel: &A
     // One session, kept while songs are being split; dropped by [unload] (it holds ~1 GB).
     let mut guard = SESSION.lock().unwrap_or_else(|e| e.into_inner());
     if guard.is_none() {
-        let threads = std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 8));
+        // A third of the cores at most: the decks, the interface and the beat analysis keep the rest.
+        let threads = std::thread::available_parallelism().map_or(2, |n| (n.get() / 3).clamp(1, 6));
         let made = (|| -> ort::Result<ort::session::Session> {
             let env = crate::env()?;
             ort::session::Session::builder(&env)?.with_intra_threads(threads)?.commit_from_file(model)

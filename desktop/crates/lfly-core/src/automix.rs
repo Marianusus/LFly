@@ -204,6 +204,8 @@ impl Automix {
         }
         let me = me.clone();
         let spawned = std::thread::Builder::new().name("lfly-automix".into()).spawn(move || {
+            // Reading and analysing yield to the interface and the audio.
+            lfly_beat::lower_this_thread();
             let result = {
                 let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
                 analyse(&source, &cache, ctl.clone(), part, duration_ms)

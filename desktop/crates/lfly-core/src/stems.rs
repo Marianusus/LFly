@@ -131,13 +131,14 @@ fn save(id: &str, rate: u32, st: &Stems) -> Result<(), String> {
 
 /// Splits the song in [buf] (decoded whole) and keeps its stems under [id]. [progress] hears the
 /// share done; [cancel] stops it.
-pub fn split(id: &str, buf: &TrackBuf, progress: impl Fn(f32), cancel: &AtomicBool) -> Result<Arc<Stems>, String> {
+pub fn split(id: &str, buf: &TrackBuf, progress: impl Fn(f32) + Send, cancel: &AtomicBool) -> Result<Arc<Stems>, String> {
     let model = model_path().filter(|_| model_ready()).ok_or("the stems model is not downloaded")?;
     let started = std::time::Instant::now();
     let rate = buf.rate();
     let frames = buf.ready();
     let input = buf.stereo(lfly_beat::stems::SAMPLE_RATE);
-    let parts = lfly_beat::stems::separate(&model, &input, progress, cancel)?;
+    // At the lowest priority, so the decks never crackle while a song is being split.
+    let parts = lfly_beat::in_background(|| lfly_beat::stems::separate(&model, &input, progress, cancel))?;
     drop(input);
     // Back at the song's own rate, frame for frame with it.
     let back = |v: &[f32]| -> Arc<TrackBuf> {

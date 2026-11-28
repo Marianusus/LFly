@@ -21,6 +21,36 @@ pub(crate) fn env() -> ort::Result<ort::environment::Environment> {
     Ok(e)
 }
 
+/// Runs [f] on a thread of its own at the lowest priority (nice 19 on Linux) and waits for it.
+/// ONNX Runtime's worker threads are started from the thread that first runs a model and inherit
+/// its priority, so the heavy work (beats, stems) always yields to the interface and the audio:
+/// with it at the same priority the decks crackled while a song was being split.
+pub fn in_background<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|s| {
+        std::thread::Builder::new()
+            .name("lfly-heavy".into())
+            .spawn_scoped(s, || {
+                lower_this_thread();
+                f()
+            })
+            .expect("a thread for the analysis")
+            .join()
+            .unwrap_or_else(|e| std::panic::resume_unwind(e))
+    })
+}
+
+/// Puts the calling thread behind every other (Linux: nice 19; it cannot be raised again).
+pub fn lower_this_thread() {
+    #[cfg(target_os = "linux")]
+    // SAFETY: plain syscalls on this thread's own id, no memory involved.
+    unsafe {
+        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+        if libc::setpriority(libc::PRIO_PROCESS, tid, 19) != 0 {
+            log::debug!("nice 19 refused");
+        }
+    }
+}
+
 use lfly_mix::beat_grid::BeatGrid;
 use lfly_mix::mel;
 
@@ -37,7 +67,7 @@ pub fn available() -> bool {
 /// Takes a few hundred ms of CPU per 30 s; call it off any thread that must stay responsive.
 pub fn track(samples: &[f32], offset_seconds: f64) -> Option<BeatGrid> {
     let spectrogram = mel::compute(samples)?;
-    let (beat, downbeat) = logits(&spectrogram)?;
+    let (beat, downbeat) = in_background(|| logits(&spectrogram))?;
     BeatGrid::from_logits(&beat, &downbeat, mel::FRAME_RATE, offset_seconds)
 }
 
@@ -148,5 +178,23 @@ mod tests {
             assert!(grid.beats()[0] >= 10.0 && grid.beats()[0] < 10.0 + 60.0 / bpm + 0.05);
             assert!(grid.confidence() > 0.55);
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod priority_tests {
+    #[test]
+    fn heavy_work_runs_at_the_lowest_priority() {
+        let nice = super::in_background(|| {
+            // SAFETY: reads this thread's own priority.
+            unsafe {
+                let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+                libc::getpriority(libc::PRIO_PROCESS, tid)
+            }
+        });
+        assert_eq!(nice, 19);
+        // The caller keeps its own.
+        let here = unsafe { libc::getpriority(libc::PRIO_PROCESS, libc::syscall(libc::SYS_gettid) as libc::id_t) };
+        assert_ne!(here, 19);
     }
 }
