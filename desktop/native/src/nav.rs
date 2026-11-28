@@ -69,6 +69,12 @@ impl Nav {
         }
     }
 
+    /// Out of the Console's full screen (its headphones): back to the page it was opened from.
+    pub fn leave_console(&mut self, cx: &mut Context<Self>) {
+        let to = self.back.iter().rev().find(|r| !matches!(r, Route::Console | Route::NowPlaying)).cloned().unwrap_or(Route::Home);
+        self.go(to, cx);
+    }
+
     pub fn can_back(&self) -> bool {
         !self.back.is_empty()
     }

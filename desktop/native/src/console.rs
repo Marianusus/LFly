@@ -185,7 +185,7 @@ pub struct Console {
 impl Console {
     pub fn new(core: Arc<crate::core::Core>, model: Entity<PlayerModel>, covers: Entity<Covers>, library: Entity<LibraryModel>, lyrics: Entity<crate::lyrics::LyricsData>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let dj = DjDecks::entity(cx);
-        let decks = cx.new(|cx| Decks::new(dj.clone(), covers, lyrics, cx));
+        let decks = cx.new(|cx| Decks::new(core.clone(), dj.clone(), covers, lyrics, cx));
         // LFLY_CONSOLE_MIXMENU=<seconds> (tests): the mixer's settings card opened then.
         if let Some(secs) = std::env::var("LFLY_CONSOLE_MIXMENU").ok().and_then(|v| v.parse::<f64>().ok()) {
             let d = decks.downgrade();
@@ -228,11 +228,16 @@ impl Console {
     }
 }
 
+/// The Console's strip at the top of the window: the headphones back to the app, the free
+/// space to move the window, its buttons.
+pub const STRIP_H: f32 = 52.;
+
 impl Render for Console {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Under the top bar (72) and over the player bar (104), as the other pages.
+        // The whole window (the Console has it to itself): under its own strip with the
+        // headphones (main.rs, console_strip), 12 px in from the other edges.
         let inner_w = (self.page_width - 24.).max(320.);
-        let inner_h = (self.height - 72. - 104.).max(300.);
+        let inner_h = (self.height - STRIP_H - 12.).max(300.);
         // The decks take most of the room, the browser the rest.
         let decks_h = (inner_h * 0.62).clamp(300., 470.);
         self.decks.update(cx, |d, cx| {
@@ -306,8 +311,8 @@ impl Render for Console {
         div()
             .size_full()
             .relative()
-            .pt(px(72.))
-            .pb(px(104.))
+            .pt(px(STRIP_H))
+            .pb(px(12.))
             .px(px(12.))
             .children(question)
             .child(
@@ -363,6 +368,7 @@ fn spot_mark(spot: Spot) -> impl IntoElement {
 }
 
 pub struct Decks {
+    core: Arc<crate::core::Core>,
     dj: Entity<DjDecks>,
     covers: Entity<Covers>,
     lyrics: Entity<crate::lyrics::LyricsData>,
@@ -385,10 +391,11 @@ pub struct Decks {
 }
 
 impl Decks {
-    fn new(dj: Entity<DjDecks>, covers: Entity<Covers>, lyrics: Entity<crate::lyrics::LyricsData>, cx: &mut Context<Self>) -> Self {
+    fn new(core: Arc<crate::core::Core>, dj: Entity<DjDecks>, covers: Entity<Covers>, lyrics: Entity<crate::lyrics::LyricsData>, cx: &mut Context<Self>) -> Self {
         let stems = crate::stems_model::StemsModel::entity(cx);
         let subs = vec![cx.observe(&dj, |_, _, cx| cx.notify()), cx.observe(&covers, |_, _, cx| cx.notify()), cx.observe(&stems, |_, _, cx| cx.notify())];
         Self {
+            core,
             dj,
             covers,
             lyrics,
@@ -446,7 +453,7 @@ impl Decks {
                 return;
             }
         }
-        self.video = crate::video::VideoOut::open(self.dj.clone(), self.lyrics.clone(), self.covers.clone(), cx);
+        self.video = crate::video::VideoOut::open(self.core.clone(), self.dj.clone(), self.lyrics.clone(), self.covers.clone(), cx);
         cx.notify();
     }
 
@@ -2862,7 +2869,7 @@ impl Render for Tip {
     }
 }
 
-fn tip(text: &'static str) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+pub(crate) fn tip(text: &'static str) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     move |_, cx| cx.new(|_| Tip(tr(text).into())).into()
 }
 

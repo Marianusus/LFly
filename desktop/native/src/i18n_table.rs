@@ -26,6 +26,8 @@ pub const ROWS: &[(&str, &str, &str)] = &[
     ("Rifiuta", "Refuse", "Refuză"),
     ("Accetta", "Accept", "Acceptă"),
     ("Annulla", "Cancel", "Anulează"),
+    ("Torna all'app", "Back to the app", "Înapoi la aplicație"),
+    ("Flying back", "Flying back", "Flying back"),
     ("In riproduzione su {0}", "Playing on {0}", "Se redă pe {0}"),
     ("Niente in riproduzione", "Nothing playing", "Nu se redă nimic"),
     ("Scegli un brano per iniziare", "Pick a song to start", "Alege o melodie ca să începi"),

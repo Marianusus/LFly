@@ -72,6 +72,12 @@ Notes on these checks:
   - The lyrics page's ambient is saturated ×2.5 (`Ambient::saturation`).
   - Checked headless: `tools/headless.sh OUT.png 30 LFLY_AUTOPLAY="Coldplay Viva La Vida" LFLY_SEEK="12@60000" LFLY_ROUTE=lyrics`.
 
+## What was done on 2026-11-28 (all committed)
+
+- **Console mode:** the Console has the whole window (no sidebar, top bar or player bar), under a strip with "🎧 Flying back" at the top left (`Nav::leave_console`: back to the page it came from) and the window buttons (main.rs `console_strip`, `console::STRIP_H`).
+- **VIDEO window** (`src/video.rs`): the cover's light behind (Ambient, saturated ×2.5), the line sung large and filled word by word (word timings, else spread by length), the line before and the next two, a new line rising in, dots in pauses, a progress line; the app's font. Tests for the timing.
+- **KuGou:** its "纯音乐，请欣赏" card counts as an instrumental, not as lyrics.
+
 ## Open items, most useful first
 
 1. **Ask the user what they still see** after restarting the app:

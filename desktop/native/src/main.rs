@@ -103,7 +103,7 @@ const FONTS: [&[u8]; 5] = [
 ];
 
 /// app.css `--font-system`: the system's own face on Windows (Segoe UI Variable), Inter elsewhere.
-fn ui_font(cx: &App) -> SharedString {
+pub(crate) fn ui_font(cx: &App) -> SharedString {
     if cfg!(windows) && cx.text_system().all_font_names().iter().any(|f| f == "Segoe UI Variable Text") {
         "Segoe UI Variable Text".into()
     } else {
@@ -790,6 +790,73 @@ impl Lfly {
             ))
     }
 
+    /// The Console's strip: the headphones, "Flying back" to the app, at the top left, after the system's
+    /// own buttons where it has them; the free space moves the window; our window buttons.
+    fn console_strip(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (text, text2, accent) = {
+            let l = self.look.read(cx);
+            (l.scheme.text, l.scheme.text2, l.scheme.accent.hsla(1.))
+        };
+        let maximized = window.is_maximized();
+        let nav = self.nav.clone();
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(crate::console::STRIP_H))
+            .px(px(12.))
+            .pl(px(if SYSTEM_WINDOW_BUTTONS { 84. } else { 12. }))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .child(
+                div()
+                    .id("console-leave")
+                    .group("console-leave")
+                    .h(px(36.))
+                    .pl(px(6.))
+                    .pr(px(14.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded_full()
+                    .cursor_pointer()
+                    .bg(text.opacity(0.08))
+                    .border_1()
+                    .border_color(text.opacity(0.1))
+                    .hover(|s| s.bg(text.opacity(0.16)))
+                    .tooltip(crate::console::tip(crate::i18n::t("Torna all'app")))
+                    .on_click(move |_, _, cx| nav.update(cx, |n, cx| n.leave_console(cx)))
+                    .child(div().size(px(26.)).rounded_full().flex().items_center().justify_center().bg(accent).child(icon("headphones", 15., black())))
+                    .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(text).child(crate::i18n::tr("Flying back"))),
+            )
+            .child(
+                div()
+                    .id("console-drag")
+                    .flex_1()
+                    .h(px(38.))
+                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+                    .on_click(|e, window, _| {
+                        if e.click_count() == 2 {
+                            window.zoom_window()
+                        }
+                    }),
+            )
+            .when(!SYSTEM_WINDOW_BUTTONS, |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .flex_none()
+                        .child(window_button("min", "wc-min", false, text, text2).on_click(|_, w, _| w.minimize_window()))
+                        .child(window_button("max", if maximized { "wc-restore" } else { "wc-max" }, false, text, text2).on_click(|_, w, _| w.zoom_window()))
+                        .child(window_button("close", "wc-close", true, text, text2).on_click(|_, w, _| w.remove_window())),
+                )
+            })
+    }
+
     fn show_collection(&mut self, source: Source, name: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         self.collection.update(cx, |c, cx| c.show(source, name, cx));
         cached(&self.collection)
@@ -1171,8 +1238,9 @@ impl Render for Lfly {
             }
         });
         let retheme = crate::console::set_theme(&self.look.read(cx).scheme);
+        // The Console has the whole window.
         self.console.update(cx, |c, cx| {
-            if put(&mut c.page_width, stage_w) | put(&mut c.height, win_h) || retheme {
+            if put(&mut c.page_width, win_w) | put(&mut c.height, win_h) || retheme {
                 cx.notify();
             }
             if retheme {
@@ -1240,7 +1308,10 @@ impl Render for Lfly {
         let show_np = on_np || np_t.is_some();
         // Under the full player the shell is not drawn at all: its glass and bar would be
         // drawn, captured and blurred for nothing.
-        let show_shell = !on_np || np_t.is_some();
+        // The Console is a mode of its own: the whole window, no sidebar, top bar or player bar;
+        // the headphones at the top left lead back.
+        let console_mode = self.nav.read(cx).route == Route::Console && !on_np;
+        let show_shell = (!on_np || np_t.is_some()) && !console_mode;
 
         let (nb, nf) = (self.nav.clone(), self.nav.clone());
         let flowing = crate::flow::Flow::active(self.look.read(cx));
@@ -1315,7 +1386,7 @@ impl Render for Lfly {
             root = root
                 // The scene (scene.rs), painted again only on change; Copertina dinamica flows.
                 .when(flowing, |d| d.child(div().absolute().inset_0().child(cached(&self.flow))))
-                .when(!flowing, |d| d.children(scene_img.map(|b| div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill)))))
+                .when(!flowing, |d| d.children(scene_img.clone().map(|b| div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill)))))
                 .child(shell);
             if compact && show_panel {
                 // Narrow window: the panel floats over the page; around it, a veil that closes it.
@@ -1341,6 +1412,13 @@ impl Render for Lfly {
                             .child(div().relative().size_full().occlude().children(panel_el.take())),
                     );
             }
+        }
+        if console_mode {
+            root = root
+                .when(flowing, |d| d.child(div().absolute().inset_0().child(cached(&self.flow))))
+                .when(!flowing, |d| d.children(scene_img.clone().map(|b| div().absolute().inset_0().child(img(b).size_full().object_fit(ObjectFit::Fill)))))
+                .child(div().absolute().inset_0().child(cached(&self.console)))
+                .child(self.console_strip(window, cx));
         }
         if show_np {
             let t = np_t.unwrap_or(1.);
